@@ -37,6 +37,8 @@ export interface ReactionWindow {
 }
 
 export interface InterceptFrame {
+  id: string;
+  sequence: number;
   kind: "intercept";
   sourcePlayerId: PlayerId;
   sourceCardId: PhysicalCardId;
@@ -70,6 +72,7 @@ export interface GameState {
   transmission?: TransmissionState;
   reactionWindow?: ReactionWindow;
   interactionStack: InterceptFrame[];
+  nextInteractionSequence: number;
   winner?: WinnerState;
   auditLog: string[];
 }
@@ -128,6 +131,11 @@ export interface PlayerProjection {
         targetId: PlayerId;
       }
     | { type: "PLAY_INTERCEPT"; cardId: PhysicalCardId }
+    | {
+        type: "PLAY_COUNTER";
+        cardId: PhysicalCardId;
+        targetInteractionId: string;
+      }
   >;
 }
 
@@ -245,6 +253,7 @@ export function initializeGame(playerIds: readonly PlayerId[], seed: number): Ga
     hiddenSecretOrders: [],
     removedProbes: [],
     interactionStack: [],
+    nextInteractionSequence: 1,
     auditLog: [
       `游戏初始化完成：${playerIds.length}名玩家`,
       "每名玩家获得2张起始手牌",
@@ -388,6 +397,34 @@ export function assertGameStateInvariants(state: GameState): void {
       throw new Error("截获互动栈包含无效帧");
     }
   }
+  if (
+    !Number.isInteger(state.nextInteractionSequence) ||
+    state.nextInteractionSequence < 1
+  ) {
+    throw new Error("下一个互动序号无效");
+  }
+  if (
+    new Set(state.interactionStack.map((frame) => frame.id)).size !==
+    state.interactionStack.length
+  ) {
+    throw new Error("互动栈ID不得重复");
+  }
+  if (
+    new Set(state.interactionStack.map((frame) => frame.sourceCardId)).size !==
+    state.interactionStack.length
+  ) {
+    throw new Error("同一张牌不能产生多个截获互动帧");
+  }
+  for (const frame of state.interactionStack) {
+    if (
+      !Number.isInteger(frame.sequence) ||
+      frame.sequence < 1 ||
+      frame.id !== `interaction-${frame.sequence}` ||
+      frame.sequence >= state.nextInteractionSequence
+    ) {
+      throw new Error("截获互动ID或序号无效");
+    }
+  }
   if (state.interactionStack.length > 0) {
     const top = state.interactionStack.at(-1)!;
     if (
@@ -399,8 +436,8 @@ export function assertGameStateInvariants(state: GameState): void {
     for (let index = 0; index < state.interactionStack.length; index += 1) {
       const frame = state.interactionStack[index];
       if (
-        frame.previousReturnedToSender &&
-        frame.previousRecipientId !== state.transmission?.senderId
+        frame.previousReturnedToSender !==
+        (frame.previousRecipientId === state.transmission?.senderId)
       ) {
         throw new Error("截获快照中的返回发送者状态无效");
       }
@@ -895,16 +932,62 @@ export function playIntercept(
   actor.hand.splice(cardIndex, 1);
   state.publicDiscard.push(cardId);
   state.interactionStack.push({
+    id: `interaction-${state.nextInteractionSequence}`,
+    sequence: state.nextInteractionSequence,
     kind: "intercept",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     previousRecipientId: transmission.intendedRecipientId,
     previousReturnedToSender: transmission.returnedToSender,
   });
+  state.nextInteractionSequence += 1;
   transmission.intendedRecipientId = actorId;
   transmission.returnedToSender = false;
   openIntelligenceReactionWindow(state, actorId);
   state.auditLog.push(`${actorId}使用截获，成为当前接收者`);
+  assertGameStateInvariants(state);
+}
+
+export function playCounterIntercept(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+  targetInteractionId: string,
+): void {
+  const transmission = state.transmission;
+  const window = state.reactionWindow;
+  const target = state.interactionStack.at(-1);
+  if (
+    state.phase !== "transmitting" ||
+    !transmission ||
+    !window ||
+    window.kind !== "intelligence" ||
+    !target
+  ) {
+    throw new Error("当前没有可被识破的截获");
+  }
+  if (window.responderOrder[window.nextResponderIndex] !== actorId) {
+    throw new Error("尚未轮到该玩家响应");
+  }
+  if (target.id !== targetInteractionId) {
+    throw new Error("识破必须指向互动栈顶的截获");
+  }
+  const actor = state.players[actorId];
+  if (!actor?.alive) throw new Error("死亡玩家不能使用识破");
+  const cardIndex = actor.hand.indexOf(cardId);
+  if (cardIndex < 0 || cardById(cardId).name !== "识破") {
+    throw new Error("必须使用自己手中的识破牌");
+  }
+
+  actor.hand.splice(cardIndex, 1);
+  state.publicDiscard.push(cardId);
+  state.interactionStack.pop();
+  transmission.intendedRecipientId = target.previousRecipientId;
+  transmission.returnedToSender = target.previousReturnedToSender;
+  openIntelligenceReactionWindow(state, target.previousRecipientId);
+  state.auditLog.push(
+    `${actorId}使用识破，撤销${target.sourcePlayerId}的截获并恢复接收者：${target.previousRecipientId}`,
+  );
   assertGameStateInvariants(state);
 }
 
@@ -1032,6 +1115,19 @@ export function projectGameForPlayer(
   const interceptedRecipientMustAccept =
     state.interactionStack.at(-1)?.sourcePlayerId ===
     transmission?.intendedRecipientId;
+  const topInteraction = state.interactionStack.at(-1);
+  const counterActions =
+    currentReactionResponderId === viewerId &&
+    state.reactionWindow?.kind === "intelligence" &&
+    topInteraction
+      ? viewer.hand
+          .filter((cardId) => cardById(cardId).name === "识破")
+          .map((cardId) => ({
+            type: "PLAY_COUNTER" as const,
+            cardId,
+            targetInteractionId: topInteraction.id,
+          }))
+      : [];
 
   return {
     mode: state.mode,
@@ -1095,6 +1191,7 @@ export function projectGameForPlayer(
             { type: "PASS_REACTION" },
             ...separationActions,
             ...interceptActions,
+            ...counterActions,
             ...transferActions,
           ]
       : isCurrentRecipient && !transmission?.pendingTransfer
