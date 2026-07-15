@@ -12,13 +12,18 @@ import {
 const standardCounts = [5, 6, 7, 8] as const;
 
 describe("游戏初始化", () => {
-  it.each(standardCounts)("为%d名玩家使用完整87张牌并发两张起始手牌", (count) => {
+  it.each(standardCounts)("为%d名玩家发起始手牌并让首位玩家摸两张", (count) => {
     const ids = Array.from({ length: count }, (_, index) => `玩家${index + 1}`);
     const state = initializeGame(ids, 12345);
 
     expect(state.mode).toBe("standard");
-    expect(state.drawPile).toHaveLength(87 - count * 2);
-    expect(Object.values(state.players).every((player) => player.hand.length === 2)).toBe(true);
+    expect(state.drawPile).toHaveLength(87 - count * 2 - 2);
+    expect(state.players[state.activePlayerId].hand).toHaveLength(4);
+    expect(
+      Object.values(state.players)
+        .filter((player) => player.id !== state.activePlayerId)
+        .every((player) => player.hand.length === 2),
+    ).toBe(true);
     const allCardIds = [
       ...state.drawPile,
       ...Object.values(state.players).flatMap((player) => player.hand),
@@ -34,6 +39,18 @@ describe("游戏初始化", () => {
 
     expect(second.drawPile).toEqual(first.drawPile);
     expect(second.players).toEqual(first.players);
+    expect(second.activePlayerId).toBe(first.activePlayerId);
+  });
+
+  it("从全部座位中随机选择首位行动玩家", () => {
+    const players = ["甲", "乙", "丙", "丁", "戊"];
+    const selected = new Set(
+      Array.from({ length: 200 }, (_, seed) =>
+        initializeGame(players, seed).activePlayerId,
+      ),
+    );
+
+    expect(selected).toEqual(new Set(players));
   });
 
   it.each([
@@ -82,12 +99,16 @@ describe("双人决斗牌组", () => {
     expect(new Set(duelDeck.map((card) => card.id)).size).toBe(73);
   });
 
-  it("两名玩家各获得两张起始手牌且牌堆剩69张", () => {
+  it("双人各获两张起始手牌且首位玩家再摸两张", () => {
     const state = initializeGame(["甲", "乙"], 99);
 
-    expect(state.players["甲"].hand).toHaveLength(2);
-    expect(state.players["乙"].hand).toHaveLength(2);
-    expect(state.drawPile).toHaveLength(69);
+    expect(state.players[state.activePlayerId].hand).toHaveLength(4);
+    expect(
+      Object.values(state.players).find(
+        (player) => player.id !== state.activePlayerId,
+      )?.hand,
+    ).toHaveLength(2);
+    expect(state.drawPile).toHaveLength(67);
     expect(() => assertGameStateInvariants(state)).not.toThrow();
   });
 });
@@ -126,7 +147,7 @@ describe("玩家私有投影", () => {
     const state = initializeGame(["甲", "乙", "丙", "丁", "戊"], 7);
     const projection = projectGameForPlayer(state, "甲");
 
-    expect(projection.drawPileCount).toBe(77);
+    expect(projection.drawPileCount).toBe(75);
     expect(JSON.stringify(projection)).not.toContain(state.drawPile[0]);
   });
 });

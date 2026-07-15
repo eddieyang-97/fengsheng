@@ -250,9 +250,14 @@ Intelligence in front of dead players remains on the table.
 - Every player starts with 2 cards in both the 2-player duel and standard 5–8-player games.
 - Deal starting hands from the shuffled mode-specific deck without exposing card identities.
 - The active player draws 2 cards at the start of their turn.
+- The first player performs this normal 2-card draw before their first action.
+- Select the initial active player uniformly at random using server-generated randomness.
 - `seatOrder` records the players in clockwise table order, and normal turns advance clockwise.
-- Whether the first player performs the normal turn-start draw remains unresolved and must not be assumed in code.
-- Initial active-player selection and whether dead seats are skipped remain unresolved.
+- Every living active player must complete one intelligence transmission and cannot voluntarily end their turn without doing so.
+- Immediately before transmission, the active player must discard chosen cards face up until their hand contains at most 7 cards; transmission cannot start above that limit.
+- The active player's turn ends immediately when their transmitted intelligence is accepted; they cannot play further active-turn function cards afterward.
+- Dead players cannot take turns, act, respond, or receive new intelligence. Advance clockwise to the next living player and skip dead seats.
+- Intelligence already in front of dead players remains on the table and may still be referenced by rules that explicitly count or target table intelligence.
 
 ---
 
@@ -595,10 +600,12 @@ The deck audit is finished. Do not reopen it unless a failing test or physical-c
 
 The remaining work is implementation and a small number of gameplay-policy decisions:
 
-- starting hand size
-- draw/action/end-turn sequence
-- hand limit and forced discard rules
-- exact initial active-player selection
+- draw-pile exhaustion during turn-start or effect draws
+- function-card limits and action timing before transmission
+- behavior when the active player cannot legally transmit
+- returned 直达 behavior when 转移 is not used
+- general reaction priority and passing
+- simultaneous victory and final game-ending policy
 - disconnect timeout and host controls
 - whether abandoned games can be resumed after server restart
 - any still-unrecorded exact printed wording for 调虎离山

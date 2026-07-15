@@ -4,6 +4,7 @@ import { PHYSICAL_DECK, type PhysicalCardId } from "./cards";
 import {
   acceptIntelligence,
   assertGameStateInvariants,
+  discardForHandLimit,
   declineIntelligence,
   initializeGame,
   projectGameForPlayer,
@@ -12,6 +13,16 @@ import {
 } from "./engine";
 
 const players = ["甲", "乙", "丙", "丁", "戊"] as const;
+
+function initializedWithActive(
+  playerIds: readonly string[],
+  seed: number,
+  activePlayerId = "甲",
+): GameState {
+  const state = initializeGame(playerIds, seed);
+  state.activePlayerId = activePlayerId;
+  return state;
+}
 
 function cardIdWhere(
   predicate: (card: (typeof PHYSICAL_DECK)[number]) => boolean,
@@ -62,8 +73,37 @@ function moveCardToIntelligence(
 }
 
 describe("开始传递", () => {
+  it("手牌超过7张时必须先公开弃至7张", () => {
+    const state = initializedWithActive(players, 30);
+    while (state.players["甲"].hand.length < 8) {
+      const cardId = state.drawPile.pop();
+      if (!cardId) throw new Error("测试牌堆不足");
+      state.players["甲"].hand.push(cardId);
+    }
+    const transmissionCard = cardIdWhere(
+      (card) => card.transmission === "密电" && !card.circle,
+    );
+    putCardInHand(state, "甲", transmissionCard);
+    const discardedCard = state.players["甲"].hand[1];
+
+    expect(() =>
+      startTransmission(state, "甲", transmissionCard),
+    ).toThrow("开始传递前必须将手牌弃至7张");
+    expect(projectGameForPlayer(state, "甲").legalActions).toHaveLength(8);
+
+    discardForHandLimit(state, "甲", discardedCard);
+
+    expect(state.players["甲"].hand).toHaveLength(7);
+    expect(state.publicDiscard).toContain(discardedCard);
+    expect(
+      projectGameForPlayer(state, "乙").publicDiscard.map((card) => card.id),
+    ).toContain(discardedCard);
+    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([]);
+    expect(() => startTransmission(state, "甲", transmissionCard)).not.toThrow();
+  });
+
   it("不带圈密电固定为顺时针", () => {
-    const state = initializeGame(players, 1);
+    const state = initializedWithActive(players, 1);
     const cardId = cardIdWhere(
       (card) => card.transmission === "密电" && !card.circle,
     );
@@ -82,7 +122,7 @@ describe("开始传递", () => {
   });
 
   it("带圈情报选择逆时针后方向保持固定", () => {
-    const state = initializeGame(players, 2);
+    const state = initializedWithActive(players, 2);
     const cardId = cardIdWhere(
       (card) => card.transmission === "密电" && card.circle,
     );
@@ -99,7 +139,7 @@ describe("开始传递", () => {
   });
 
   it("直达被拒绝后返回发送者", () => {
-    const state = initializeGame(players, 3);
+    const state = initializedWithActive(players, 3);
     const cardId = cardIdWhere((card) => card.transmission === "直达");
     putCardInHand(state, "甲", cardId);
 
@@ -114,7 +154,7 @@ describe("开始传递", () => {
   });
 
   it("密电绕回发送者后仍可沿固定路线继续", () => {
-    const state = initializeGame(["甲", "乙"], 31);
+    const state = initializedWithActive(["甲", "乙"], 31);
     const cardId = cardIdWhere(
       (card) =>
         card.transmission === "密电" &&
@@ -131,7 +171,7 @@ describe("开始传递", () => {
   });
 
   it("任意传递牌要求发送者选择实际方式", () => {
-    const state = initializeGame(players, 4);
+    const state = initializedWithActive(players, 4);
     const cardId = cardIdWhere((card) => card.transmission === "任意");
     putCardInHand(state, "甲", cardId);
 
@@ -148,7 +188,7 @@ describe("开始传递", () => {
 
 describe("接收、死亡与胜利", () => {
   it("接收后将实体牌移入接收者情报区", () => {
-    const state = initializeGame(players, 5);
+    const state = initializedWithActive(players, 5);
     const cardId = cardIdWhere(
       (card) => card.transmission === "直达",
     );
@@ -159,11 +199,61 @@ describe("接收、死亡与胜利", () => {
 
     expect(state.players["乙"].intelligence).toContain(cardId);
     expect(state.transmission).toBeUndefined();
-    expect(state.phase).toBe("awaitingTurnEnd");
+    expect(state.phase).toBe("initialized");
+    expect(state.activePlayerId).toBe("乙");
+    expect(state.auditLog.at(-1)).toBe("乙回合开始并摸2张牌");
+  });
+
+  it("回合顺时针推进并跳过死亡玩家", () => {
+    const state = initializedWithActive(players, 51);
+    state.players["乙"].alive = false;
+    const cardId = cardIdWhere((card) => card.transmission === "直达");
+    putCardInHand(state, "甲", cardId);
+    const nextHandSize = state.players["丙"].hand.length;
+
+    startTransmission(state, "甲", cardId, { targetId: "丙" });
+    acceptIntelligence(state, "丙");
+
+    expect(state.activePlayerId).toBe("丙");
+    expect(state.players["丙"].hand).toHaveLength(nextHandSize + 2);
+    expect(state.phase).toBe("initialized");
+  });
+
+  it("下一回合按旧当前玩家顺时针推进，而不是由接收者接手", () => {
+    const state = initializedWithActive(players, 52);
+    const cardId = cardIdWhere((card) => card.transmission === "直达");
+    putCardInHand(state, "甲", cardId);
+
+    startTransmission(state, "甲", cardId, { targetId: "丁" });
+    acceptIntelligence(state, "丁");
+
+    expect(state.activePlayerId).toBe("乙");
+  });
+
+  it("死亡的当前接收者不能接收或回应情报", () => {
+    const acceptingState = initializedWithActive(players, 53);
+    const acceptCard = cardIdWhere((card) => card.transmission === "直达");
+    putCardInHand(acceptingState, "甲", acceptCard);
+    startTransmission(acceptingState, "甲", acceptCard, { targetId: "乙" });
+    acceptingState.players["乙"].alive = false;
+    expect(() => acceptIntelligence(acceptingState, "乙")).toThrow(
+      "死亡玩家不能接收情报",
+    );
+
+    const decliningState = initializedWithActive(players, 54);
+    const declineCard = cardIdWhere(
+      (card) => card.transmission === "直达" && card.id !== acceptCard,
+    );
+    putCardInHand(decliningState, "甲", declineCard);
+    startTransmission(decliningState, "甲", declineCard, { targetId: "乙" });
+    decliningState.players["乙"].alive = false;
+    expect(() => declineIntelligence(decliningState, "乙")).toThrow(
+      "死亡玩家不能回应情报",
+    );
   });
 
   it("第三张黑色情报先导致特工死亡，不判定六张胜利", () => {
-    const state = initializeGame([...players, "己"], 6);
+    const state = initializedWithActive([...players, "己"], 6);
     const receiverId = state.seatOrder.find(
       (id) => id !== "甲" && state.players[id].faction === "特工",
     );
@@ -202,7 +292,7 @@ describe("接收、死亡与胜利", () => {
   });
 
   it("红蓝机密文件计入军情蓝色胜利", () => {
-    const state = initializeGame(players, 7);
+    const state = initializedWithActive(players, 7);
     const receiverId = state.seatOrder.find(
       (id) => id !== "甲" && state.players[id].faction === "军情",
     );
@@ -224,12 +314,13 @@ describe("接收、死亡与胜利", () => {
 
     expect(state.winner).toEqual({ kind: "faction", faction: "军情" });
     expect(state.phase).toBe("victoryPending");
+    expect(state.auditLog).toContain("甲的回合结束");
   });
 });
 
 describe("待传情报投影", () => {
   it("密电仅向发送者暴露实体牌，接收者只看到合法回应", () => {
-    const state = initializeGame(players, 8);
+    const state = initializedWithActive(players, 8);
     const cardId = cardIdWhere(
       (card) => card.transmission === "密电" && !card.circle,
     );
@@ -251,7 +342,7 @@ describe("待传情报投影", () => {
   });
 
   it("文本情报向所有玩家公开实体牌", () => {
-    const state = initializeGame(players, 9);
+    const state = initializedWithActive(players, 9);
     const cardId = cardIdWhere(
       (card) => card.transmission === "文本" && !card.circle,
     );
@@ -262,7 +353,7 @@ describe("待传情报投影", () => {
   });
 
   it("不会把尚未实现的公开文本接收动作标记为合法", () => {
-    const state = initializeGame(players, 11);
+    const state = initializedWithActive(players, 11);
     const cardId = cardIdWhere((card) => card.name === "公开文本");
     const card = PHYSICAL_DECK.find((candidate) => candidate.id === cardId);
     if (!card) throw new Error("公开文本不存在");
@@ -280,7 +371,7 @@ describe("待传情报投影", () => {
   });
 
   it("投影卡牌与胜者对象不共享权威状态引用", () => {
-    const state = initializeGame(players, 10);
+    const state = initializedWithActive(players, 10);
     const projection = projectGameForPlayer(state, "甲");
     const originalColor = projection.own.hand[0].color;
 

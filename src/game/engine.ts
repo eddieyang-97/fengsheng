@@ -38,6 +38,7 @@ export interface GameState {
     | "initialized"
     | "transmitting"
     | "awaitingTurnEnd"
+    | "awaitingTurnStartDraw"
     | "victoryPending";
   activePlayerId: PlayerId;
   seatOrder: PlayerId[];
@@ -64,6 +65,7 @@ export interface PlayerProjection {
   activePlayerId: PlayerId;
   seatOrder: PlayerId[];
   drawPileCount: number;
+  publicDiscard: PhysicalCard[];
   players: PublicPlayerProjection[];
   own: {
     id: PlayerId;
@@ -82,6 +84,7 @@ export interface PlayerProjection {
   legalActions: Array<
     | { type: "ACCEPT_INTELLIGENCE" }
     | { type: "DECLINE_INTELLIGENCE" }
+    | { type: "DISCARD_FOR_HAND_LIMIT"; cardId: PhysicalCardId }
   >;
 }
 
@@ -181,10 +184,17 @@ export function initializeGame(playerIds: readonly PlayerId[], seed: number): Ga
     }
   }
 
+  const activePlayerId = playerIds[Math.floor(random() * playerIds.length)];
+  for (let draw = 0; draw < 2; draw += 1) {
+    const cardId = drawPile.pop();
+    if (!cardId) throw new Error("首回合摸牌时牌堆不足");
+    players[activePlayerId].hand.push(cardId);
+  }
+
   const state: GameState = {
     mode: playerIds.length === 2 ? "duel" : "standard",
     phase: "initialized",
-    activePlayerId: playerIds[0],
+    activePlayerId,
     seatOrder: [...playerIds],
     players,
     drawPile,
@@ -194,6 +204,8 @@ export function initializeGame(playerIds: readonly PlayerId[], seed: number): Ga
     auditLog: [
       `游戏初始化完成：${playerIds.length}名玩家`,
       "每名玩家获得2张起始手牌",
+      "首位行动玩家已随机选出",
+      `${activePlayerId}在首回合开始时摸2张牌`,
     ],
   };
   assertGameStateInvariants(state);
@@ -206,6 +218,14 @@ export function assertGameStateInvariants(state: GameState): void {
   }
   if (!state.seatOrder.includes(state.activePlayerId)) {
     throw new Error("当前玩家不在座位列表中");
+  }
+  if (
+    ["initialized", "transmitting", "awaitingTurnStartDraw"].includes(
+      state.phase,
+    ) &&
+    !state.players[state.activePlayerId]?.alive
+  ) {
+    throw new Error("死亡玩家不能成为当前行动玩家");
   }
   if (new Set(state.seatOrder).size !== state.seatOrder.length) {
     throw new Error("座位列表包含重复玩家");
@@ -308,10 +328,74 @@ function nextLivingPlayer(
   throw new Error("没有可接收情报的其他存活玩家");
 }
 
+function tryNextLivingPlayer(
+  state: GameState,
+  fromId: PlayerId,
+  direction: Direction,
+): PlayerId | undefined {
+  try {
+    return nextLivingPlayer(state, fromId, direction);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "没有可接收情报的其他存活玩家"
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function advanceToNextTurn(state: GameState): void {
+  const previousActivePlayerId = state.activePlayerId;
+  const nextPlayerId = tryNextLivingPlayer(
+    state,
+    previousActivePlayerId,
+    "clockwise",
+  );
+  if (!nextPlayerId) {
+    state.phase = "awaitingTurnEnd";
+    state.auditLog.push("没有其他存活玩家，等待结束规则确认");
+    return;
+  }
+
+  state.activePlayerId = nextPlayerId;
+  if (state.drawPile.length < 2) {
+    state.phase = "awaitingTurnStartDraw";
+    state.auditLog.push(`${nextPlayerId}回合开始，牌堆不足以摸2张牌`);
+    return;
+  }
+  state.players[nextPlayerId].hand.push(
+    state.drawPile.pop()!,
+    state.drawPile.pop()!,
+  );
+  state.phase = "initialized";
+  state.auditLog.push(`${nextPlayerId}回合开始并摸2张牌`);
+}
+
 export interface StartTransmissionOptions {
   method?: FixedTransmissionMethod;
   direction?: Direction;
   targetId?: PlayerId;
+}
+
+export function discardForHandLimit(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+): void {
+  if (state.phase !== "initialized") throw new Error("当前不能执行传递前弃牌");
+  if (actorId !== state.activePlayerId) throw new Error("只有当前玩家需要执行手牌上限弃牌");
+  const player = state.players[actorId];
+  if (!player?.alive) throw new Error("死亡玩家不能执行手牌上限弃牌");
+  if (player.hand.length <= 7) throw new Error("手牌未超过7张，无需弃牌");
+  const cardIndex = player.hand.indexOf(cardId);
+  if (cardIndex < 0) throw new Error("只能弃置自己手中的牌");
+
+  player.hand.splice(cardIndex, 1);
+  state.publicDiscard.push(cardId);
+  state.auditLog.push(`${actorId}因手牌上限弃置一张牌：${cardById(cardId).name}`);
+  assertGameStateInvariants(state);
 }
 
 export function startTransmission(
@@ -324,6 +408,7 @@ export function startTransmission(
   if (actorId !== state.activePlayerId) throw new Error("只有当前玩家可以传递情报");
   const actor = state.players[actorId];
   if (!actor?.alive) throw new Error("死亡玩家不能传递情报");
+  if (actor.hand.length > 7) throw new Error("开始传递前必须将手牌弃至7张");
   if (!actor.hand.includes(cardId)) throw new Error("该牌不在当前玩家手中");
   const card = cardById(cardId);
 
@@ -424,6 +509,7 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
     throw new Error("只有当前接收者可以接收情报");
   }
   const receiver = state.players[actorId];
+  if (!receiver?.alive) throw new Error("死亡玩家不能接收情报");
   if (acceptanceRequiresUnimplementedEffect(state, transmission)) {
     throw new Error("公开文本的接收效果尚未实现");
   }
@@ -436,6 +522,7 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
   } else {
     state.auditLog.push(`${actorId}接收情报`);
   }
+  state.auditLog.push(`${state.activePlayerId}的回合结束`);
 
   const winner = resolveWinner(receiver);
   if (winner) {
@@ -443,7 +530,7 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
     state.phase = "victoryPending";
     state.auditLog.push("检测到胜利条件，等待确认结束规则");
   } else {
-    state.phase = "awaitingTurnEnd";
+    advanceToNextTurn(state);
   }
   assertGameStateInvariants(state);
 }
@@ -456,6 +543,7 @@ export function declineIntelligence(state: GameState, actorId: PlayerId): void {
   if (transmission.intendedRecipientId !== actorId) {
     throw new Error("只有当前接收者可以拒绝情报");
   }
+  if (!state.players[actorId]?.alive) throw new Error("死亡玩家不能回应情报");
   if (
     actorId === transmission.senderId &&
     transmission.method === "直达"
@@ -490,6 +578,10 @@ export function projectGameForPlayer(
     transmission?.method === "直达" && transmission.senderId === viewerId;
   const canAccept =
     transmission && !acceptanceRequiresUnimplementedEffect(state, transmission);
+  const mustDiscardForHandLimit =
+    state.phase === "initialized" &&
+    state.activePlayerId === viewerId &&
+    viewer.hand.length > 7;
 
   return {
     mode: state.mode,
@@ -497,6 +589,7 @@ export function projectGameForPlayer(
     activePlayerId: state.activePlayerId,
     seatOrder: [...state.seatOrder],
     drawPileCount: state.drawPile.length,
+    publicDiscard: state.publicDiscard.map(projectedCardById),
     players: state.seatOrder.map((id) => {
       const player = state.players[id];
       return {
@@ -524,8 +617,12 @@ export function projectGameForPlayer(
         }
       : undefined,
     winner: state.winner ? { ...state.winner } : undefined,
-    legalActions:
-      isCurrentRecipient && !awaitsUnresolvedDirectReturn
+    legalActions: mustDiscardForHandLimit
+      ? viewer.hand.map((cardId) => ({
+          type: "DISCARD_FOR_HAND_LIMIT" as const,
+          cardId,
+        }))
+      : isCurrentRecipient && !awaitsUnresolvedDirectReturn
         ? [
             ...(canAccept ? [{ type: "ACCEPT_INTELLIGENCE" } as const] : []),
             { type: "DECLINE_INTELLIGENCE" as const },

@@ -36,42 +36,29 @@ Each unresolved item should remain explicit until confirmed.
 
 ### Starting hand size
 
-**Status:** PARTIALLY CONFIRMED
+**Status:** CONFIRMED
 
 Confirmed:
 
 - Every player starts with 2 cards.
 - The starting hand size is the same for the 2-player duel and standard 5–8-player games.
-
-Unresolved:
-
-- Does the first player perform the normal turn-start draw before their first action?
-
-Decision:
-
-> Pending confirmation.
+- The first player performs the normal 2-card turn-start draw before their first action.
 
 ---
 
 ### Initial active player
 
-**Status:** PARTIALLY CONFIRMED
+**Status:** CONFIRMED
 
 Confirmed:
 
+- Select the initial active player uniformly at random from all seated players.
+- The server is responsible for generating the randomness.
 - Normal turn progression follows clockwise seat order.
 - The authoritative `seatOrder` records players in clockwise table order.
-
-Unresolved:
-
-- Random player?
-- Host?
-- Determined by a physical-game rule?
-- Are dead players skipped automatically when advancing clockwise?
-
-Decision:
-
-> Pending confirmation.
+- Dead players cannot take turns or perform any game action or response.
+- Dead seats are skipped automatically when advancing clockwise.
+- A dead player cannot be selected as an intelligence recipient or other active target unless a card rule explicitly refers to intelligence already in front of dead players.
 
 ---
 
@@ -82,6 +69,7 @@ Decision:
 - Each player sees only their own faction.
 - Factions remain hidden unless revealed by a rule or the game ends.
 - Team composition is determined by player count:
+  - 2 players: 军情1 / 潜伏1 / 特工0
   - 5 players: 军情2 / 潜伏2 / 特工1
   - 6 players: 军情2 / 潜伏2 / 特工2
   - 7 players: 军情3 / 潜伏3 / 特工1
@@ -98,10 +86,10 @@ Decision:
 Confirmed:
 
 - The active player draws 2 cards at the start of their turn.
+- This includes the first turn.
 
 Unresolved:
 
-- Are there exceptions on the first turn?
 - What happens if the draw pile is exhausted during this draw?
 
 Decision:
@@ -112,15 +100,19 @@ Decision:
 
 ### Action phase
 
-**Status:** UNRESOLVED
+**Status:** PARTIALLY CONFIRMED
 
-Questions:
+Confirmed:
+
+- A living active player must complete one intelligence transmission during their turn.
+- They cannot voluntarily end their turn without transmitting.
+- Successfully accepted intelligence satisfies the turn's transmission requirement.
+
+Unresolved:
 
 - How many function cards may the active player play per turn?
 - Can the active player play multiple function cards before transmitting?
-- Is transmitting mandatory?
-- Can the active player end their turn without transmitting?
-- Can function cards be played after transmission resolves?
+- What happens if the active player has no card they can legally transmit?
 
 Decision:
 
@@ -130,14 +122,20 @@ Decision:
 
 ### End-of-turn rules
 
-**Status:** UNRESOLVED
+**Status:** PARTIALLY CONFIRMED
 
-Questions:
+Confirmed hand-limit timing:
 
-- Is there a hand limit?
-- If so, when is it checked?
-- Is forced discard public and face up?
-- Does the turn end immediately after intelligence is accepted?
+- Maximum hand size is 7 immediately before starting the mandatory transmission.
+- If the active player has more than 7 cards at that point, they choose and discard cards until 7 remain.
+- These forced discards are public and face up.
+- The player cannot start transmission while holding more than 7 cards.
+- This is a pre-transmission check, not an end-of-turn hand-limit check.
+- The active player's turn ends immediately when the transmitted intelligence is accepted.
+- No further active-player function-card actions occur after acceptance.
+
+Unresolved:
+
 - Can unresolved reaction windows continue after the active player would otherwise end their turn?
 
 Decision:
