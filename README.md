@@ -1,121 +1,29 @@
 # 风声 Web App
 
-A private browser-based implementation of a custom physical edition of 《风声》 for 5–8 players.
+可在线游玩的《风声》自定义实体版实现，支持 **2 人决斗**和 **5–8 人标准局**。
 
-## Status
+## 开始游戏
 
-Early development.
+打开：[https://fengsheng-9jnw.onrender.com](https://fengsheng-9jnw.onrender.com)
 
-Current focus:
+1. 输入名字，选择人数并创建房间。
+2. 把邀请链接或六位房间码发给朋友。
+3. 玩家到齐后可调整座位；房主选择按当前座位或随机座位开始。
+4. 游戏中按高亮的卡牌和按钮操作。服务器只会显示当前合法行动。
 
-- authoritative game rules
-- audited physical deck data
-- deterministic server-side game engine
-- hidden-information-safe player projections
-- rule and invariant tests
+## 游戏提示
 
-UI and networking come later.
+- 每人起始摸 2 张牌；回合开始摸 2 张。
+- 进入传情报阶段前，手牌不得超过 7 张。
+- 反应按座位顺序处理；没有可用反应时默认自动跳过，可取消勾选。
+- 房主可以设置反应时限，默认 15 秒。
+- 有玩家断线时游戏暂停；房主可将其判定死亡后继续。
+- 死亡玩家不能行动，身份会立即公开。
 
-## Repository structure
+完整规则与已确认裁定见 [规则记录](docs/rules-decisions.md)。
 
-```text
-docs/
-  fengsheng_mvp_handoff.md
-  rules-decisions.md
+## 当前状态
 
-src/game/
-  cards.ts
-  cards.test.ts
-```
+主要游戏流程、实体牌组、功能牌、反应窗口、胜负判定、房间邀请和断线处理均已实现，可以进行朋友间试玩。
 
-## Important files
-
-### `src/game/cards.ts`
-
-Authoritative manifest for the confirmed 87-card physical deck.
-
-It includes stable physical card IDs, names, colors, transmission methods, direction-circle markers, card-specific variants, and integrity checks.
-
-### `src/game/cards.test.ts`
-
-Vitest coverage for deck counts, card structure, color distribution, circle counts, and known invariants.
-
-### `docs/fengsheng_mvp_handoff.md`
-
-Main implementation handoff covering product scope, rules, design principles, architecture, testing priorities, and implementation order.
-
-### `docs/rules-decisions.md`
-
-Tracks unresolved gameplay questions. Do not invent answers in code; record unresolved questions here until confirmed.
-
-## Confirmed deck totals
-
-- 87 physical cards
-- 28 cards with direction-circle icons
-- 21 red
-- 21 blue
-- 42 black
-- 3 red-blue dual cards
-
-## Development principles
-
-- correctness over scalability
-- server-authoritative game state
-- deterministic state transitions
-- explicit timing and interaction handling
-- stable physical card identity
-- server-generated legal actions
-- strict hidden-information projection
-- Chinese-only player-facing UI
-- English identifiers are allowed internally
-- prefer explicit card handlers over a premature generic effect system
-
-## Setup
-
-Install Node.js first, then:
-
-```bash
-npm install
-```
-
-Run tests:
-
-```bash
-npm test
-```
-
-Run tests in watch mode:
-
-```bash
-npm run test:watch
-```
-
-Run TypeScript checks:
-
-```bash
-npm run typecheck
-```
-
-## Recommended implementation order
-
-1. deck initialization
-2. faction assignment
-3. player-private state projection
-4. transmission routing
-5. accept / decline flow
-6. death and victory resolution
-7. 截获 / 识破 interaction stack
-8. remaining function cards
-9. room server and persistence
-10. Chinese UI
-
-## Source of truth
-
-Use this priority order:
-
-1. `src/game/cards.ts`
-2. `docs/fengsheng_mvp_handoff.md`
-3. `docs/rules-decisions.md`
-4. tests and implementation details
-
-Do not reconstruct the deck from family-level counts.
+目前房间只保存在服务器内存中：服务器重启或重新部署会结束正在进行的游戏。免费服务器闲置后首次打开可能需要约一分钟启动。
