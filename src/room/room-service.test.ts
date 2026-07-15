@@ -159,10 +159,10 @@ describe("连接、离开和房主权限", () => {
     const reconnected = service.reconnect(room.code, room.guestToken);
     expect(reconnected.playerId).toBe(room.guestId);
     expect(reconnected.room.players.find((player) => player.id === room.guestId)?.connected).toBe(true);
-    expectRoomError(
-      () => service.reconnect(room.code, room.guestToken),
-      "PLAYER_ALREADY_CONNECTED",
-    );
+    const logLength = reconnected.room.publicAuditLog.length;
+    const replacement = service.reconnect(room.code, room.guestToken);
+    expect(replacement.playerId).toBe(room.guestId);
+    expect(replacement.room.publicAuditLog).toHaveLength(logLength);
   });
 
   it("房主离开后转交给在场最久的玩家", () => {

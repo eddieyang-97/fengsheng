@@ -139,12 +139,9 @@ export class RoomService {
     if (!player) {
       throw new RoomError("INVALID_RECONNECT_TOKEN", "重连凭证无效");
     }
-    if (player.connected) {
-      throw new RoomError("PLAYER_ALREADY_CONNECTED", "该玩家已经在线");
-    }
-
+    const wasConnected = player.connected;
     player.connected = true;
-    room.publicAuditLog.push(`${player.displayName} 已重新连接`);
+    if (!wasConnected) room.publicAuditLog.push(`${player.displayName} 已重新连接`);
     if (
       room.phase === "started" &&
       room.hostPlayerId === null &&

@@ -181,13 +181,17 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
       playerId: string,
     ): Promise<void> => {
       const previousSocketId = playerSockets.get(playerId);
-      if (previousSocketId && previousSocketId !== socket.id) {
-        io.sockets.sockets.get(previousSocketId)?.disconnect(true);
-      }
       socket.data.roomCode = roomCode;
       socket.data.playerId = playerId;
       socket.data.detached = false;
       playerSockets.set(playerId, socket.id);
+      if (previousSocketId && previousSocketId !== socket.id) {
+        const previousSocket = io.sockets.sockets.get(previousSocketId);
+        if (previousSocket) {
+          previousSocket.data.detached = true;
+          previousSocket.disconnect(true);
+        }
+      }
       await socket.join(roomCode);
     };
 

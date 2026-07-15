@@ -109,6 +109,47 @@ describe("game server sessions", () => {
     expect(projection.own.hand.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("lets a refreshed socket atomically replace the still-connected socket", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 8 });
+    await server.listen(0, "127.0.0.1");
+    const port = (server.httpServer.address() as AddressInfo).port;
+    const host = connect(port);
+    const guest = connect(port);
+    sockets.push(host, guest);
+    await Promise.all([connected(host), connected(guest)]);
+    const created = await emitAck<SafeRoomEntryResult>(host, "room:create", {
+      capacity: 2,
+      displayName: "房主",
+    });
+    await emitAck<SafeRoomEntryResult>(guest, "room:join", {
+      roomCode: created.room.code,
+      displayName: "朋友",
+    });
+    await emitAck<SafeStartRoomResult>(host, "room:start", { seatMode: "as-is" });
+
+    const refreshed = connect(port);
+    sockets.push(refreshed);
+    await connected(refreshed);
+    const projectionPromise = onceEvent(refreshed, "game:snapshot");
+    const reconnected = await emitAck<SafeRoomEntryResult>(
+      refreshed,
+      "room:reconnect",
+      {
+        roomCode: created.room.code,
+        reconnectToken: created.reconnectToken,
+      },
+    );
+    const projection = await projectionPromise;
+
+    expect(reconnected.playerId).toBe(created.playerId);
+    expect(projection.own.id).toBe(created.playerId);
+    expect(host.connected).toBe(false);
+    const room = server.roomService.getRoom(created.room.code);
+    expect(room.players.find((player) => player.id === created.playerId)?.connected)
+      .toBe(true);
+    expect(room.gamePausedForDisconnect).toBe(false);
+  });
+
   it("returns every player to the same lobby after the host starts a new game", async () => {
     server = createGameServer({ gameSeedGenerator: () => 17 });
     await server.listen(0, "127.0.0.1");

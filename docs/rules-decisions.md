@@ -733,6 +733,8 @@ Recommended:
 
 ## Confirmed deck baseline
 
+非规则类的未来功能统一记录在 [扩展功能清单](extension-backlog.md)。
+
 The following files are authoritative:
 
 ```text
