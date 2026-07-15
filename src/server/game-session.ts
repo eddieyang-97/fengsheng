@@ -27,6 +27,7 @@ import {
   playSwap,
   playTransfer,
   projectGameForPlayer,
+  resolveHostImposedDeath,
   startTransmission,
   claimNoSecretOrderMatch,
   type Direction,
@@ -103,6 +104,15 @@ export class GameSessionService {
 
   project(roomCode: string, playerId: string): PlayerProjection {
     return projectGameForPlayer(this.getState(roomCode), playerId);
+  }
+
+  resolveHostImposedDeath(roomCode: string, playerId: string): PlayerProjection {
+    const state = this.getState(roomCode);
+    if (!state.players[playerId]) {
+      throw new GameSessionError("NOT_A_GAME_PLAYER", "目标玩家不属于这局游戏");
+    }
+    resolveHostImposedDeath(state, playerId);
+    return projectGameForPlayer(state, playerId);
   }
 
   dispatch(roomCode: string, actorId: string, command: GameCommand): PlayerProjection {

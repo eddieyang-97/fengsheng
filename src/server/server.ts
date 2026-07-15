@@ -32,7 +32,6 @@ type FengshengSocketServer = Server<
 
 export interface GameServerHooks {
   onRoomStarted?: (result: StartRoomResult) => void | Promise<void>;
-  resolveNormalDeath?: (roomCode: string, playerId: string) => void;
 }
 
 export interface CreateGameServerOptions {
@@ -111,6 +110,14 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     }
   }
 
+  function synchronizeRoomDeaths(roomCode: string): void {
+    const game = gameSessionService.getState(roomCode);
+    roomService.synchronizePlayerDeaths(
+      roomCode,
+      game.seatOrder.filter((playerId) => !game.players[playerId].alive),
+    );
+  }
+
   async function broadcastReactionTimer(
     roomCode: string,
     timer: ReactionTimerSnapshot | null,
@@ -129,8 +136,12 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     dispatch: (roomCode, actorId, command) => {
       roomService.assertGameplayCanProgress(roomCode);
       gameSessionService.dispatch(roomCode, actorId, command);
+      synchronizeRoomDeaths(roomCode);
     },
-    onGameAdvanced: broadcastGame,
+    onGameAdvanced: async (roomCode) => {
+      await broadcastRoom(roomCode);
+      await broadcastGame(roomCode);
+    },
     onTimerChanged: broadcastReactionTimer,
     clock: options.reactionTimerClock,
   });
@@ -406,18 +417,13 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
           identity.playerId,
           request.targetPlayerId,
           (playerId) => {
-            if (!options.hooks?.resolveNormalDeath) {
-              throw new TransportFailure(
-                "GAME_AUTHORITY_UNAVAILABLE",
-                "游戏死亡结算尚未连接",
-              );
-            }
-            options.hooks.resolveNormalDeath(identity.roomCode, playerId);
+            gameSessionService.resolveHostImposedDeath(identity.roomCode, playerId);
           },
         );
       });
       if (room) {
         await broadcastRoom(room.code);
+        await broadcastGame(room.code);
         reactionTimeoutScheduler.reconcile(room.code);
       }
     });
@@ -431,7 +437,9 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
           identity.playerId,
           request.command,
         );
+        synchronizeRoomDeaths(identity.roomCode);
         acknowledge({ ok: true, data: projection });
+        await broadcastRoom(identity.roomCode);
         await broadcastGame(identity.roomCode);
         reactionTimeoutScheduler.reconcile(identity.roomCode);
       } catch (error) {

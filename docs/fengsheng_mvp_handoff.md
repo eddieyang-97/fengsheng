@@ -602,6 +602,7 @@ Reconnection:
 - Give each player a private reconnect token. Refresh/reconnect restores the same seat and current private projection while the server process is alive.
 - While any living player is disconnected, pause all gameplay progression.
 - Reserve that seat indefinitely. The host may publicly mark a currently disconnected player dead, applying the normal dead-player state and skipping rules.
+- Resolve host-imposed death atomically in the game engine: reveal and publicly log the faction immediately. Treat a dead current responder as passing and remove them from remaining priority. If the active sender dies, abort the turn, publicly discard pending transmitted intelligence, clear unresolved turn interactions, and advance clockwise; this takes precedence if they are also the intended recipient. An ordinary intended recipient's death behaves as a decline along the fixed route, but a locked or 截获-committed recipient causes the pending intelligence to be publicly discarded and the sender's turn to end. Cancel an unresolved mandatory function-card or 秘密下达 effect when a required participant dies; played cards remain spent. If one player remains alive, their faction wins immediately, except a surviving 特工 wins individually.
 - A dead disconnected player no longer pauses the game; resume once no living player is disconnected.
 - The host cannot replace or transfer an occupied seat after game start. AI control is deferred until after MVP.
 
@@ -714,9 +715,9 @@ Run `cards.test.ts` as a deck-data gate in CI.
 
 ## 13. Decision status
 
-The deck audit is finished. Do not reopen it unless a failing test or physical-card comparison identifies a specific conflict.
+The deck count, identity, and gameplay metadata audit is finished. The per-card printed `不可烧毁` mark is still missing and must be verified from a physical-card source before implementing 烧毁.
 
-No unresolved gameplay decision currently blocks implementation.
+One room-authority decision remains open: what happens to host ownership when the host dies or disconnects after game start. Dead hosts are currently prevented from using host controls, as required by the general dead-player rule, but ownership is not reassigned automatically.
 
 The general reaction-priority model is deliberately provisional: implement the confirmed provisional sequence now and revisit only if playtesting exposes pacing or priority problems. Reaction timeout values, AI takeover, database persistence, and retained replays are deferred product features, not engine-rule blockers.
 
@@ -726,9 +727,9 @@ Keep any future decisions centralized in `docs/rules-decisions.md` and then sync
 
 ## 14. Immediate Codex task
 
-Resume the existing deterministic rules engine. First reconcile current implementation state with the now-confirmed receipt sequence and generic card-action counter stack. Implement card-specific validators/resolvers explicitly, including the audited burnability property required by 烧毁. Do not begin networking or UI until the rules engine can represent the confirmed transmission, receipt, reaction, death, and victory states.
+Continue from the playable engine, authoritative Socket.IO session, reaction timer, lobby, and game-table UI. Next resolve in-game host succession, audit the physical `不可烧毁` markings and implement 烧毁, then deploy the production server to obtain a shareable URL.
 
-Do not add tests or create commits while the user's current rapid-iteration instruction remains active.
+Tests are enabled. Commit and push after each major verified milestone.
 
 ---
 

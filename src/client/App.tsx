@@ -176,10 +176,14 @@ export function App() {
   if (game) {
     return (
       <GameTable
-        busy={busyAction === "game-command" || busyAction === "timeout"}
+        busy={busyAction !== undefined}
         connected={connected}
+        disconnectedLivingPlayers={room.players
+          .filter((player) => !player.connected && player.alive)
+          .map((player) => ({ id: player.id, displayName: player.displayName }))}
         errorMessage={errorMessage}
-        isHost={room.hostPlayerId === credentials.playerId}
+        isHost={room.hostPlayerId === credentials.playerId &&
+          room.players.find((player) => player.id === credentials.playerId)?.alive !== false}
         onCommand={(command: GameCommand) => void runAction("game-command", async () => {
           const updated = await client.sendGameCommand(command);
           setGame(updated);
@@ -191,6 +195,10 @@ export function App() {
         onReactionTimeoutChange={(seconds) => void runAction("timeout", () => client.setReactionTimeout({
           seconds: seconds === 0 ? null : seconds,
         }))}
+        onMarkDisconnectedPlayerDead={(targetPlayerId) => void runAction(
+          "mark-dead",
+          () => client.markDisconnectedPlayerDead({ targetPlayerId }),
+        )}
       />
     );
   }

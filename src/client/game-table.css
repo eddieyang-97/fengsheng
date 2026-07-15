@@ -5,6 +5,7 @@
 .game-topbar strong { font-family: "Noto Serif SC",serif; font-size: 24px; letter-spacing: .2em; }
 .game-status { font-size: 13px; }
 .table-timeout-control { display:flex; align-items:center; gap:6px; }.table-timeout-control select { padding:4px 6px; color:#f7f0df; background:#203a31; border:1px solid #6f897e; border-radius:5px; }
+.mark-dead-button { padding:5px 8px; color:#ffd8d2; background:#6f2722; border:1px solid #a85349; border-radius:5px; }.mark-dead-button:disabled { opacity:.55; }
 .online-dot { color: #a9e3b0; }.offline-dot { color: #ffaaa0; }
 .game-error,.winner-banner { padding: 10px 24px; text-align: center; background: #8c3028; }
 .winner-banner { background: #92722e; font-size: 18px; }

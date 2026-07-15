@@ -32,6 +32,7 @@ export interface LobbySocketClient {
   answerSeatSwap(input: { requestId: string; accept: boolean }): Promise<void>;
   removePlayer(input: { targetPlayerId: string }): Promise<void>;
   setReactionTimeout(input: { seconds: number | null }): Promise<void>;
+  markDisconnectedPlayerDead(input: { targetPlayerId: string }): Promise<void>;
   startRoom(input: { seatMode: StartSeatMode }): Promise<StartRoomResult>;
   onRoomUpdated(listener: (room: RoomSnapshot) => void): () => void;
   onRemoved(listener: (message?: string) => void): () => void;
@@ -74,6 +75,7 @@ export function createLobbySocketClient(socket: Socket = io()): LobbySocketClien
     answerSeatSwap: (input) => emitAck(socket, "room:swap:respond", input),
     removePlayer: (input) => emitAck(socket, "room:remove", input),
     setReactionTimeout: (input) => emitAck(socket, "room:timeout", input),
+    markDisconnectedPlayerDead: (input) => emitAck(socket, "room:mark-dead", input),
     startRoom: (input) => emitAck(socket, "room:start", input),
     onRoomUpdated(listener) {
       socket.on("room:snapshot", listener);

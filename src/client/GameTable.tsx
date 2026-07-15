@@ -17,7 +17,9 @@ export interface GameTableProps {
   isHost?: boolean;
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
   roomAuditLog?: readonly string[];
+  disconnectedLivingPlayers?: readonly { id: string; displayName: string }[];
   onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
+  onMarkDisconnectedPlayerDead: (playerId: string) => void;
   onCommand: (command: GameCommand) => void;
 }
 
@@ -159,7 +161,9 @@ export function GameTable({
   isHost = false,
   reactionTimeoutSeconds,
   roomAuditLog = [],
+  disconnectedLivingPlayers = [],
   onReactionTimeoutChange,
+  onMarkDisconnectedPlayerDead,
   onCommand,
 }: GameTableProps) {
   const [selectedCardId, setSelectedCardId] = useState<string>();
@@ -174,7 +178,15 @@ export function GameTable({
   const inspectedHand = projection.activeFunctionAction?.inspectedHand ?? [];
   const selectedCard = projection.own.hand.find((card) => card.id === selectedCardId);
   const forcedChoice = actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT");
-  const canStartTransmission = projection.phase === "initialized" && projection.activePlayerId === projection.own.id && !projection.transmission && !projection.reactionWindow && !forcedChoice;
+  const isResolvedPreTransmissionSelection =
+    projection.phase === "preTransmission" &&
+    projection.pendingSecretOrder?.stage === "selection";
+  const canStartTransmission =
+    (projection.phase === "initialized" || isResolvedPreTransmissionSelection) &&
+    projection.activePlayerId === projection.own.id &&
+    !projection.transmission &&
+    !projection.reactionWindow &&
+    !forcedChoice;
   const selectableCardIds = new Set(playableCardIds);
   if (canStartTransmission) projection.own.hand.forEach((card) => selectableCardIds.add(card.id));
   const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
@@ -207,6 +219,21 @@ export function GameTable({
               </select>
             </label>
           )}
+          {isHost && disconnectedLivingPlayers.map((player) => (
+            <button
+              className="mark-dead-button"
+              disabled={busy || !connected}
+              key={player.id}
+              onClick={() => {
+                if (window.confirm(`确定将已断线的 ${player.displayName} 判定为死亡吗？此操作会进行正常死亡结算。`)) {
+                  onMarkDisconnectedPlayerDead(player.id);
+                }
+              }}
+              type="button"
+            >
+              将 {player.displayName} 判定死亡
+            </button>
+          ))}
         </div>
       </header>
 

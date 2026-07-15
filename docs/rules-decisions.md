@@ -677,7 +677,12 @@ Recommended:
 - The disconnected player's seat remains reserved indefinitely for their reconnect token.
 - The host may publicly mark a currently disconnected player dead.
 - Host-imposed death uses the normal dead-player state and resolution: the player cannot act, respond, receive intelligence, or take turns; future priority and turn order skip their seat; intelligence already in front of them remains on the table.
-- Host-imposed death immediately reveals the disconnected player's faction publicly, like any other death.
+- Host-imposed death is resolved atomically by the authoritative game engine. The player's faction is revealed immediately and the death is permanently recorded in the public audit log.
+- If the dead player is the current reaction responder, their opportunity is treated as a pass and they are removed from the remaining priority order.
+- If the active sender dies, abort their turn. Any currently transmitted intelligence is discarded face up; clear unresolved turn interactions and advance clockwise to the next living player. This rule takes precedence when the sender is also the intended recipient.
+- If an ordinary intended recipient dies, treat that receipt as a decline and continue using the transmission's normal fixed route. If that recipient was locked or committed by 截获, discard the pending intelligence face up and end the sender's turn instead.
+- If a participant required for an unresolved function-card choice or 秘密下达 resolution dies, cancel that unresolved effect. Every already-played card remains spent in its existing discard/removal zone.
+- If exactly one player remains alive after the death, the game ends immediately: 军情 or 潜伏 wins for their faction, while a surviving 特工 wins as that individual agent.
 - A dead disconnected player no longer pauses the game. Play resumes when no living player remains disconnected.
 - The host cannot replace a player or transfer their seat after the game starts.
 - AI control for disconnected players is deferred until after MVP.

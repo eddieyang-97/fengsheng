@@ -376,4 +376,35 @@ describe("断线暂停和房主判死", () => {
     ).toThrow("engine rejected death");
     expect(service.getRoom(room.code).players.find((player) => player.id === room.guestId)?.alive).toBe(true);
   });
+
+  it("静默同步规则引擎产生的死亡状态", () => {
+    const service = createService();
+    const room = fillDuel(service);
+    service.startRoom(room.code, room.hostId, "as-is");
+    const beforeLog = service.getRoom(room.code).publicAuditLog;
+
+    const snapshot = service.synchronizePlayerDeaths(room.code, [room.guestId]);
+
+    expect(snapshot.players.find((player) => player.id === room.guestId)?.alive).toBe(false);
+    expect(snapshot.publicAuditLog).toEqual(beforeLog);
+    service.disconnect(room.code, room.guestId);
+    expect(service.getRoom(room.code).gamePausedForDisconnect).toBe(false);
+  });
+
+  it("死亡房主不能使用对局管理操作", () => {
+    const service = createService();
+    const room = fillDuel(service);
+    service.startRoom(room.code, room.hostId, "as-is");
+    service.synchronizePlayerDeaths(room.code, [room.hostId]);
+    service.disconnect(room.code, room.guestId);
+
+    expectRoomError(
+      () => service.setReactionTimeout(room.code, room.hostId, 30),
+      "DEAD_PLAYER_CANNOT_ACT",
+    );
+    expectRoomError(
+      () => service.markDisconnectedPlayerDead(room.code, room.hostId, room.guestId, () => {}),
+      "DEAD_PLAYER_CANNOT_ACT",
+    );
+  });
 });

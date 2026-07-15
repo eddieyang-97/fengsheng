@@ -982,7 +982,6 @@ function reactionOrderAfterTarget(
 ): PlayerId[] {
   const targetIndex = state.seatOrder.indexOf(targetId);
   if (targetIndex < 0) throw new Error("响应目标不在座位列表中");
-  if (!state.players[targetId]?.alive) throw new Error("响应目标必须存活");
   const ordered: PlayerId[] = [];
   for (let distance = 1; distance <= state.seatOrder.length; distance += 1) {
     const id = state.seatOrder[(targetIndex + distance) % state.seatOrder.length];
@@ -1133,6 +1132,160 @@ function advanceToNextTurn(state: GameState): void {
   const drawn = drawCards(state, nextPlayerId, 2);
   state.phase = "initialized";
   state.auditLog.push(`${nextPlayerId}回合开始并摸${drawn.length}张牌`);
+}
+
+function clearUnresolvedTurnState(state: GameState, discardTransmission: boolean): void {
+  if (discardTransmission && state.transmission) {
+    state.publicDiscard.push(state.transmission.cardId);
+  }
+  state.transmission = undefined;
+  state.pendingPublicTextReceipt = undefined;
+  state.pendingSecretOrder = undefined;
+  state.reactionWindow = undefined;
+  state.interactionStack = [];
+  state.activeFunctionAction = undefined;
+  state.activeFunctionStack = [];
+  state.secretOrderStack = [];
+}
+
+function soleSurvivorWinner(state: GameState): WinnerState | undefined {
+  const survivors = state.seatOrder.filter((id) => state.players[id].alive);
+  if (survivors.length !== 1) return undefined;
+  const survivor = state.players[survivors[0]];
+  return survivor.faction === "特工"
+    ? { kind: "agent", playerId: survivor.id }
+    : { kind: "faction", faction: survivor.faction };
+}
+
+function rebuildReactionPriorityAfterDeath(
+  state: GameState,
+  deadPlayerId: PlayerId,
+): void {
+  const window = state.reactionWindow;
+  if (!window) return;
+  const passed = new Set(window.responderOrder.slice(0, window.nextResponderIndex));
+  passed.delete(deadPlayerId);
+  const rebuilt = reactionOrderAfterTarget(state, window.affectedPlayerId);
+  let nextIndex = 0;
+  while (nextIndex < rebuilt.length && passed.has(rebuilt[nextIndex])) {
+    nextIndex += 1;
+  }
+  window.responderOrder = rebuilt;
+  window.nextResponderIndex = nextIndex;
+  if (nextIndex === rebuilt.length) finishPassedReactionWindow(state, window);
+}
+
+/**
+ * Applies the confirmed host-imposed death policy as one deterministic engine
+ * transition. The room layer is responsible for authorizing the host and
+ * verifying that the target is disconnected before calling this function.
+ */
+export function resolveHostImposedDeath(
+  state: GameState,
+  playerId: PlayerId,
+): void {
+  if (state.phase === "gameOver") throw new Error("游戏已经结束");
+  const player = state.players[playerId];
+  if (!player) throw new Error("被判定死亡的玩家不在本局游戏中");
+  if (!player.alive) throw new Error("该玩家已经死亡");
+
+  const wasActiveSender = playerId === state.activePlayerId;
+  const wasIntendedRecipient = state.transmission?.intendedRecipientId === playerId;
+  const wasLockedOrIntercepted = Boolean(
+    wasIntendedRecipient &&
+      (state.transmission?.locked || state.transmission?.interceptorCommitted),
+  );
+  const wasFunctionTarget = state.activeFunctionAction?.targetPlayerId === playerId;
+  const wasSecretOrderSource = state.pendingSecretOrder?.sourcePlayerId === playerId;
+  const wasPublicTextChoiceTarget =
+    state.pendingPublicTextReceipt?.recipientId === playerId;
+
+  player.alive = false;
+  player.factionRevealed = true;
+  state.auditLog.push(`${playerId}被房主判定死亡，阵营公开为${player.faction}`);
+
+  const soleWinner = soleSurvivorWinner(state);
+  if (soleWinner) {
+    clearUnresolvedTurnState(state, Boolean(state.transmission));
+    state.winner = soleWinner;
+    state.phase = "gameOver";
+    state.auditLog.push("仅剩一名存活玩家，游戏立即结束");
+    assertGameStateInvariants(state);
+    return;
+  }
+
+  // Active-sender death has precedence over returned intelligence where the
+  // sender is also the current intended recipient.
+  if (wasActiveSender) {
+    clearUnresolvedTurnState(state, Boolean(state.transmission));
+    state.auditLog.push(`${playerId}作为当前行动玩家死亡，其回合中止`);
+    advanceToNextTurn(state);
+    assertGameStateInvariants(state);
+    return;
+  }
+
+  if (wasIntendedRecipient && state.transmission) {
+    if (wasLockedOrIntercepted) {
+      clearUnresolvedTurnState(state, true);
+      state.auditLog.push(`${playerId}死亡，锁定或截获中的待传情报被公开弃置`);
+      advanceToNextTurn(state);
+    } else {
+      const transmission = state.transmission;
+      const nextRecipientId =
+        transmission.method === "直达"
+          ? transmission.senderId
+          : nextLivingPlayer(
+              state,
+              playerId,
+              transmission.direction ?? "clockwise",
+            );
+      beginNormalReceiptCycle(
+        state,
+        nextRecipientId,
+        nextRecipientId === transmission.senderId,
+      );
+      state.auditLog.push(
+        `${playerId}死亡并视为拒绝情报，当前接收者：${nextRecipientId}`,
+      );
+    }
+    assertGameStateInvariants(state);
+    return;
+  }
+
+  if (wasPublicTextChoiceTarget) {
+    state.pendingPublicTextReceipt = undefined;
+    state.auditLog.push(`${playerId}死亡，未完成的公开文本接收效果取消`);
+    state.auditLog.push(`${state.activePlayerId}的回合结束`);
+    advanceToNextTurn(state);
+    assertGameStateInvariants(state);
+    return;
+  }
+
+  if (wasFunctionTarget) {
+    state.activeFunctionAction = undefined;
+    state.activeFunctionStack = [];
+    state.reactionWindow = undefined;
+    state.auditLog.push(`${playerId}死亡，未完成的功能牌效果取消`);
+    assertGameStateInvariants(state);
+    return;
+  }
+
+  if (wasSecretOrderSource && state.pendingSecretOrder) {
+    state.pendingSecretOrder = {
+      stage: "selection",
+      targetPlayerId: state.activePlayerId,
+      countered: true,
+      verifiedNoMatch: false,
+    };
+    state.secretOrderStack = [];
+    state.reactionWindow = undefined;
+    state.auditLog.push(`${playerId}死亡，未完成的秘密下达效果取消`);
+    assertGameStateInvariants(state);
+    return;
+  }
+
+  rebuildReactionPriorityAfterDeath(state, playerId);
+  assertGameStateInvariants(state);
 }
 
 export interface StartTransmissionOptions {
@@ -2307,6 +2460,13 @@ export function passReaction(state: GameState, actorId: PlayerId): void {
   window.nextResponderIndex += 1;
   state.auditLog.push(`${actorId}放弃响应`);
   if (window.nextResponderIndex === window.responderOrder.length) {
+    finishPassedReactionWindow(state, window);
+  } else {
+    assertGameStateInvariants(state);
+  }
+}
+
+function finishPassedReactionWindow(state: GameState, window: ReactionWindow): void {
     if (window.kind === "secretOrder") {
       const pending = state.pendingSecretOrder;
       if (!pending) throw new Error("秘密下达窗口状态无效");
@@ -2380,9 +2540,6 @@ export function passReaction(state: GameState, actorId: PlayerId): void {
         assertGameStateInvariants(state);
       }
     }
-  } else {
-    assertGameStateInvariants(state);
-  }
 }
 
 export function playDecrypt(

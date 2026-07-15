@@ -63,4 +63,24 @@ describe("GameSessionService", () => {
       expect.objectContaining({ code: "GAME_NOT_FOUND" }),
     );
   });
+
+  it("resolves a host-imposed death through the authoritative engine state", () => {
+    const sessions = new GameSessionService();
+    const state = sessions.create("ABCDEF", players, 42);
+    const targetId = players.find((id) => id !== state.activePlayerId)!;
+
+    const projection = sessions.resolveHostImposedDeath("ABCDEF", targetId);
+
+    expect(state.players[targetId]).toMatchObject({
+      alive: false,
+      factionRevealed: true,
+    });
+    expect(projection.players.find((player) => player.id === targetId)).toMatchObject({
+      alive: false,
+      faction: state.players[targetId].faction,
+    });
+    expect(() => sessions.resolveHostImposedDeath("ABCDEF", targetId)).toThrow(
+      "该玩家已经死亡",
+    );
+  });
 });

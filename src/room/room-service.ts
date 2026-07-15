@@ -315,6 +315,9 @@ export class RoomService {
   ): RoomSnapshot {
     const room = this.requireRoom(roomCode);
     this.requireHost(room, hostPlayerId);
+    if (room.phase === "started" && !requirePlayer(room, hostPlayerId).alive) {
+      throw new RoomError("DEAD_PLAYER_CANNOT_ACT", "死亡玩家不能修改反应时限");
+    }
     if (!REACTION_TIMEOUT_OPTIONS.includes(seconds)) {
       throw new RoomError("INVALID_TIMEOUT", "不支持该反应时限");
     }
@@ -357,6 +360,9 @@ export class RoomService {
       throw new RoomError("ROOM_NOT_STARTED", "游戏尚未开始");
     }
     this.requireHost(room, hostPlayerId);
+    if (!requirePlayer(room, hostPlayerId).alive) {
+      throw new RoomError("DEAD_PLAYER_CANNOT_ACT", "死亡玩家不能判定其他玩家死亡");
+    }
     const target = requirePlayer(room, targetPlayerId);
     if (target.connected) {
       throw new RoomError("PLAYER_STILL_CONNECTED", "只能将断线玩家判定死亡");
@@ -369,6 +375,20 @@ export class RoomService {
     resolveNormalDeath(target.id);
     target.alive = false;
     room.publicAuditLog.push(`${target.displayName} 被房主判定死亡`);
+    return this.snapshot(room);
+  }
+
+  /** Mirrors engine-authoritative deaths without duplicating game audit entries. */
+  synchronizePlayerDeaths(
+    roomCode: string,
+    deadPlayerIds: readonly string[],
+  ): RoomSnapshot {
+    const room = this.requireRoom(roomCode);
+    if (room.phase !== "started") {
+      throw new RoomError("ROOM_NOT_STARTED", "游戏尚未开始");
+    }
+    const deadPlayers = deadPlayerIds.map((playerId) => requirePlayer(room, playerId));
+    for (const player of deadPlayers) player.alive = false;
     return this.snapshot(room);
   }
 
