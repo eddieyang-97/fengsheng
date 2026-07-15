@@ -30,10 +30,18 @@ export type WinnerState =
   | { kind: "agent"; playerId: PlayerId };
 
 export interface ReactionWindow {
-  kind: "transfer";
+  kind: "intelligence" | "transfer";
   affectedPlayerId: PlayerId;
   responderOrder: PlayerId[];
   nextResponderIndex: number;
+}
+
+export interface InterceptFrame {
+  kind: "intercept";
+  sourcePlayerId: PlayerId;
+  sourceCardId: PhysicalCardId;
+  previousRecipientId: PlayerId;
+  previousReturnedToSender: boolean;
 }
 
 export interface PlayerState {
@@ -61,6 +69,7 @@ export interface GameState {
   removedProbes: PhysicalCardId[];
   transmission?: TransmissionState;
   reactionWindow?: ReactionWindow;
+  interactionStack: InterceptFrame[];
   winner?: WinnerState;
   auditLog: string[];
 }
@@ -118,6 +127,7 @@ export interface PlayerProjection {
         cardId: PhysicalCardId;
         targetId: PlayerId;
       }
+    | { type: "PLAY_INTERCEPT"; cardId: PhysicalCardId }
   >;
 }
 
@@ -234,6 +244,7 @@ export function initializeGame(playerIds: readonly PlayerId[], seed: number): Ga
     publicDiscard: [],
     hiddenSecretOrders: [],
     removedProbes: [],
+    interactionStack: [],
     auditLog: [
       `游戏初始化完成：${playerIds.length}名玩家`,
       "每名玩家获得2张起始手牌",
@@ -316,8 +327,11 @@ export function assertGameStateInvariants(state: GameState): void {
   if ((state.phase === "transmitting") !== Boolean(state.transmission)) {
     throw new Error("传递阶段与待处理情报状态不一致");
   }
-  if (Boolean(state.transmission?.pendingTransfer) !== Boolean(state.reactionWindow)) {
-    throw new Error("待处理互动与响应窗口状态不一致");
+  if (state.transmission?.pendingTransfer && state.reactionWindow?.kind !== "transfer") {
+    throw new Error("待处理转移必须拥有转移响应窗口");
+  }
+  if (!state.transmission?.pendingTransfer && state.reactionWindow?.kind === "transfer") {
+    throw new Error("转移响应窗口缺少待处理转移");
   }
   if (state.reactionWindow) {
     if (state.phase !== "transmitting") throw new Error("响应窗口只能存在于传递阶段");
@@ -346,16 +360,61 @@ export function assertGameStateInvariants(state: GameState): void {
     ) {
       throw new Error("响应窗口的当前响应位置无效");
     }
-    const pendingTransfer = state.transmission?.pendingTransfer;
-    if (
-      !pendingTransfer ||
-      state.reactionWindow.kind !== "transfer" ||
-      state.reactionWindow.affectedPlayerId !== pendingTransfer.targetId ||
-      !state.transmission?.returnedToSender ||
-      state.transmission.intendedRecipientId !== state.transmission.senderId
+    if (state.reactionWindow.kind === "transfer") {
+      const pendingTransfer = state.transmission?.pendingTransfer;
+      if (
+        !pendingTransfer ||
+        state.reactionWindow.affectedPlayerId !== pendingTransfer.targetId ||
+        !state.transmission?.returnedToSender ||
+        state.transmission.intendedRecipientId !== state.transmission.senderId
+      ) {
+        throw new Error("转移互动与响应窗口关联不一致");
+      }
+    } else if (
+      state.reactionWindow.affectedPlayerId !==
+      state.transmission?.intendedRecipientId
     ) {
-      throw new Error("转移互动与响应窗口关联不一致");
+      throw new Error("情报响应窗口必须从当前接收者开始");
     }
+  }
+  for (const frame of state.interactionStack) {
+    if (
+      frame.kind !== "intercept" ||
+      cardById(frame.sourceCardId).name !== "截获" ||
+      !state.publicDiscard.includes(frame.sourceCardId) ||
+      !state.players[frame.sourcePlayerId] ||
+      !state.players[frame.previousRecipientId]
+    ) {
+      throw new Error("截获互动栈包含无效帧");
+    }
+  }
+  if (state.interactionStack.length > 0) {
+    const top = state.interactionStack.at(-1)!;
+    if (
+      state.transmission?.intendedRecipientId !== top.sourcePlayerId ||
+      state.transmission.returnedToSender
+    ) {
+      throw new Error("当前接收者与截获互动栈顶不一致");
+    }
+    for (let index = 0; index < state.interactionStack.length; index += 1) {
+      const frame = state.interactionStack[index];
+      if (
+        frame.previousReturnedToSender &&
+        frame.previousRecipientId !== state.transmission?.senderId
+      ) {
+        throw new Error("截获快照中的返回发送者状态无效");
+      }
+      if (
+        index > 0 &&
+        frame.previousRecipientId !==
+          state.interactionStack[index - 1].sourcePlayerId
+      ) {
+        throw new Error("连续截获快照链不一致");
+      }
+    }
+  }
+  if (!state.transmission && state.interactionStack.length > 0) {
+    throw new Error("没有传递时互动栈必须为空");
   }
   if ((state.phase === "victoryPending") !== Boolean(state.winner)) {
     throw new Error("待确认胜利阶段与胜者状态不一致");
@@ -458,6 +517,18 @@ function livingPlayersClockwiseFrom(
     if (state.players[id].alive) ordered.push(id);
   }
   return ordered;
+}
+
+function openIntelligenceReactionWindow(
+  state: GameState,
+  affectedPlayerId: PlayerId,
+): void {
+  state.reactionWindow = {
+    kind: "intelligence",
+    affectedPlayerId,
+    responderOrder: livingPlayersClockwiseFrom(state, affectedPlayerId),
+    nextResponderIndex: 0,
+  };
 }
 
 function advanceToNextTurn(state: GameState): void {
@@ -577,6 +648,7 @@ export function startTransmission(
     intendedRecipientId,
     returnedToSender: false,
   };
+  openIntelligenceReactionWindow(state, intendedRecipientId);
   state.phase = "transmitting";
   state.auditLog.push(
     `${actorId}开始以${method}传递情报，当前接收者：${intendedRecipientId}`,
@@ -605,14 +677,26 @@ function resolveWinner(player: PlayerState): WinnerState | undefined {
   return undefined;
 }
 
+function acceptanceRequiresUnimplementedEffectForRecipient(
+  state: GameState,
+  transmission: TransmissionState,
+  recipientId: PlayerId,
+): boolean {
+  const receiver = state.players[recipientId];
+  const card = cardById(transmission.cardId);
+  const dies = card.color === "黑" && countColor(receiver, "黑") === 2;
+  return card.name === "公开文本" && !dies;
+}
+
 function acceptanceRequiresUnimplementedEffect(
   state: GameState,
   transmission: TransmissionState,
 ): boolean {
-  const receiver = state.players[transmission.intendedRecipientId];
-  const card = cardById(transmission.cardId);
-  const dies = card.color === "黑" && countColor(receiver, "黑") === 2;
-  return card.name === "公开文本" && !dies;
+  return acceptanceRequiresUnimplementedEffectForRecipient(
+    state,
+    transmission,
+    transmission.intendedRecipientId,
+  );
 }
 
 export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
@@ -620,18 +704,19 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
   if (state.phase !== "transmitting" || !transmission) {
     throw new Error("当前没有待接收的情报");
   }
-  if (transmission.pendingTransfer) throw new Error("转移响应窗口尚未结束");
   if (transmission.intendedRecipientId !== actorId) {
     throw new Error("只有当前接收者可以接收情报");
   }
   const receiver = state.players[actorId];
   if (!receiver?.alive) throw new Error("死亡玩家不能接收情报");
+  if (state.reactionWindow) throw new Error("情报响应窗口尚未结束");
   if (acceptanceRequiresUnimplementedEffect(state, transmission)) {
     throw new Error("公开文本的接收效果尚未实现");
   }
 
   receiver.intelligence.push(transmission.cardId);
   state.transmission = undefined;
+  state.interactionStack = [];
   if (countColor(receiver, "黑") >= 3) {
     receiver.alive = false;
     state.auditLog.push(`${actorId}接收情报后死亡`);
@@ -656,13 +741,16 @@ export function declineIntelligence(state: GameState, actorId: PlayerId): void {
   if (state.phase !== "transmitting" || !transmission) {
     throw new Error("当前没有待回应的情报");
   }
-  if (transmission.pendingTransfer) throw new Error("转移响应窗口尚未结束");
   if (transmission.intendedRecipientId !== actorId) {
     throw new Error("只有当前接收者可以拒绝情报");
   }
   if (!state.players[actorId]?.alive) throw new Error("死亡玩家不能回应情报");
+  if (state.reactionWindow) throw new Error("情报响应窗口尚未结束");
   if (actorId === transmission.senderId && transmission.returnedToSender) {
     throw new Error("返回发送者的情报必须接收或转移，不能再次拒绝");
+  }
+  if (state.interactionStack.at(-1)?.sourcePlayerId === actorId) {
+    throw new Error("截获者必须接收情报，不能拒绝");
   }
 
   transmission.intendedRecipientId =
@@ -671,6 +759,7 @@ export function declineIntelligence(state: GameState, actorId: PlayerId): void {
       : nextLivingPlayer(state, actorId, transmission.direction ?? "clockwise");
   transmission.returnedToSender =
     transmission.intendedRecipientId === transmission.senderId;
+  openIntelligenceReactionWindow(state, transmission.intendedRecipientId);
   state.auditLog.push(
     `${actorId}拒绝情报，当前接收者：${transmission.intendedRecipientId}`,
   );
@@ -694,6 +783,14 @@ export function playTransfer(
     !transmission.returnedToSender
   ) {
     throw new Error("只有情报返回时的当前发送者可以使用转移");
+  }
+  if (
+    state.reactionWindow?.kind !== "intelligence" ||
+    state.reactionWindow.responderOrder[
+      state.reactionWindow.nextResponderIndex
+    ] !== actorId
+  ) {
+    throw new Error("必须在自己的情报响应优先级中使用转移");
   }
   if (transmission.pendingTransfer) throw new Error("已有转移正在等待响应");
   const actor = state.players[actorId];
@@ -728,7 +825,7 @@ function resolveTransfer(state: GameState): void {
   transmission.intendedRecipientId = pending.targetId;
   transmission.returnedToSender = false;
   transmission.pendingTransfer = undefined;
-  state.reactionWindow = undefined;
+  openIntelligenceReactionWindow(state, transmission.intendedRecipientId);
   state.auditLog.push(`转移结算，当前接收者：${transmission.intendedRecipientId}`);
   assertGameStateInvariants(state);
 }
@@ -744,10 +841,71 @@ export function passReaction(state: GameState, actorId: PlayerId): void {
   window.nextResponderIndex += 1;
   state.auditLog.push(`${actorId}放弃响应`);
   if (window.nextResponderIndex === window.responderOrder.length) {
-    resolveTransfer(state);
+    if (window.kind === "transfer") {
+      resolveTransfer(state);
+    } else {
+      state.reactionWindow = undefined;
+      assertGameStateInvariants(state);
+    }
   } else {
     assertGameStateInvariants(state);
   }
+}
+
+export function playIntercept(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+): void {
+  const transmission = state.transmission;
+  const window = state.reactionWindow;
+  if (
+    state.phase !== "transmitting" ||
+    !transmission ||
+    !window ||
+    window.kind !== "intelligence"
+  ) {
+    throw new Error("当前没有可截获的待传情报");
+  }
+  if (window.responderOrder[window.nextResponderIndex] !== actorId) {
+    throw new Error("尚未轮到该玩家响应");
+  }
+  if (actorId === state.activePlayerId) {
+    throw new Error("当前行动玩家不能在自己的回合使用截获");
+  }
+  if (actorId === transmission.intendedRecipientId) {
+    throw new Error("当前接收者不能截获给自己的情报");
+  }
+  const actor = state.players[actorId];
+  if (!actor?.alive) throw new Error("死亡玩家不能使用截获");
+  const cardIndex = actor.hand.indexOf(cardId);
+  if (cardIndex < 0 || cardById(cardId).name !== "截获") {
+    throw new Error("必须使用自己手中的截获牌");
+  }
+  if (
+    acceptanceRequiresUnimplementedEffectForRecipient(
+      state,
+      transmission,
+      actorId,
+    )
+  ) {
+    throw new Error("公开文本接收效果实现前不能以截获强制接收");
+  }
+
+  actor.hand.splice(cardIndex, 1);
+  state.publicDiscard.push(cardId);
+  state.interactionStack.push({
+    kind: "intercept",
+    sourcePlayerId: actorId,
+    sourceCardId: cardId,
+    previousRecipientId: transmission.intendedRecipientId,
+    previousReturnedToSender: transmission.returnedToSender,
+  });
+  transmission.intendedRecipientId = actorId;
+  transmission.returnedToSender = false;
+  openIntelligenceReactionWindow(state, actorId);
+  state.auditLog.push(`${actorId}使用截获，成为当前接收者`);
+  assertGameStateInvariants(state);
 }
 
 export function playSeparationOnTransfer(
@@ -856,6 +1014,24 @@ export function projectGameForPlayer(
               })),
           )
       : [];
+  const interceptActions =
+    currentReactionResponderId === viewerId &&
+    state.reactionWindow?.kind === "intelligence" &&
+    viewerId !== state.activePlayerId &&
+    viewerId !== transmission?.intendedRecipientId &&
+    transmission &&
+    !acceptanceRequiresUnimplementedEffectForRecipient(
+      state,
+      transmission,
+      viewerId,
+    )
+      ? viewer.hand
+          .filter((cardId) => cardById(cardId).name === "截获")
+          .map((cardId) => ({ type: "PLAY_INTERCEPT" as const, cardId }))
+      : [];
+  const interceptedRecipientMustAccept =
+    state.interactionStack.at(-1)?.sourcePlayerId ===
+    transmission?.intendedRecipientId;
 
   return {
     mode: state.mode,
@@ -915,12 +1091,16 @@ export function projectGameForPlayer(
           cardId,
         }))
       : currentReactionResponderId === viewerId
-        ? [{ type: "PASS_REACTION" }, ...separationActions]
+        ? [
+            { type: "PASS_REACTION" },
+            ...separationActions,
+            ...interceptActions,
+            ...transferActions,
+          ]
       : isCurrentRecipient && !transmission?.pendingTransfer
         ? [
             ...(canAccept ? [{ type: "ACCEPT_INTELLIGENCE" } as const] : []),
-            ...transferActions,
-            ...(!isReturnedForViewer
+            ...(!isReturnedForViewer && !interceptedRecipientMustAccept
               ? [{ type: "DECLINE_INTELLIGENCE" as const }]
               : []),
           ]
