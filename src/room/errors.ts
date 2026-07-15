@@ -1,0 +1,34 @@
+export type RoomErrorCode =
+  | "INVALID_CAPACITY"
+  | "INVALID_DISPLAY_NAME"
+  | "DUPLICATE_DISPLAY_NAME"
+  | "INVALID_ROOM_CODE"
+  | "ROOM_NOT_FOUND"
+  | "ROOM_FULL"
+  | "ROOM_ALREADY_STARTED"
+  | "ROOM_NOT_STARTED"
+  | "GAME_PAUSED"
+  | "PLAYER_NOT_FOUND"
+  | "INVALID_RECONNECT_TOKEN"
+  | "NOT_HOST"
+  | "INVALID_SEAT"
+  | "SEAT_SWAP_NOT_FOUND"
+  | "SEAT_SWAP_NOT_RECIPIENT"
+  | "ROOM_NOT_FULL"
+  | "PLAYER_DISCONNECTED"
+  | "PLAYER_ALREADY_CONNECTED"
+  | "PLAYER_STILL_CONNECTED"
+  | "PLAYER_ALREADY_DEAD"
+  | "INVALID_TIMEOUT"
+  | "SECURE_RANDOM_UNAVAILABLE"
+  | "CODE_GENERATION_EXHAUSTED";
+
+export class RoomError extends Error {
+  constructor(
+    public readonly code: RoomErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RoomError";
+  }
+}

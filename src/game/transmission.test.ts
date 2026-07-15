@@ -7,10 +7,14 @@ import {
   discardForHandLimit,
   declineIntelligence,
   initializeGame,
+  passLockOpportunity,
   passReaction,
+  playCounter,
   playIntercept,
-  playCounterIntercept,
+  playLock,
+  playLure,
   playSeparationOnTransfer,
+  playSwap,
   playTransfer,
   projectGameForPlayer,
   startTransmission,
@@ -30,12 +34,45 @@ function initializedWithActive(
 }
 
 function passAllReactions(state: GameState): void {
+  if (state.transmission?.receiptStage === "lockOffer") {
+    passLockOpportunity(state, state.transmission.senderId);
+  }
   while (state.reactionWindow) {
     passReaction(
       state,
       state.reactionWindow.responderOrder[
         state.reactionWindow.nextResponderIndex
       ],
+    );
+  }
+}
+
+function passUntilReactionTurn(state: GameState, actorId: string): void {
+  if (state.transmission?.receiptStage === "lockOffer") {
+    passLockOpportunity(state, state.transmission.senderId);
+  }
+  while (
+    state.reactionWindow &&
+    state.reactionWindow.responderOrder[
+      state.reactionWindow.nextResponderIndex
+    ] !== actorId
+  ) {
+    passReaction(
+      state,
+      state.reactionWindow.responderOrder[
+        state.reactionWindow.nextResponderIndex
+      ],
+    );
+  }
+}
+
+function finishCurrentReactionWindow(state: GameState): void {
+  const originalWindow = state.reactionWindow;
+  if (!originalWindow) throw new Error("测试要求存在响应窗口");
+  while (state.reactionWindow === originalWindow) {
+    passReaction(
+      state,
+      originalWindow.responderOrder[originalWindow.nextResponderIndex],
     );
   }
 }
@@ -129,7 +166,10 @@ describe("开始传递", () => {
     expect(
       projectGameForPlayer(state, "乙").publicDiscard.map((card) => card.id),
     ).toContain(discardedCard);
-    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([]);
+    expect(projectGameForPlayer(state, "甲").legalActions).not.toContainEqual({
+      type: "DISCARD_FOR_HAND_LIMIT",
+      cardId: discardedCard,
+    });
     expect(() => startTransmission(state, "甲", transmissionCard)).not.toThrow();
   });
 
@@ -276,6 +316,7 @@ describe("接收、死亡与胜利", () => {
     const acceptCard = cardIdWhere((card) => card.transmission === "直达");
     putCardInHand(acceptingState, "甲", acceptCard);
     startTransmission(acceptingState, "甲", acceptCard, { targetId: "乙" });
+    passAllReactions(acceptingState);
     acceptingState.players["乙"].alive = false;
     expect(() => acceptIntelligence(acceptingState, "乙")).toThrow(
       "死亡玩家不能接收情报",
@@ -287,6 +328,7 @@ describe("接收、死亡与胜利", () => {
     );
     putCardInHand(decliningState, "甲", declineCard);
     startTransmission(decliningState, "甲", declineCard, { targetId: "乙" });
+    passAllReactions(decliningState);
     decliningState.players["乙"].alive = false;
     expect(() => declineIntelligence(decliningState, "乙")).toThrow(
       "死亡玩家不能回应情报",
@@ -354,7 +396,7 @@ describe("接收、死亡与胜利", () => {
     acceptAfterReactions(state, receiverId);
 
     expect(state.winner).toEqual({ kind: "faction", faction: "军情" });
-    expect(state.phase).toBe("victoryPending");
+    expect(state.phase).toBe("gameOver");
     expect(state.auditLog).toContain("甲的回合结束");
   });
 });
@@ -369,6 +411,7 @@ describe("转移", () => {
 
     startTransmission(state, "甲", directCard, { targetId: "乙" });
     declineAfterReactions(state, "乙");
+    passUntilReactionTurn(state, "甲");
 
     const actions = projectGameForPlayer(state, "甲").legalActions;
     expect(actions).toContainEqual({ type: "PASS_REACTION" });
@@ -383,22 +426,23 @@ describe("转移", () => {
 
     expect(state.transmission?.pendingTransfer?.targetId).toBe("丁");
     expect(state.publicDiscard).toContain(transferCard);
-    expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
+    expect(projectGameForPlayer(state, "戊").legalActions).toContainEqual({
       type: "PASS_REACTION",
     });
-    expect(projectGameForPlayer(state, "戊").legalActions).toEqual([]);
-    expect(() => passReaction(state, "戊")).toThrow("尚未轮到该玩家响应");
+    expect(projectGameForPlayer(state, "丁").legalActions).toEqual([]);
+    expect(() => passReaction(state, "丁")).toThrow("尚未轮到该玩家响应");
 
     expect(state.reactionWindow?.responderOrder).toEqual([
-      "丁",
       "戊",
       "甲",
       "乙",
       "丙",
+      "丁",
     ]);
     passAllReactions(state);
 
     expect(state.transmission?.intendedRecipientId).toBe("丁");
+    passAllReactions(state);
     expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
       { type: "ACCEPT_INTELLIGENCE" },
       { type: "DECLINE_INTELLIGENCE" },
@@ -408,6 +452,7 @@ describe("转移", () => {
       intendedRecipientId: "甲",
       returnedToSender: true,
     });
+    passUntilReactionTurn(state, "甲");
     expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
       type: "PASS_REACTION",
     });
@@ -444,6 +489,7 @@ describe("转移", () => {
 
     startTransmission(state, "甲", secretCard);
     declineAfterReactions(state, "乙");
+    passUntilReactionTurn(state, "甲");
     playTransfer(state, "甲", transferCard, "乙");
     passAllReactions(state);
 
@@ -468,8 +514,10 @@ describe("转移", () => {
     putCardInHand(state, "丁", separationCard, 0);
     startTransmission(state, "甲", directCard, { targetId: "乙" });
     declineAfterReactions(state, "乙");
+    passUntilReactionTurn(state, "甲");
     playTransfer(state, "甲", transferCard, "丁");
 
+    passUntilReactionTurn(state, "丁");
     expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
       type: "PLAY_SEPARATION",
       cardId: separationCard,
@@ -480,7 +528,7 @@ describe("转移", () => {
     expect(state.transmission?.pendingTransfer?.targetId).toBe("乙");
     expect(state.reactionWindow).toMatchObject({
       affectedPlayerId: "乙",
-      responderOrder: ["乙", "丙", "丁", "戊", "甲"],
+      responderOrder: ["丙", "丁", "戊", "甲", "乙"],
       nextResponderIndex: 0,
     });
     expect(state.publicDiscard).toContain(separationCard);
@@ -496,6 +544,7 @@ describe("转移", () => {
     putCardInHand(state, "甲", transferCard, 1);
     startTransmission(state, "甲", directCard, { targetId: "乙" });
     declineAfterReactions(state, "乙");
+    passUntilReactionTurn(state, "甲");
     playTransfer(state, "甲", transferCard, "丁");
 
     state.reactionWindow!.nextResponderIndex = 0.5;
@@ -505,7 +554,7 @@ describe("转移", () => {
     state.reactionWindow!.nextResponderIndex = 0;
     state.reactionWindow!.affectedPlayerId = "乙";
     expect(() => assertGameStateInvariants(state)).toThrow(
-      "响应顺序必须从受影响玩家开始按顺时针包含所有存活玩家",
+      "响应顺序必须从目标的下一名存活玩家开始，并让目标最后响应",
     );
   });
 
@@ -522,236 +571,198 @@ describe("转移", () => {
   });
 });
 
-describe("通用响应窗口与截获", () => {
-  it("一个窗口合并合法截获与跳过，并支持连续截获", () => {
+describe("发送者锁定与目标最后响应", () => {
+  it("先由发送者选择锁定，放弃后才按目标后一席开始响应", () => {
     const state = initializedWithActive(players, 71);
-    const intelligenceCard = cardIdWhere((card) => card.transmission === "直达");
-    const activeIntercept = cardIdWhere((card) => card.name === "截获", [
-      intelligenceCard,
-    ]);
-    const firstIntercept = cardIdWhere((card) => card.name === "截获", [
-      intelligenceCard,
-      activeIntercept,
-    ]);
-    const secondIntercept = cardIdWhere((card) => card.name === "截获", [
-      intelligenceCard,
-      activeIntercept,
-      firstIntercept,
-    ]);
-    const targetIntercept = cardIdWhere((card) => card.name === "截获", [
-      intelligenceCard,
-      activeIntercept,
-      firstIntercept,
-      secondIntercept,
-    ]);
-    putCardInHand(state, "甲", intelligenceCard, 0);
-    putCardInHand(state, "甲", activeIntercept, 1);
-    putCardInHand(state, "乙", firstIntercept, 0);
-    putCardInHand(state, "丙", secondIntercept, 0);
-    putCardInHand(state, "丁", targetIntercept, 0);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    putCardInHand(state, "甲", intelligence);
 
-    startTransmission(state, "甲", intelligenceCard, { targetId: "丁" });
-    expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
-      { type: "PASS_REACTION" },
-    ]);
-    expect(() => playIntercept(state, "丁", targetIntercept)).toThrow(
-      "当前接收者不能截获给自己的情报",
-    );
-    passReaction(state, "丁");
-    passReaction(state, "戊");
-    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([
-      { type: "PASS_REACTION" },
-    ]);
-    passReaction(state, "甲");
+    startTransmission(state, "甲", intelligence, { targetId: "丁" });
 
-    expect(projectGameForPlayer(state, "乙").legalActions).toContainEqual({
-      type: "PLAY_INTERCEPT",
-      cardId: firstIntercept,
+    expect(state.transmission?.receiptStage).toBe("lockOffer");
+    expect(state.reactionWindow).toBeUndefined();
+    expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
+      type: "PASS_LOCK",
     });
-    playIntercept(state, "乙", firstIntercept);
-    expect(state.transmission?.intendedRecipientId).toBe("乙");
-    expect(state.interactionStack).toHaveLength(1);
-
-    passReaction(state, "乙");
-    playIntercept(state, "丙", secondIntercept);
-    expect(state.transmission?.intendedRecipientId).toBe("丙");
-    expect(state.interactionStack.map((frame) => frame.previousRecipientId)).toEqual([
-      "丁",
+    passLockOpportunity(state, "甲");
+    expect(state.reactionWindow?.responderOrder).toEqual([
+      "戊",
+      "甲",
       "乙",
+      "丙",
+      "丁",
     ]);
-    state.interactionStack[1].previousRecipientId = "戊";
-    expect(() => assertGameStateInvariants(state)).toThrow(
-      "连续截获快照链不一致",
-    );
-    state.interactionStack[1].previousRecipientId = "乙";
-
-    passAllReactions(state);
-    expect(projectGameForPlayer(state, "丙").legalActions).toEqual([
-      { type: "ACCEPT_INTELLIGENCE" },
-    ]);
-    expect(() => declineIntelligence(state, "丙")).toThrow(
-      "截获者必须接收情报，不能拒绝",
-    );
-    acceptIntelligence(state, "丙");
-    expect(state.interactionStack).toEqual([]);
   });
 
-  it("公开文本接收效果实现前不提供会导致死锁的截获", () => {
+  it("锁定可被识破，识破又可被另一名玩家识破并恢复锁定", () => {
     const state = initializedWithActive(players, 72);
-    const publicText = cardIdWhere((card) => card.name === "公开文本");
-    const intercept = cardIdWhere((card) => card.name === "截获", [publicText]);
-    const publicTextCard = PHYSICAL_DECK.find((card) => card.id === publicText);
-    if (!publicTextCard) throw new Error("公开文本不存在");
-    putCardInHand(state, "甲", publicText, 0);
-    putCardInHand(state, "丙", intercept, 0);
-
-    startTransmission(state, "甲", publicText, {
-      direction: publicTextCard.circle ? "clockwise" : undefined,
-    });
-    passReaction(state, "乙");
-
-    expect(projectGameForPlayer(state, "丙").legalActions).toEqual([
-      { type: "PASS_REACTION" },
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const lock = cardIdWhere((card) => card.name === "锁定", [intelligence]);
+    const counter = cardIdWhere((card) => card.name === "识破", [intelligence, lock]);
+    const counterCounter = cardIdWhere((card) => card.name === "识破", [
+      intelligence,
+      lock,
+      counter,
     ]);
-    expect(() => playIntercept(state, "丙", intercept)).toThrow(
-      "公开文本接收效果实现前不能以截获强制接收",
-    );
-  });
-
-  it("识破按互动ID逐层撤销连续截获并精确恢复接收者", () => {
-    const state = initializedWithActive(players, 73);
-    const intelligenceCard = cardIdWhere((card) => card.transmission === "直达");
-    const firstIntercept = cardIdWhere((card) => card.name === "截获", [
-      intelligenceCard,
-    ]);
-    const secondIntercept = cardIdWhere((card) => card.name === "截获", [
-      intelligenceCard,
-      firstIntercept,
-    ]);
-    const firstCounter = cardIdWhere((card) => card.name === "识破", [
-      intelligenceCard,
-      firstIntercept,
-      secondIntercept,
-    ]);
-    const secondCounter = cardIdWhere((card) => card.name === "识破", [
-      intelligenceCard,
-      firstIntercept,
-      secondIntercept,
-      firstCounter,
-    ]);
-    putCardInHand(state, "甲", intelligenceCard, 0);
-    putCardInHand(state, "乙", secondCounter, 0);
-    putCardInHand(state, "丙", firstIntercept, 0);
-    putCardInHand(state, "丁", secondIntercept, 0);
-    putCardInHand(state, "戊", firstCounter, 0);
-
-    startTransmission(state, "甲", intelligenceCard, { targetId: "乙" });
-    passReaction(state, "乙");
-    playIntercept(state, "丙", firstIntercept);
-    passReaction(state, "丙");
-    playIntercept(state, "丁", secondIntercept);
-
-    const validNextSequence = state.nextInteractionSequence;
-    state.nextInteractionSequence = 1;
-    expect(() => assertGameStateInvariants(state)).toThrow(
-      "截获互动ID或序号无效",
-    );
-    state.nextInteractionSequence = validNextSequence;
-    const secondSourceCard = state.interactionStack[1].sourceCardId;
-    state.interactionStack[1].sourceCardId =
-      state.interactionStack[0].sourceCardId;
-    expect(() => assertGameStateInvariants(state)).toThrow(
-      "同一张牌不能产生多个截获互动帧",
-    );
-    state.interactionStack[1].sourceCardId = secondSourceCard;
-    state.interactionStack[0].previousReturnedToSender = true;
-    expect(() => assertGameStateInvariants(state)).toThrow(
-      "截获快照中的返回发送者状态无效",
-    );
-    state.interactionStack[0].previousReturnedToSender = false;
-
-    const secondFrameId = state.interactionStack.at(-1)!.id;
-    passReaction(state, "丁");
-    playCounterIntercept(state, "戊", firstCounter, secondFrameId);
-    expect(state.transmission?.intendedRecipientId).toBe("丙");
-    expect(state.interactionStack).toHaveLength(1);
-
-    passReaction(state, "丙");
-    passReaction(state, "丁");
-    passReaction(state, "戊");
-    passReaction(state, "甲");
-    const firstFrameId = state.interactionStack.at(-1)!.id;
-    expect(projectGameForPlayer(state, "乙").legalActions).toContainEqual({
-      type: "PLAY_COUNTER",
-      cardId: secondCounter,
-      targetInteractionId: firstFrameId,
-    });
-    playCounterIntercept(state, "乙", secondCounter, firstFrameId);
-
-    expect(state.interactionStack).toEqual([]);
-    expect(state.transmission).toMatchObject({
-      intendedRecipientId: "乙",
-      returnedToSender: false,
-    });
-    expect(state.reactionWindow?.affectedPlayerId).toBe("乙");
-  });
-
-  it("识破截获后恢复情报已返回发送者的强制接收状态", () => {
-    const state = initializedWithActive(players, 74);
-    const intelligenceCard = cardIdWhere((card) => card.transmission === "直达");
-    const intercept = cardIdWhere((card) => card.name === "截获", [intelligenceCard]);
-    const counter = cardIdWhere((card) => card.name === "识破", [
-      intelligenceCard,
-      intercept,
-    ]);
-    putCardInHand(state, "甲", intelligenceCard, 0);
-    putCardInHand(state, "乙", intercept, 0);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "甲", lock, 1);
     putCardInHand(state, "丙", counter, 0);
+    putCardInHand(state, "乙", counterCounter, 0);
 
-    startTransmission(state, "甲", intelligenceCard, { targetId: "乙" });
-    declineAfterReactions(state, "乙");
-    passReaction(state, "甲");
-    playIntercept(state, "乙", intercept);
-    passReaction(state, "乙");
-    const frameId = state.interactionStack.at(-1)!.id;
-    playCounterIntercept(state, "丙", counter, frameId);
-
-    expect(state.interactionStack).toEqual([]);
-    expect(state.transmission).toMatchObject({
-      intendedRecipientId: "甲",
-      returnedToSender: true,
-    });
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    playLock(state, "甲", lock);
+    playCounter(state, "丙", counter, state.interactionStack.at(-1)!.id);
+    expect(state.transmission?.locked).toBe(false);
+    playCounter(state, "乙", counterCounter, state.interactionStack.at(-1)!.id);
+    expect(state.transmission?.locked).toBe(true);
     passAllReactions(state);
-    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([
+    expect(projectGameForPlayer(state, "乙").legalActions).toEqual([
       { type: "ACCEPT_INTELLIGENCE" },
     ]);
   });
 
-  it("每个截获都可被识破，包括玩家自己的截获", () => {
-    const state = initializedWithActive(players, 75);
-    const intelligenceCard = cardIdWhere((card) => card.transmission === "直达");
-    const intercept = cardIdWhere((card) => card.name === "截获", [intelligenceCard]);
-    const counter = cardIdWhere((card) => card.name === "识破", [
-      intelligenceCard,
-      intercept,
-    ]);
-    putCardInHand(state, "甲", intelligenceCard, 0);
+  it("不能识破自己的卡牌行动", () => {
+    const state = initializedWithActive(players, 73);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const intercept = cardIdWhere((card) => card.name === "截获", [intelligence]);
+    const counter = cardIdWhere((card) => card.name === "识破", [intelligence, intercept]);
+    putCardInHand(state, "甲", intelligence, 0);
     putCardInHand(state, "丙", intercept, 0);
     putCardInHand(state, "丙", counter, 1);
 
-    startTransmission(state, "甲", intelligenceCard, { targetId: "乙" });
-    passReaction(state, "乙");
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
     playIntercept(state, "丙", intercept);
-    const frameId = state.interactionStack.at(-1)!.id;
-    expect(projectGameForPlayer(state, "丙").legalActions).toContainEqual({
-      type: "PLAY_COUNTER",
-      cardId: counter,
-      targetInteractionId: frameId,
-    });
-    playCounterIntercept(state, "丙", counter, frameId);
+    passUntilReactionTurn(state, "丙");
+    expect(() =>
+      playCounter(state, "丙", counter, state.interactionStack.at(-1)!.id),
+    ).toThrow("不能使用识破反制自己的卡牌行动");
+  });
+});
 
-    expect(state.interactionStack).toEqual([]);
-    expect(state.transmission?.intendedRecipientId).toBe("乙");
+describe("截获、掉包、调虎离山与转移接收", () => {
+  it("最终截获者在响应结束后自动接收", () => {
+    const state = initializedWithActive(players, 74);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const intercept = cardIdWhere((card) => card.name === "截获", [intelligence]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "丙", intercept, 0);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    playIntercept(state, "丙", intercept);
+    passAllReactions(state);
+
+    expect(state.transmission).toBeUndefined();
+    expect(state.players["丙"].intelligence).toContain(intelligence);
+  });
+
+  it("掉包结算后仍可再次掉包", () => {
+    const state = initializedWithActive(players, 75);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const firstSwap = cardIdWhere((card) => card.name === "掉包", [intelligence]);
+    const secondSwap = cardIdWhere((card) => card.name === "掉包", [
+      intelligence,
+      firstSwap,
+    ]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "丙", firstSwap, 0);
+    putCardInHand(state, "丁", secondSwap, 0);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    playSwap(state, "丙", firstSwap);
+    finishCurrentReactionWindow(state);
+    expect(state.transmission?.cardId).toBe(firstSwap);
+    passUntilReactionTurn(state, "丁");
+    playSwap(state, "丁", secondSwap);
+    finishCurrentReactionWindow(state);
+    expect(state.transmission?.cardId).toBe(secondSwap);
+    expect(state.publicDiscard).toContain(firstSwap);
+  });
+
+  it("调虎离山强制普通接收者拒绝，但锁定或截获后不能使用", () => {
+    const state = initializedWithActive(players, 76);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const lure = cardIdWhere((card) => card.name === "调虎离山", [intelligence]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "丙", lure, 0);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    playLure(state, "丙", lure);
+    finishCurrentReactionWindow(state);
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "甲",
+      returnedToSender: true,
+      receiptStage: "reactions",
+      lockOfferUsed: true,
+    });
+  });
+
+  it("锁定或截获承诺存在时禁止调虎离山", () => {
+    const lockedState = initializedWithActive(players, 78);
+    const lockedIntelligence = cardIdWhere((card) => card.transmission === "直达");
+    const lock = cardIdWhere((card) => card.name === "锁定", [lockedIntelligence]);
+    const lockedLure = cardIdWhere((card) => card.name === "调虎离山", [
+      lockedIntelligence,
+      lock,
+    ]);
+    putCardInHand(lockedState, "甲", lockedIntelligence, 0);
+    putCardInHand(lockedState, "甲", lock, 1);
+    putCardInHand(lockedState, "丙", lockedLure, 0);
+    startTransmission(lockedState, "甲", lockedIntelligence, { targetId: "乙" });
+    playLock(lockedState, "甲", lock);
+    expect(() => playLure(lockedState, "丙", lockedLure)).toThrow(
+      "当前接收状态不能使用调虎离山",
+    );
+
+    const interceptedState = initializedWithActive(players, 79);
+    const interceptedIntelligence = cardIdWhere(
+      (card) => card.transmission === "直达" && card.id !== lockedIntelligence,
+    );
+    const intercept = cardIdWhere((card) => card.name === "截获", [
+      interceptedIntelligence,
+    ]);
+    const interceptedLure = cardIdWhere((card) => card.name === "调虎离山", [
+      interceptedIntelligence,
+      intercept,
+    ]);
+    putCardInHand(interceptedState, "甲", interceptedIntelligence, 0);
+    putCardInHand(interceptedState, "丙", intercept, 0);
+    putCardInHand(interceptedState, "丁", interceptedLure, 0);
+    startTransmission(interceptedState, "甲", interceptedIntelligence, {
+      targetId: "乙",
+    });
+    passLockOpportunity(interceptedState, "甲");
+    playIntercept(interceptedState, "丙", intercept);
+    expect(() => playLure(interceptedState, "丁", interceptedLure)).toThrow(
+      "当前接收状态不能使用调虎离山",
+    );
+  });
+
+  it("转移结算后为新目标开启完整的普通接收流程", () => {
+    const state = initializedWithActive(players, 77);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const transfer = cardIdWhere((card) => card.name === "转移", [intelligence]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "甲", transfer, 1);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    declineAfterReactions(state, "乙");
+    passUntilReactionTurn(state, "甲");
+    playTransfer(state, "甲", transfer, "丁");
+    passAllReactions(state);
+
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "丁",
+      receiptStage: "lockOffer",
+      lockOfferUsed: false,
+      locked: false,
+    });
+    expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
+      type: "PASS_LOCK",
+    });
   });
 });
 
@@ -770,7 +781,8 @@ describe("待传情报投影", () => {
 
     expect(senderView.transmission?.card?.id).toBe(cardId);
     expect(receiverView.transmission?.card).toBeUndefined();
-    expect(receiverView.legalActions).toEqual([{ type: "PASS_REACTION" }]);
+    expect(senderView.legalActions).toContainEqual({ type: "PASS_LOCK" });
+    expect(receiverView.legalActions).toEqual([]);
     expect(observerView.legalActions).toEqual([]);
     passAllReactions(state);
     expect(projectGameForPlayer(state, "乙").legalActions).toEqual([
@@ -791,7 +803,7 @@ describe("待传情报投影", () => {
     expect(projectGameForPlayer(state, "丙").transmission?.card?.id).toBe(cardId);
   });
 
-  it("不会把尚未实现的公开文本接收动作标记为合法", () => {
+  it("公开文本在响应结束后开放接收并进入原子接收效果", () => {
     const state = initializedWithActive(players, 11);
     const cardId = cardIdWhere((card) => card.name === "公开文本");
     const card = PHYSICAL_DECK.find((candidate) => candidate.id === cardId);
@@ -804,11 +816,10 @@ describe("待传情报投影", () => {
     const recipientId = state.transmission?.intendedRecipientId;
     if (!recipientId) throw new Error("没有当前接收者");
 
-    expect(projectGameForPlayer(state, recipientId).legalActions).toEqual([
-      { type: "PASS_REACTION" },
-    ]);
+    expect(projectGameForPlayer(state, recipientId).legalActions).toEqual([]);
     passAllReactions(state);
     expect(projectGameForPlayer(state, recipientId).legalActions).toEqual([
+      { type: "ACCEPT_INTELLIGENCE" },
       { type: "DECLINE_INTELLIGENCE" },
     ]);
   });

@@ -38,6 +38,25 @@ Correctness and auditability take priority over scalability, abstraction, and vi
 
 ---
 
+## Lobby and room flow
+
+- Landing page offers create room and join by code.
+- Creating requires a display name and a fixed player count chosen from 2, 5, 6, 7, or 8. The creator becomes host; capacity cannot change afterward.
+- Generate a unique six-letter uppercase `A`–`Z` code, retrying active-room collisions. Code entry is case-insensitive and normalized to uppercase.
+- Invite URLs use the code as the final path segment, for example `https://host/ABCDEF`. A valid link asks only for a display name; an invalid/expired link shows a Chinese error and a route home.
+- Names support trimmed Chinese/Unicode text of 1–16 characters and must be unique within the room. A reconnect token restores an existing seat rather than creating a duplicate.
+- Display numbered seats clockwise. Players move immediately to empty seats; moving to an occupied seat requires an accepted swap request.
+- Before game start, players may leave and the host may remove players, including disconnected players. Removal invalidates that seat's reconnect token.
+- If the host leaves, transfer host ownership to the longest-present remaining player. Delete an empty in-memory room immediately.
+- Reject joins when full. After game start, reject new players and allow only reconnecting seats; spectators are excluded.
+- Only the host starts. Require every seat to be occupied and connected; there is no separate ready state and filling the room does not auto-start.
+- Host chooses “按当前座位开始” or “随机座位开始”. Preserve displayed order for the first option; uniformly shuffle seats server-side for the second. Then randomize the initial active player separately.
+- Pending swap requests expire on start and do not block it.
+- Lobby UI shows the code and “复制邀请链接” at the top; clockwise numbered seats with host/connection badges in the main area; player seat/leave controls; and host remove/start controls. Disabled start buttons explain the missing condition in Chinese.
+- Add a host-only reaction-timeout dropdown with `关闭 / 10 / 15 / 20 / 30 / 60 秒`, defaulting to `15 秒`.
+
+---
+
 ## Design principles
 
 ### Player-facing language
@@ -96,6 +115,7 @@ No hidden information should be inferable from client payload shape, omitted lis
 Keep these files together in the repository:
 
 ```text
+docs/rules-decisions.md
 docs/fengsheng_mvp_handoff.md
 src/game/cards.ts
 src/game/cards.test.ts
@@ -104,9 +124,10 @@ src/game/cards.test.ts
 Recommended source-of-truth order:
 
 1. `src/game/cards.ts` — individual physical cards and deck invariants
-2. This handoff — game rules, timing, and implementation direction
-3. Automated tests
-4. UI copy and implementation details
+2. `docs/rules-decisions.md` — authoritative gameplay and product decisions
+3. This handoff — synchronized implementation direction
+4. Automated tests
+5. UI copy and implementation details
 
 Do not reconstruct the deck from family-level counts. Instantiate games from `PHYSICAL_DECK`.
 
@@ -198,6 +219,8 @@ Each 特工 is independent.
 
 A living 特工 personally wins when they have at least six physical intelligence cards of any colors.
 
+Victory is checked immediately after each accepted intelligence and its on-receive effect fully resolves. One atomic resolution adds intelligence to only one receiver, who has exactly one faction, so simultaneous faction/agent victories cannot newly arise. A red-blue card does not create a tie. End the game immediately when the first valid victory is detected; later actions cannot undo it.
+
 ### Faction distribution
 
 | Players | 军情 | 潜伏 | 特工 |
@@ -243,6 +266,8 @@ A 特工 who reaches six total cards by receiving their third black intelligence
 
 Intelligence in front of dead players remains on the table.
 
+Whenever a player dies for any reason, immediately reveal their faction to everyone and permanently record it in the public Chinese audit log. Host-imposed death of a disconnected player follows the same reveal rule.
+
 ---
 
 ## 6. Turn setup
@@ -251,13 +276,18 @@ Intelligence in front of dead players remains on the table.
 - Deal starting hands from the shuffled mode-specific deck without exposing card identities.
 - The active player draws 2 cards at the start of their turn.
 - The first player performs this normal 2-card draw before their first action.
+- If a draw is attempted with an empty pile, immediately reshuffle eligible discards and continue; if no eligible cards remain, draw as many as possible and finish without error.
 - Select the initial active player uniformly at random using server-generated randomness.
 - `seatOrder` records the players in clockwise table order, and normal turns advance clockwise.
 - Every living active player must complete one intelligence transmission and cannot voluntarily end their turn without doing so.
 - Before starting transmission, the active player must retain at least one hand card; voluntary actions that would leave no card to transmit are illegal.
+- Before transmission, the active player may play any number of otherwise legal function cards.
+- After transmission begins, only actions legal in the current reaction window may be played.
 - Immediately before transmission, the active player must discard chosen cards face up until their hand contains at most 7 cards; transmission cannot start above that limit.
 - The active player's turn ends immediately when their transmitted intelligence is accepted; they cannot play further active-turn function cards afterward.
+- Intelligence is not accepted until every reaction window and mandatory receipt decision for it has resolved, so a turn cannot end with an unresolved transmission interaction.
 - Dead players cannot take turns, act, respond, or receive new intelligence. Advance clockwise to the next living player and skip dead seats.
+- Dead players cannot be selected as active targets unless a card explicitly references intelligence already in front of dead players.
 - Intelligence already in front of dead players remains on the table and may still be referenced by rules that explicitly count or target table intelligence.
 
 ---
@@ -284,6 +314,7 @@ If declined:
 - 密电 and 文本 continue along their fixed route.
 - 直达 returns to the sender.
 - Once 直达, 文本, or 密电 returns to its active sender, the sender must accept it unless they first play a legal 转移; they cannot decline it again.
+- Other legal reaction actions remain available before that forced acceptance, including 截获. A resolved 转移 creates a new normal receipt cycle for its final target.
 
 Use explicit server state for the current intelligence, intended recipient, fixed route, direction, and response window.
 
@@ -293,11 +324,15 @@ Use explicit server state for the current intelligence, intended recipient, fixe
 
 ### Provisional general reaction order
 
-- Offer reaction priority to one living player at a time, beginning with the player affected by the pending interaction and then proceeding clockwise.
-- A player may perform a legal reaction or pass.
-- Playing a reaction opens a fresh clockwise window beginning with the player affected by that new interaction.
+- Offer reaction priority to one living player at a time, beginning with the next living player clockwise after the pending action's target.
+- Continue clockwise through every living player; the target receives the final opportunity before resolution.
+- Give each player one server-generated prompt containing pass plus every card and non-card action currently legal for them; do not create separate card-specific prompts.
+- The client may later highlight playable hand cards, but that UI choice does not change timing.
+- Playing a reaction opens a fresh window beginning with the next living player clockwise after that new action's target.
 - Resolve the pending interaction after every living player passes consecutively.
 - Skip dead players, but do not skip living players based on their hidden hand contents; doing so would leak information through prompt timing.
+- When possible, combine the target's legal card reactions and required target decision in its final prompt.
+- Use the declared target as the priority anchor for targeted functions; the interceptor for 截获; the newly declared target for 转移/离间; the current intended recipient for 掉包; and the user for self-effects.
 - Treat this policy as provisional until playtesting confirms it.
 - Do not put wall-clock timing inside the deterministic rules engine. A future host-configurable room timeout may submit an ordinary pass command through the server layer.
 
@@ -315,22 +350,28 @@ Use explicit server state for the current intelligence, intended recipient, fixe
 - Each 截获 can be countered by 识破.
 - If countered, restore the exact previous pending-recipient state.
 - 截获 has priority over 锁定.
+- The final successful interceptor is committed to accepting automatically after all reactions finish.
+- A successful 截获 removes the previous recipient's 锁定. Do not offer the interceptor a new accept/decline decision, 锁定, or 破译.
 - The active player cannot play 截获 during their own turn, including intercepting their own intelligence back.
 
 Represent each intercept as a reversible interaction frame rather than mutating only one recipient field.
 
 ### 识破
 
-- Counters a legal counterable card or interaction.
-- For 截获, restoring the previous pending state must be exact.
-- Model counter chains explicitly. Do not infer restoration from the current board alone.
+- Counters any card action that is currently the top unresolved card-action interaction, including another 识破.
+- A player cannot counter their own card action.
+- Restoring the state before the countered action must be exact.
+- Model arbitrary counter chains explicitly. Do not infer restoration from the current board alone.
+- Counter chains use the provisional target-anchored clockwise priority system and have no rules-level depth limit.
 
 ### 锁定
 
 - Only the active player may play it during their own transmission.
-- Played before acceptance.
+- When intelligence reaches a recipient through a normal receipt route, give the active sender one exclusive sender-first chance to play it before the regular reaction window.
+- If the sender passes or the 锁定 is countered, do not offer another attempt against the same recipient in that receipt cycle.
 - The current intended recipient must accept and cannot decline.
 - 截获 can override the locked recipient because 截获 has priority.
+- Do not offer another 锁定 after a successful 截获 because the interceptor is already committed to accepting.
 
 ### 掉包
 
@@ -340,6 +381,9 @@ Represent each intercept as a reversible interaction frame rather than mutating 
 - Preserve the original transmission method, route, and direction.
 - The replacement 掉包 is face up.
 - When a 掉包 card is sent normally from hand as intelligence, its printed method is 文本.
+- After one 掉包 resolves, another may replace the new pending intelligence, including replacing another 掉包.
+- Discard every successfully replaced pending card face up.
+- 识破 may counter a pending 掉包; restore the exact prior pending intelligence and transmission state without discarding anything.
 
 ### 转移
 
@@ -349,11 +393,16 @@ Represent each intercept as a reversible interaction frame rather than mutating 
 - Choose a different intended recipient.
 - This does not cause immediate acceptance.
 - Normal response timing resumes.
+- After 转移 and its reactions resolve, the final target begins a normal receipt cycle: sender-first 锁定, then 破译 if unlocked, followed by accept/decline.
 - 截获 remains legal.
 
 ### 调虎离山
 
-Implement from the exact card text represented by the physical edition. Keep its play legality and effect in a dedicated validator/resolver rather than a generic redirect abstraction.
+- Play only when another player other than the original sender reaches an ordinary accept/decline decision.
+- Force that intended recipient to decline, then apply the normal decline route: 文本/密电 continues along the fixed route and 直达 returns to the original sender.
+- It is illegal against a 锁定 recipient, a successful interceptor, or returned intelligence that the original sender must accept.
+- 识破 may counter it and restore the pending decision exactly. 离间 cannot redirect it.
+- It changes neither turn order nor seat eligibility; a subsequent recipient begins a normal receipt cycle.
 
 ### 离间
 
@@ -367,15 +416,20 @@ May redirect the target of:
 
 The new target cannot be the original target.
 
+At most one 离间 may be played against an original card action. 识破 may counter it and restores the original target.
+
 ### 破译
 
-Allows the player to inspect a 密电 or 直达 intelligence before deciding whether to accept or decline.
+Only the current intended recipient may privately inspect a 密电 or 直达 intelligence before deciding whether to accept or decline. It is legal after 转移 creates a normal receipt cycle. It is illegal after a successful 锁定 or 截获 because those recipients must accept.
 
 ### 烧毁
 
-- May be played during any phase.
-- Targets only intelligence already accepted and on the table.
-- Cannot target 危险情报.
+- May be played during any open action or reaction window in any phase.
+- Targets only accepted black intelligence in front of a living player whose physical card lacks the printed “不可烧毁” mark.
+- Cannot target intelligence in front of dead players or any red, blue, or red-blue card.
+- Cannot interrupt the atomic acceptance → death → on-receive effect → victory sequence, so it cannot save a player after their third black intelligence arrives.
+- 识破 may counter it and leaves the target card unchanged. A recorded victory cannot be undone.
+- Extend the physical-card manifest with the audited burnability mark before implementing this validator; do not infer it from card family alone.
 
 ### 危险情报
 
@@ -385,6 +439,10 @@ As a function card:
 2. Inspect their hand.
 3. Choose one card from that hand.
 4. Discard it.
+
+The target must have at least one hand card when the action is declared. A player with an empty hand is not a legal target.
+
+Declare and fully resolve 离间/识破 reactions before revealing a hand. A redirected target must also have a non-empty hand. If the action survives, show the final target's hand privately only to the card user, who chooses one card to discard face up. Do not open another response window after revealing the hand.
 
 As intelligence:
 
@@ -406,6 +464,9 @@ A living player can therefore draw at most three cards from this effect.
 As a function card:
 
 - Count all true intelligence currently on the table.
+- 真情报 means accepted red, blue, or red-blue intelligence; black does not count.
+- Count physical cards once each, so red-blue counts once. Face orientation does not change the count.
+- An accepted face-up 掉包 counts when that physical card is red or blue; a black 掉包 does not.
 - Include intelligence in front of dead players.
 - If count is at least 4, draw 2.
 - If count is at least 7, draw 3.
@@ -426,8 +487,10 @@ As a function card during the active player’s action phase:
 
 1. Choose another player.
 2. Give that player the played 公开文本 card.
-3. Randomly take one card from their hand without inspecting it first.
+3. Randomly take one card only from the cards that were already in their hand before receiving the played 公开文本, without inspecting it first.
 4. If the obtained card is also 公开文本, discard the obtained card face up.
+
+The target must already have at least one hand card before this action begins. A player with an empty hand is not a legal target. The newly given 公开文本 is not part of the random-selection pool and cannot be taken back by this effect.
 
 As accepted intelligence:
 
@@ -444,14 +507,21 @@ As accepted intelligence:
 
 Death is checked before this on-receive effect.
 
+Resolve this on-receive effect completely before victory checking, ending the turn, advancing clockwise, or performing the next turn-start draw. This resolution is not an active-phase function-card action.
+
 ### 秘密下达
 
-- Played before another player begins transmitting.
+- Played in a dedicated window after the active player irrevocably ends their function phase but before selecting the intelligence, transmission method, route, or direction.
+- Once this window opens, the active player cannot return to active-phase function-card play.
 - The user declares one printed code word.
 - The physical card’s private mapping determines the required color.
 - The target must send matching intelligence when possible.
+- A red-blue card satisfies either a red or blue requirement. If multiple cards match, the target chooses freely.
 - If the target claims none exists, the server verifies the hand.
-- The player who used 秘密下达 may inspect the hand when the claim is made.
+- The player who used 秘密下达 privately inspects the hand when the claim is made.
+- If no matching card truly exists, the color restriction ends and the target transmits any otherwise legal card.
+- At most one 秘密下达 applies to each transmission.
+- 识破 may counter it and restore exact prior state. 离间 cannot redirect it.
 - Used face down.
 - Included in later reshuffles.
 
@@ -470,9 +540,13 @@ Each physical card contains a private faction-to-public-code mapping.
 The target chooses either:
 
 - publicly say the code corresponding to their true faction; or
-- let the card user choose a card from their hand
+- allow one card to be taken randomly from their hand without inspection
+
+If the target has no hand cards, they cannot choose the hand-card alternative and must publicly state the code corresponding to their true faction.
 
 Only the user of 试探 knows the exact mapping on that physical card.
+
+Identity codes announced publicly remain permanently in the public audit log. Both 试探 variants are legal only during the active player's pre-transmission function phase, and 离间 may redirect the target before that target chooses a response.
 
 #### Draw/discard variant
 
@@ -486,6 +560,8 @@ The draw faction is encoded per physical card in `cards.ts`.
 
 Unless stated otherwise, discarded cards are face up.
 
+If an effect requires a player with no hand cards to discard, that discard does nothing.
+
 Exceptions:
 
 - Used 试探 is face down and permanently removed from reshuffles.
@@ -497,6 +573,8 @@ When the draw pile is empty:
 2. Add used 秘密下达.
 3. Exclude all used 试探.
 4. Shuffle to form the new draw pile.
+
+Perform this reshuffle immediately whenever a draw is attempted with an empty pile, including partway through a multi-card draw, then continue the same effect. If no eligible cards remain, draw as many as possible and finish without error.
 
 Keep separate server-side zones rather than a single discard array:
 
@@ -510,7 +588,34 @@ type DiscardZones = {
 
 ---
 
-## 10. Recommended engine architecture
+## 10. Hidden information, logs, and room lifecycle
+
+- During play, each player sees only their own faction, hand, legal actions, and private card mappings they are entitled to know. Other factions remain hidden unless a rule reveals them or the game ends.
+- Never send another hand, faction, private mapping, hidden discard identity, unrevealed card, or server-only verification detail to a client.
+- Privately inspected cards are displayed transiently and are not retained in player-visible private history. Reconnecting players must remember prior inspections.
+- Public logs use Chinese and include only visible actions/outcomes. Any future public replay must redact hidden and privately inspected information.
+- At game end, reveal factions and final hands only; do not reveal unused cards, deck order, or past private inspections.
+- The server may retain complete authoritative diagnostic events in process memory, but MVP retains neither completed games nor saved replays.
+
+Reconnection:
+
+- Give each player a private reconnect token. Refresh/reconnect restores the same seat and current private projection while the server process is alive.
+- While any living player is disconnected, pause all gameplay progression.
+- Reserve that seat indefinitely. The host may publicly mark a currently disconnected player dead, applying the normal dead-player state and skipping rules.
+- A dead disconnected player no longer pauses the game; resume once no living player is disconnected.
+- The host cannot replace or transfer an occupied seat after game start. AI control is deferred until after MVP.
+
+Timeout and persistence:
+
+- Keep wall-clock timing outside the deterministic engine. The configured room timeout submits an ordinary pass through the room/server layer for optional reaction priority only; mandatory decisions remain untimed.
+- The host may change the timeout during play. Announce and log the change publicly, and apply it from the next reaction prompt without modifying a timer already running.
+- Pause reaction timers while the game is paused for a disconnected living player.
+- Store MVP rooms in server memory. Browser refresh works, but a server-process restart ends active games.
+- Do not retain completed rooms or replays for MVP; database persistence is deferred.
+
+---
+
+## 11. Recommended engine architecture
 
 Use a server-authoritative deterministic rules package.
 
@@ -582,9 +687,9 @@ This is especially important for chained 截获 and 识破.
 
 ---
 
-## 11. Testing priorities
+## 12. Deferred testing priorities
 
-Before UI work, add engine tests for:
+The user has paused new test work during rapid implementation. When testing resumes, prioritize:
 
 1. three-black death before victory
 2. 特工 receiving sixth card as third black
@@ -597,7 +702,7 @@ Before UI work, add engine tests for:
 9. active player forbidden from using 截获 on their turn
 10. 掉包 preserving original route and method
 11. 转移 reopening normal response timing
-12. 烧毁 rejecting pending intelligence and 危险情报
+12. 烧毁 enforcing accepted-black, living-owner, and printed “不可烧毁” eligibility
 13. 公开文本 death-before-effect ordering
 14. 秘密下达 server verification
 15. hidden discard and reshuffle eligibility
@@ -607,39 +712,27 @@ Run `cards.test.ts` as a deck-data gate in CI.
 
 ---
 
-## 12. Remaining decisions before a complete game
+## 13. Decision status
 
 The deck audit is finished. Do not reopen it unless a failing test or physical-card comparison identifies a specific conflict.
 
-The remaining work is implementation and a small number of gameplay-policy decisions:
+No unresolved gameplay decision currently blocks implementation.
 
-- draw-pile exhaustion during turn-start or effect draws
-- function-card limits and action timing before transmission
-- general reaction priority and passing
-- simultaneous victory and final game-ending policy
-- disconnect timeout and host controls
-- whether abandoned games can be resumed after server restart
-- any still-unrecorded exact printed wording for 调虎离山
-- precise generic 识破 eligibility beyond the confirmed 截获 interaction
-- whether multiple 掉包 responses may chain in every timing window
+The general reaction-priority model is deliberately provisional: implement the confirmed provisional sequence now and revisit only if playtesting exposes pacing or priority problems. Reaction timeout values, AI takeover, database persistence, and retained replays are deferred product features, not engine-rule blockers.
 
-Keep these decisions centralized in `docs/rules-decisions.md` rather than burying them in code.
+Keep any future decisions centralized in `docs/rules-decisions.md` and then synchronize this handoff.
 
 ---
 
-## 13. Immediate Codex task
+## 14. Immediate Codex task
 
-Start with the rules package, not the UI.
+Resume the existing deterministic rules engine. First reconcile current implementation state with the now-confirmed receipt sequence and generic card-action counter stack. Implement card-specific validators/resolvers explicitly, including the audited burnability property required by 烧毁. Do not begin networking or UI until the rules engine can represent the confirmed transmission, receipt, reaction, death, and victory states.
 
-Suggested first prompt:
-
-> Read `docs/fengsheng_mvp_handoff.md`, `src/game/cards.ts`, and `src/game/cards.test.ts`. Treat them as authoritative. First run the existing tests and inspect the repository. Then propose a minimal TypeScript domain model and implementation plan for a deterministic server-authoritative rules engine. Do not implement UI or networking yet. Identify any rule decisions that block the engine, but do not invent answers. After the plan, implement the smallest vertical slice: deck initialization, faction assignment, player-private state projection, and invariant tests.
-
-After that vertical slice, implement transmission and response timing before individual action cards.
+Do not add tests or create commits while the user's current rapid-iteration instruction remains active.
 
 ---
 
-## 14. Definition of done for the first engine milestone
+## 15. Definition of done for the first engine milestone
 
 - Tests pass
 - A game can be initialized for 2 or 5–8 players
