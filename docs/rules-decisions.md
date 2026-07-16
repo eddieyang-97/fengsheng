@@ -1,26 +1,12 @@
-# 风声 Rules Decisions
+# 风声 Rules and Rulings
 
-This document tracks gameplay decisions that are not yet fully specified.
-
-Do not silently invent answers in implementation.  
-Each unresolved item should remain explicit until confirmed.
-
----
-
-## Status legend
-
-- `UNRESOLVED` — blocks or may affect implementation
-- `PARTIALLY CONFIRMED` — confirmed core rule with unresolved edge cases
-- `PROVISIONAL` — temporary implementation choice, not yet confirmed
-- `CONFIRMED` — authoritative decision
+This document is the authoritative record of confirmed gameplay rules and rulings. New unresolved questions should be discussed and confirmed before being added here.
 
 ---
 
 ## Core setup
 
 ### Two-player duel variant
-
-**Status:** CONFIRMED
 
 - Two players are supported as a deliberate reduced duel variant.
 - Assign one 潜伏 and one 军情; do not include 特工.
@@ -37,10 +23,6 @@ Each unresolved item should remain explicit until confirmed.
 
 ### Starting hand size
 
-**Status:** CONFIRMED
-
-Confirmed:
-
 - Every player starts with 2 cards.
 - The starting hand size is the same for the 2-player duel and standard 5–8-player games.
 - The first player performs the normal 2-card turn-start draw before their first action.
@@ -48,10 +30,6 @@ Confirmed:
 ---
 
 ### Initial active player
-
-**Status:** CONFIRMED
-
-Confirmed:
 
 - Select the initial active player uniformly at random from all seated players.
 - The server is responsible for generating the randomness.
@@ -64,8 +42,6 @@ Confirmed:
 ---
 
 ### Faction assignment visibility
-
-**Status:** CONFIRMED
 
 - Each player sees only their own faction.
 - Factions remain hidden unless revealed by a rule or the game ends.
@@ -83,10 +59,6 @@ Confirmed:
 
 ### Start-of-turn draw
 
-**Status:** CONFIRMED
-
-Confirmed:
-
 - The active player draws 2 cards at the start of their turn.
 - This includes the first turn.
 - Whenever a draw is attempted with an empty draw pile, immediately reshuffle all eligible discard zones and continue the same draw.
@@ -95,10 +67,6 @@ Confirmed:
 ---
 
 ### Action phase
-
-**Status:** CONFIRMED
-
-Confirmed:
 
 - A living active player must complete one intelligence transmission during their turn.
 - They cannot voluntarily end their turn without transmitting.
@@ -113,9 +81,7 @@ Confirmed:
 
 ### End-of-turn rules
 
-**Status:** CONFIRMED
-
-Confirmed hand-limit timing:
+Hand-limit timing:
 
 - Maximum hand size is 7 immediately before starting the mandatory transmission.
 - If the active player has more than 7 cards at that point, they choose and discard cards until 7 remain.
@@ -133,8 +99,6 @@ Confirmed hand-limit timing:
 
 ### Default transmission direction
 
-**Status:** CONFIRMED
-
 - 密电 defaults to clockwise.
 - 文本 defaults to clockwise.
 - A circle icon lets the sender choose clockwise or counterclockwise at transmission start.
@@ -145,18 +109,12 @@ Confirmed hand-limit timing:
 
 ### Declining intelligence
 
-**Status:** CONFIRMED
-
 - For 密电 and 文本, the intelligence continues along the fixed route.
 - For 直达, the intelligence returns to the sender.
 
 ---
 
 ### Transmission returning to sender
-
-**Status:** CONFIRMED
-
-Confirmed:
 
 - Any current recipient may use 转移 during their own final receipt-response priority, provided the intelligence is not locked; this includes but is not limited to intelligence returned to its original sender.
 - 转移 chooses a different intended recipient.
@@ -172,13 +130,11 @@ Confirmed:
 
 ### General reaction order
 
-**Status:** PROVISIONAL
-
 - Reaction opportunities are offered to one living player at a time.
 - A new reaction window starts with the next living player clockwise after the pending action's target.
 - Priority continues clockwise through every living player, with the target receiving the final reaction opportunity before resolution.
 - Each priority prompt offers pass plus every card and non-card action currently legal for that player in the window; do not split these into separate card-specific prompts.
-- The server generates the legal-action set. UI presentation may highlight legal cards in hand, but that presentation choice is deferred.
+- The server generates the legal-action set, and the UI presents the legal responses in the current response panel while highlighting playable cards in hand.
 - After a reaction is played, open a fresh window starting with the next living player clockwise after that new action's target.
 - When every living eligible-by-seat player passes consecutively, close the window and resolve the pending interaction.
 - Dead players are skipped.
@@ -191,15 +147,9 @@ Confirmed:
   - 掉包: the current intended intelligence recipient
   - self-effect: the card user
 
-Decision:
-
-> Use provisionally and revisit if playtesting reveals priority or pacing problems.
-
 ---
 
 ### 截获
-
-**Status:** CONFIRMED
 
 - Played before intelligence is accepted.
 - The interceptor becomes the new pending receiver and is committed to accepting the intelligence if that 截获 remains the final successful intercept.
@@ -222,22 +172,16 @@ Implementation note:
 
 ### 识破
 
-**Status:** CONFIRMED
-
-Confirmed:
-
 - It may counter any card action that is currently the top unresolved card-action interaction.
 - It may counter another 识破.
 - A player cannot use 识破 to counter their own card action.
-- Counter chains use the same provisional clockwise reaction-priority system.
+- Counter chains use the same clockwise reaction-priority system.
 - Countering an action restores the exact authoritative state from immediately before that action.
 - There is no rules-level chain-depth limit; practical server safeguards must not change legal outcomes.
 
 ---
 
 ### 锁定
-
-**Status:** CONFIRMED
 
 - Only the active player may use it.
 - Only during their own transmission.
@@ -251,8 +195,6 @@ Confirmed:
 ---
 
 ### 掉包
-
-**Status:** CONFIRMED
 
 - Played before intelligence is accepted.
 - Replaces the pending intelligence with the 掉包 card.
@@ -270,12 +212,9 @@ Confirmed:
 
 ### 转移
 
-**Status:** CONFIRMED
-
-- Only the active sender may use it.
-- Only when their own transmitted intelligence returns to them during their turn.
-- This applies to returned 直达, 文本, and 密电.
-- Choose another intended recipient.
+- Any current intended recipient may use 转移 during their own final receipt-response priority, including a player who was not the original sender.
+- 转移 is legal only while the intelligence is not locked.
+- Choose a different living intended recipient.
 - This does not cause immediate acceptance; normal response timing resumes.
 - After 转移 and its reactions resolve, the final transferred target is committed to acceptance. No new 锁定 opportunity opens; the target may still use 破译, 掉包, or another legal 转移 before mandatory acceptance.
 - 调虎离山 cannot force the committed transferred target to refuse.
@@ -287,8 +226,6 @@ Confirmed:
 
 ### Black intelligence death
 
-**Status:** CONFIRMED
-
 - A player dies immediately upon receiving their third black intelligence.
 - Death is checked before any on-receive effect.
 - Death is checked before victory.
@@ -296,8 +233,6 @@ Confirmed:
 ---
 
 ### 特工 victory
-
-**Status:** CONFIRMED
 
 - Each 特工 is independent.
 - A living 特工 wins personally with six physical intelligence cards of any colors.
@@ -307,8 +242,6 @@ Confirmed:
 ---
 
 ### Team victory
-
-**Status:** CONFIRMED
 
 - 军情 wins when any living 军情 player has at least three blue intelligence.
 - 潜伏 wins when any living 潜伏 player has at least three red intelligence.
@@ -326,8 +259,6 @@ Confirmed:
 
 ### 调虎离山
 
-**Status:** CONFIRMED
-
 - May be played only when another player, other than the original sender, is at an ordinary accept/decline decision for pending intelligence.
 - It forces that intended recipient to choose “decline”; the recipient does not accept the intelligence.
 - It does not create a special route. Apply the pending intelligence's normal decline rule from that recipient:
@@ -343,8 +274,6 @@ Confirmed:
 ---
 
 ### 离间
-
-**Status:** CONFIRMED
 
 May redirect the target of:
 
@@ -362,8 +291,6 @@ The new target cannot be the original target.
 
 ### 破译
 
-**Status:** CONFIRMED
-
 - Allows inspection of a 密电 or 直达 intelligence before its receipt decision resolves.
 - The recipient selected by a resolved 转移 may use 破译, 掉包, or another 转移 before their mandatory acceptance, provided the intelligence is not locked.
 - Only the current intended recipient may use it.
@@ -375,8 +302,6 @@ The new target cannot be the original target.
 ---
 
 ### 烧毁
-
-**Status:** CONFIRMED
 
 - May be played during any open action or reaction window in any phase.
 - Targets only already accepted black intelligence in front of a living player.
@@ -393,8 +318,6 @@ The new target cannot be the original target.
 ---
 
 ### 危险情报
-
-**Status:** CONFIRMED
 
 As a function card:
 
@@ -420,8 +343,6 @@ As intelligence:
 
 ### 增援
 
-**Status:** CONFIRMED
-
 - Draw one card.
 - Draw one additional card per black intelligence in front of the user.
 - A living player can therefore draw at most three cards.
@@ -432,8 +353,6 @@ As intelligence:
 ---
 
 ### 机密文件
-
-**Status:** CONFIRMED
 
 As a function card:
 
@@ -458,8 +377,6 @@ As intelligence:
 ---
 
 ### 公开文本
-
-**Status:** CONFIRMED
 
 As a function card during the active player’s action phase:
 
@@ -488,11 +405,11 @@ Death is checked before the on-receive effect.
 
 The on-receive effect resolves completely before victory checking, turn completion, clockwise advancement, and the next player's turn-start draw. It is not limited by active-phase function-card timing.
 
-Confirmed empty-hand handling:
+Empty-hand handling:
 
 - Any forced discard does nothing when the affected player has no hand cards.
 
-Confirmed draw handling:
+Draw handling:
 
 - If any draw empties the pile, reshuffle immediately and continue.
 - If no eligible cards remain, draw as many as possible and finish the effect.
@@ -500,8 +417,6 @@ Confirmed draw handling:
 ---
 
 ### 秘密下达
-
-**Status:** CONFIRMED
 
 - Played in a dedicated pre-transmission window after the active player irrevocably ends their function-card phase and declares that they are entering transmission.
 - This window occurs before the active player selects the intelligence card, transmission method, route, or direction.
@@ -523,8 +438,6 @@ Confirmed draw handling:
 ---
 
 ### 试探
-
-**Status:** CONFIRMED
 
 - Used face down.
 - Permanently excluded from reshuffles.
@@ -549,8 +462,6 @@ Draw/discard variant:
 
 ### Discard visibility
 
-**Status:** CONFIRMED
-
 - Normal discards are face up.
 - Used 试探 is face down and removed permanently.
 - Used 秘密下达 is face down but remains reshuffle-eligible.
@@ -560,9 +471,7 @@ Draw/discard variant:
 
 ### Reshuffle timing
 
-**Status:** CONFIRMED
-
-Confirmed reshuffle pool:
+Reshuffle pool:
 
 - face-up eligible discards
 - used 秘密下达
@@ -581,8 +490,6 @@ Excluded:
 ## Hidden information and logging
 
 ### Client projection
-
-**Status:** CONFIRMED
 
 A client may receive:
 
@@ -606,10 +513,6 @@ A client must not receive:
 
 ### Audit log
 
-**Status:** CONFIRMED
-
-Recommended:
-
 - Public log records visible actions and outcomes in Chinese.
 - Privately inspected information is shown transiently only to the authorized player.
 - Do not retain inspected card identities in player-visible private history; the player must remember what they saw.
@@ -624,8 +527,6 @@ Recommended:
 ## Room and operational decisions
 
 ### Landing page and room entry
-
-**Status:** CONFIRMED
 
 - The landing page offers two primary actions: create a room or join a room by code.
 - The create-room control includes a required player-count field.
@@ -649,9 +550,10 @@ Recommended:
 - If the host leaves, host ownership transfers deterministically to the longest-present remaining player.
 - If no players remain after a pre-game leave, delete the in-memory room immediately and make its code invalid.
 - Starting requires every seat to be occupied and every seated player to be currently connected.
-- MVP has no separate ready/unready state; once the room is full and connected, the host may start immediately.
+- There is no separate ready/unready state; once the room is full and connected, the host may start immediately.
 - Pending seat-swap requests do not block starting; they expire when the host starts the game, and the currently displayed seats are authoritative for “按当前座位开始”.
-- After game start, reject new joins through the room URL; only valid reconnect tokens may restore existing seats. Spectators are outside MVP scope.
+- After game start, reject new seated-player joins through the room URL; only valid reconnect tokens may restore existing seats.
+- A visitor may instead join as a named spectator before or during a game. Spectators are listed publicly, receive only the public game projection, cannot issue gameplay commands, and may reconnect with their spectator token.
 - Lobby layout shows the room code and a “复制邀请链接” control at the top; clockwise numbered seats with host and connection badges in the main area; seat-change and leave controls for players; and remove-player plus both start-mode controls for the host.
 - Disabled start controls show a Chinese reason until every seat is occupied and connected.
 - The lobby includes a host-only configuration box for reaction timeout.
@@ -670,8 +572,6 @@ Recommended:
 ---
 
 ### Reconnection
-
-**Status:** CONFIRMED
 
 - A player receives a private reconnect token.
 - Reconnection restores their seat and private projection.
@@ -692,11 +592,10 @@ Recommended:
 - Once a successor has received host authority, a previous host's reconnection neither displaces that successor nor automatically restores the previous claim.
 - If no connected living successor is eligible, host succession remains pending with no current host. When an eligible living player reconnects, resolve succession using the same clockwise rule. A reconnecting player may receive host authority even if they held it earlier; prior host status is not a permanent disqualification.
 - The host cannot replace a player or transfer their seat after the game starts.
-- AI control for disconnected players is deferred until after MVP.
+- Before the game starts, the host may add AI players to empty seats and remove those AI players.
+- During a game, the host may enable AI control for a disconnected living player. Reconnecting with that player's valid token restores human control automatically.
 
 ### Reaction timeout
-
-**Status:** CONFIRMED
 
 - Reaction ordering in the rules engine does not depend on wall-clock time.
 - The room host configures the reaction timeout in the pre-game lobby; the default is 15 seconds.
@@ -713,17 +612,12 @@ Recommended:
 
 ### Persistence
 
-**Status:** CONFIRMED
-
-- MVP room and game state is stored in server memory.
+- Room and game state is stored in server memory.
 - Browser refresh and reconnection restore the game while the same server process remains alive.
-- Active games do not survive a server-process restart for MVP.
-- Completed games and saved replays are not retained for MVP.
-- Database-backed persistence and retained replays are deferred until after the first playable version.
+- Active games do not survive a server-process restart.
+- Completed games and saved replays are not retained.
 
 ### New game in the same room
-
-**Status:** CONFIRMED
 
 - After a game ends, the host may return every player to the lobby with the same room code, seats, reconnect tokens, capacity, and reaction-timeout setting.
 - Clear the completed authoritative game session and reset every player's alive state before another game starts.
@@ -743,7 +637,7 @@ src/game/cards.test.ts
 docs/rules-decisions.md
 ```
 
-Confirmed totals:
+Deck totals:
 
 - 87 cards
 - 28 circle cards

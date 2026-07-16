@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Faction, PhysicalCard, PhysicalCardId } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
+import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import { REACTION_TIMEOUT_OPTIONS, type ReactionTimeoutSeconds } from "./lobby-types";
 import "./game-table.css";
 
@@ -380,6 +381,7 @@ export function GameTable({
   const lastAutoPassPrompt = useRef<string | undefined>(undefined);
   const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("直达");
   const [direction, setDirection] = useState<"clockwise" | "counterclockwise">("clockwise");
+  const [discardPileOpen, setDiscardPileOpen] = useState(false);
   const actions = projection.legalActions;
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
   const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
@@ -462,7 +464,7 @@ export function GameTable({
         <div><strong>风声</strong><span>{projection.mode === "duel" ? "双人模式" : "标准模式"}</span></div>
         <div className="game-status">
           <span>牌堆 {projection.drawPileCount}</span>
-          <span>弃牌 {projection.publicDiscard.length}</span>
+          <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
           <span>旁观：{spectators.filter((spectator) => spectator.connected).map((spectator) => spectator.displayName).join("、") || "无"}</span>
           <span className={connected ? "online-dot" : "offline-dot"}>{connected ? "已连接" : "连接中断，游戏暂停"}</span>
           <label className="auto-pass-control">
@@ -706,6 +708,9 @@ export function GameTable({
           <ol>{auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
         </aside>
       </section>
+      {discardPileOpen && (
+        <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />
+      )}
     </main>
   );
 }

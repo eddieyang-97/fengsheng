@@ -1,6 +1,9 @@
+import { useState } from "react";
+
 import type { PhysicalCard } from "../game/cards";
 import type { SpectatorProjection } from "../game/engine";
 import { formatAuditEntries, mergeAuditLogs } from "./GameTable";
+import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import "./game-table.css";
 
 export interface SpectatorTableProps {
@@ -38,13 +41,14 @@ export function SpectatorTable({
     mergeAuditLogs(projection.auditLog, roomAuditLog),
     playerDisplayNames,
   );
+  const [discardPileOpen, setDiscardPileOpen] = useState(false);
   return (
     <main className="game-shell game-shell--spectator">
       <header className="game-topbar">
         <div><strong>风声</strong><span>旁观模式</span></div>
         <div className="game-status">
           <span>牌堆 {projection.drawPileCount}</span>
-          <span>弃牌 {projection.publicDiscard.length}</span>
+          <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
           <span className={connected ? "online-dot" : "offline-dot"}>{connected ? "已连接" : "连接中断"}</span>
           <span>旁观者：{spectators.filter((item) => item.connected).map((item) => item.displayName).join("、") || "无"}</span>
           <button className="spectator-leave-button" onClick={onLeave} type="button">离开旁观</button>
@@ -94,6 +98,9 @@ export function SpectatorTable({
           <ol>{auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
         </aside>
       </section>
+      {discardPileOpen && (
+        <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />
+      )}
     </main>
   );
 }
