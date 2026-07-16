@@ -81,6 +81,40 @@ describe("bot strategy", () => {
     });
   });
 
+  it("keeps joint beliefs consistent with the exact faction distribution", () => {
+    const projection = makeProjection({
+      players: makeProjection().players.map((player) => {
+        if (player.id === "c") return { ...player, faction: "军情" as Faction };
+        if (player.id === "d") return { ...player, faction: "潜伏" as Faction };
+        return player;
+      }),
+    });
+    const beliefs = factionBeliefs(createBotMemory(projection), projection);
+
+    expect(beliefs.b.军情).toBe(0);
+    expect(beliefs.e.军情).toBe(0);
+    expect(sumFaction(beliefs, "军情")).toBeCloseTo(2);
+    expect(sumFaction(beliefs, "潜伏")).toBeCloseTo(2);
+    expect(sumFaction(beliefs, "特工")).toBeCloseTo(1);
+  });
+
+  it("couples hidden-player beliefs instead of allowing impossible independent totals", () => {
+    const projection = makeProjection({
+      players: makeProjection().players.map((player) => {
+        if (player.id === "c") return { ...player, faction: "军情" as Faction };
+        if (player.id === "d") return { ...player, faction: "潜伏" as Faction };
+        return player;
+      }),
+    });
+    const memory = createBotMemory(projection);
+    memory.evidence.b = { 军情: -8, 潜伏: -8, 特工: 8 };
+    const beliefs = factionBeliefs(memory, projection);
+
+    expect(beliefs.b.特工).toBeGreaterThan(0.99);
+    expect(beliefs.e.潜伏).toBeGreaterThan(0.99);
+    expect(beliefs.e.特工).toBeLessThan(0.01);
+  });
+
   it("accepts matching intelligence and declines lethal black intelligence", () => {
     const helpful = makeProjection({
       phase: "transmitting",
@@ -116,6 +150,27 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(projection, memory)?.type).toBe("ACCEPT_INTELLIGENCE");
   });
 
+  it("accepts hidden sixth intelligence when it guarantees a 特工 victory", () => {
+    const safeIntelligence = [
+      ...PHYSICAL_DECK.filter((card) => card.color !== "黑").slice(0, 4),
+      blackCard,
+    ];
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "特工", hand: [counterCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot" ? { ...player, intelligence: safeIntelligence } : player
+      ),
+      transmission: { ...transmission(blueCard), card: undefined, faceUp: false },
+      legalActions: [{ type: "ACCEPT_INTELLIGENCE" }, { type: "DECLINE_INTELLIGENCE" }],
+    });
+    const memory = createBotMemory(projection);
+    expect(receiptUtility(undefined, "bot", projection, factionBeliefs(memory, projection)))
+      .toBeGreaterThan(9_000);
+    expect(chooseBotCommand(projection, memory, { policy: "tactical-v2", random: () => 0.99 })?.type)
+      .toBe("ACCEPT_INTELLIGENCE");
+  });
+
   it("counters hostile actions but preserves 识破 when the pending action helps", () => {
     const hostile = makeProjection({
       own: { id: "bot", faction: "军情", hand: [counterCard] },
@@ -148,6 +203,8 @@ describe("bot strategy", () => {
       ],
     };
     expect(chooseBotCommand(helpful, createBotMemory(helpful))?.type).toBe("PASS_REACTION");
+    expect(chooseBotCommand(helpful, createBotMemory(helpful), { policy: "baseline-v1" })?.type)
+      .toBe("PLAY_COUNTER");
   });
 
   it("does not hand matching intelligence to a likely opposing faction", () => {
@@ -256,4 +313,11 @@ function cardWhere(predicate: (card: PhysicalCard) => boolean): PhysicalCard {
   const card = PHYSICAL_DECK.find(predicate);
   if (!card) throw new Error("Expected physical card fixture");
   return card;
+}
+
+function sumFaction(
+  beliefs: Record<string, { 军情: number; 潜伏: number; 特工: number }>,
+  faction: Faction,
+): number {
+  return Object.values(beliefs).reduce((sum, belief) => sum + belief[faction], 0);
 }

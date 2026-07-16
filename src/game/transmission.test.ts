@@ -550,6 +550,41 @@ describe("转移", () => {
     });
   });
 
+  it("非原发送者可将未锁定情报转移回原发送者，且原发送者必须接收", () => {
+    const state = initializedWithActive(players, 620);
+    const directCard = cardIdWhere((card) => card.transmission === "直达");
+    const transferCard = cardIdWhere((card) => card.name === "转移", [directCard]);
+    putCardInHand(state, "甲", directCard, 0);
+    putCardInHand(state, "乙", transferCard, 0);
+
+    startTransmission(state, "甲", directCard, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    passUntilReactionTurn(state, "乙");
+
+    expect(projectGameForPlayer(state, "乙").legalActions).toContainEqual({
+      type: "PLAY_TRANSFER",
+      cardId: transferCard,
+      targetId: "甲",
+    });
+    playTransfer(state, "乙", transferCard, "甲");
+    finishCurrentReactionWindow(state);
+
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "甲",
+      returnedToSender: false,
+      transferredRecipientCommitted: true,
+    });
+    passAllReactions(state);
+    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([
+      { type: "ACCEPT_INTELLIGENCE" },
+    ]);
+    expect(() => declineIntelligence(state, "甲")).toThrow(
+      "转移后的接收者必须接收情报，不能拒绝",
+    );
+    acceptIntelligence(state, "甲");
+    expect(state.transmission).toBeUndefined();
+  });
+
   it("锁定后的当前接收者不能使用转移", () => {
     const state = initializedWithActive(players, 621);
     const directCard = cardIdWhere((card) => card.transmission === "直达");

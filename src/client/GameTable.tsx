@@ -472,6 +472,28 @@ export function GameTable({
     !forcedChoice;
   const selectableCardIds = new Set(playableCardIds);
   if (canStartTransmission) projection.own.hand.forEach((card) => selectableCardIds.add(card.id));
+  const selectionContext = [
+    projection.phase,
+    projection.activePlayerId,
+    projection.reactionWindow?.kind,
+    projection.reactionWindow?.currentResponderId,
+    projection.responseStack.at(-1)?.id,
+    projection.transmission?.intendedRecipientId,
+    projection.transmission?.receiptStage,
+    projection.pendingSecretOrder?.stage,
+    projection.activeFunctionAction?.stage,
+  ].join("|");
+
+  useEffect(() => {
+    setSelectedCardId(undefined);
+  }, [selectionContext]);
+
+  useEffect(() => {
+    if (selectedCardId && !selectableCardIds.has(selectedCardId)) {
+      setSelectedCardId(undefined);
+    }
+  }, [selectedCardId, selectableCardIds]);
+
   const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
   const auditEntries = formatAuditEntries(
     mergeAuditLogs(projection.auditLog, roomAuditLog),

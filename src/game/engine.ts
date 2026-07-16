@@ -1008,16 +1008,9 @@ export function assertGameStateInvariants(state: GameState): void {
     ) {
       throw new Error("原发送者不能成为承诺接收的截获者");
     }
-    if (
-      transmission.transferredRecipientCommitted &&
-      transmission.intendedRecipientId === transmission.senderId
-    ) {
-      throw new Error("转移后的承诺接收者不能是原发送者");
-    }
     if (transmission.pendingTransfer) {
       const pending = transmission.pendingTransfer;
       if (
-        pending.targetId === transmission.senderId ||
         !state.players[pending.targetId]?.alive ||
         cardById(pending.sourceCardId).name !== "转移" ||
         !state.publicDiscard.includes(pending.sourceCardId)
@@ -3334,7 +3327,6 @@ export function playSeparationOnTransfer(
   if (
     targetId === pending.targetId ||
     targetId === transferFrame.targetPlayerId ||
-    targetId === transmission.senderId ||
     !state.players[targetId]?.alive
   ) {
     throw new Error("离间必须为转移选择另一个合法存活目标");

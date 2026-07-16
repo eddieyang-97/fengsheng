@@ -1,11 +1,12 @@
 import { factionsForPlayerCount, type WinnerState } from "../game/engine";
-import { chooseBotCommand, createBotMemory, createSeededBotRandom, type BotMemory } from "./bot-strategy";
+import { chooseBotCommand, createBotMemory, createSeededBotRandom, type BotMemory, type BotPolicyId } from "./bot-strategy";
 import { GameSessionService, type GameCommand } from "./game-session";
 
 export interface SelfPlayGameOptions {
   playerCount: 2 | 5 | 6 | 7 | 8;
   seed: number;
   maxCommands?: number;
+  policies?: readonly BotPolicyId[];
 }
 
 export interface SelfPlayGameResult {
@@ -21,6 +22,12 @@ export interface SelfPlayGameResult {
   waitingFor?: string;
   lastPublicEvent?: string;
   lastRejection?: string;
+  participants: Array<{
+    id: string;
+    faction: string;
+    policy: BotPolicyId;
+    won: boolean;
+  }>;
 }
 
 export interface SelfPlayBenchmarkOptions {
@@ -43,9 +50,35 @@ export interface SelfPlayBenchmarkResult {
   results: SelfPlayGameResult[];
 }
 
+export interface PairedTournamentOptions {
+  playerCount: SelfPlayGameOptions["playerCount"];
+  pairs: number;
+  startSeed?: number;
+  maxCommandsPerGame?: number;
+}
+
+export interface PairedTournamentResult {
+  playerCount: number;
+  pairs: number;
+  games: number;
+  completed: number;
+  stalled: number;
+  commandLimited: number;
+  candidate: { wins: number; entries: number; winRate: number };
+  baseline: { wins: number; entries: number; winRate: number };
+  pairedWinRateDifference: number;
+  confidence95: { low: number; high: number };
+  verdict: "candidate" | "baseline" | "inconclusive";
+  results: SelfPlayGameResult[];
+}
+
 /** Runs one game using only player projections, the same information available to live bots. */
 export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResult {
   const ids = Array.from({ length: options.playerCount }, (_, index) => `bot-${index + 1}`);
+  if (options.policies && options.policies.length !== ids.length) {
+    throw new Error("policies must contain exactly one policy per player");
+  }
+  const policies = options.policies ?? ids.map(() => "tactical-v2" as const);
   const roomCode = `BENCH-${options.seed}`;
   const games = new GameSessionService();
   games.create(roomCode, ids, options.seed);
@@ -60,13 +93,14 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
   while (!games.getState(roomCode).winner && commands < maxCommands) {
     let advanced = false;
     let attempted = false;
-    for (const id of ids) {
+    for (const [index, id] of ids.entries()) {
       const projection = games.project(roomCode, id);
       const memory = memories.get(id) ?? createBotMemory(projection);
       memories.set(id, memory);
       const stateKey = decisionStateKey(id, projection);
       const rejected = rejectedByState.get(stateKey) ?? [];
       const command = chooseBotCommand(projection, memory, {
+        policy: policies[index],
         random: randoms.get(id),
         excludedCommands: rejected,
         excludedTransmissionCardIds: rejected
@@ -88,7 +122,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
       }
     }
     if (!advanced && !attempted) {
-      return summarizeGame(games, roomCode, options, commands, rejectedCommands, "stalled", lastRejection);
+      return summarizeGame(games, roomCode, options, policies, commands, rejectedCommands, "stalled", lastRejection);
     }
   }
 
@@ -96,11 +130,67 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
     games,
     roomCode,
     options,
+    policies,
     commands,
     rejectedCommands,
     games.getState(roomCode).winner ? "completed" : "commandLimit",
     lastRejection,
   );
+}
+
+export function runPairedTournament(options: PairedTournamentOptions): PairedTournamentResult {
+  if (!Number.isInteger(options.pairs) || options.pairs < 1) throw new Error("pairs must be a positive integer");
+  factionsForPlayerCount(options.playerCount);
+  const firstLeg = Array.from({ length: options.playerCount }, (_, index): BotPolicyId =>
+    index % 2 === 0 ? "candidate-v3" : "tactical-v2"
+  );
+  const secondLeg = firstLeg.map((policy): BotPolicyId =>
+    policy === "candidate-v3" ? "tactical-v2" : "candidate-v3"
+  );
+  const startSeed = options.startSeed ?? 1;
+  const results: SelfPlayGameResult[] = [];
+  const pairDifferences: number[] = [];
+
+  for (let index = 0; index < options.pairs; index += 1) {
+    const seed = startSeed + index;
+    const pair = [firstLeg, secondLeg].map((policies) => runSelfPlayGame({
+      playerCount: options.playerCount,
+      seed,
+      policies,
+      maxCommands: options.maxCommandsPerGame,
+    }));
+    results.push(...pair);
+    const participants = pair.flatMap((result) => result.participants);
+    pairDifferences.push(
+      winRateFor(participants, "candidate-v3") - winRateFor(participants, "tactical-v2"),
+    );
+  }
+
+  const participants = results.flatMap((result) => result.participants);
+  const candidate = policySummary(participants, "candidate-v3");
+  const baseline = policySummary(participants, "tactical-v2");
+  const difference = average(pairDifferences);
+  const standardError = pairDifferences.length > 1
+    ? Math.sqrt(pairDifferences.reduce((sum, value) => sum + (value - difference) ** 2, 0) / (pairDifferences.length - 1)) / Math.sqrt(pairDifferences.length)
+    : 0;
+  const confidence95 = {
+    low: Math.max(-1, difference - 1.96 * standardError),
+    high: Math.min(1, difference + 1.96 * standardError),
+  };
+  return {
+    playerCount: options.playerCount,
+    pairs: options.pairs,
+    games: results.length,
+    completed: results.filter((result) => result.status === "completed").length,
+    stalled: results.filter((result) => result.status === "stalled").length,
+    commandLimited: results.filter((result) => result.status === "commandLimit").length,
+    candidate,
+    baseline,
+    pairedWinRateDifference: difference,
+    confidence95,
+    verdict: confidence95.low > 0 ? "candidate" : confidence95.high < 0 ? "baseline" : "inconclusive",
+    results,
+  };
 }
 
 export function runSelfPlayBenchmark(options: SelfPlayBenchmarkOptions): SelfPlayBenchmarkResult {
@@ -136,6 +226,7 @@ function summarizeGame(
   games: GameSessionService,
   roomCode: string,
   options: SelfPlayGameOptions,
+  policies: readonly BotPolicyId[],
   commands: number,
   rejectedCommands: number,
   status: SelfPlayGameResult["status"],
@@ -157,7 +248,34 @@ function summarizeGame(
       ?? state.activePlayerId,
     lastPublicEvent: state.auditLog.at(-1),
     lastRejection,
+    participants: state.seatOrder.map((id, index) => ({
+      id,
+      faction: state.players[id].faction,
+      policy: policies[index]!,
+      won: didPlayerWin(state.winner, id, state.players[id].faction),
+    })),
   };
+}
+
+function didPlayerWin(winner: WinnerState | undefined, playerId: string, faction: string): boolean {
+  if (!winner) return false;
+  return winner.kind === "agent" ? winner.playerId === playerId : winner.faction === faction;
+}
+
+function policySummary(
+  participants: readonly SelfPlayGameResult["participants"][number][],
+  policy: BotPolicyId,
+): { wins: number; entries: number; winRate: number } {
+  const entries = participants.filter((participant) => participant.policy === policy);
+  const wins = entries.filter((participant) => participant.won).length;
+  return { wins, entries: entries.length, winRate: wins / Math.max(1, entries.length) };
+}
+
+function winRateFor(
+  participants: readonly SelfPlayGameResult["participants"][number][],
+  policy: BotPolicyId,
+): number {
+  return policySummary(participants, policy).winRate;
 }
 
 function decisionStateKey(id: string, projection: ReturnType<GameSessionService["project"]>): string {

@@ -6,6 +6,7 @@ const FACTIONS = ["军情", "潜伏", "特工"] as const satisfies readonly Fact
 
 export type BotRandom = () => number;
 export type LegalAction = PlayerProjection["legalActions"][number];
+export type BotPolicyId = "baseline-v1" | "tactical-v2" | "candidate-v3";
 
 interface PublicObservation {
   auditLength: number;
@@ -48,6 +49,8 @@ export interface BotDecision {
 }
 
 export interface BotDecisionOptions {
+  /** Versioned decision policy. Live bots default to the current candidate. */
+  policy?: BotPolicyId;
   /** Inject a seeded generator for reproducible games. Defaults to deterministic ordering. */
   random?: BotRandom;
   /** Commands rejected against the unchanged authoritative state. */
@@ -151,23 +154,49 @@ export function observeBotProjection(memory: BotMemory, projection: PlayerProjec
 }
 
 export function factionBeliefs(memory: BotMemory, projection: PlayerProjection): Record<string, FactionBelief> {
+  const result: Record<string, FactionBelief> = {};
+  const known = new Map<string, Faction>();
+  for (const player of projection.players) {
+    if (player.faction) known.set(player.id, player.faction);
+    else if (player.id === projection.own.id) known.set(player.id, projection.own.faction);
+  }
+  for (const [playerId, faction] of known) result[playerId] = oneHot(faction);
+
   const distribution = factionsForPlayerCount(projection.players.length);
   const totals = Object.fromEntries(FACTIONS.map((faction) => [
     faction,
     distribution.filter((entry) => entry === faction).length,
   ])) as Record<Faction, number>;
-  const revealed = Object.fromEntries(FACTIONS.map((faction) => [
-    faction,
-    projection.players.filter((player) =>
-      player.faction === faction ||
-      (player.id === projection.own.id && projection.own.faction === faction && !player.faction)
-    ).length,
-  ])) as Record<Faction, number>;
-  const hiddenCount = projection.players.filter((player) =>
-    !player.faction && player.id !== projection.own.id
-  ).length;
-  const result: Record<string, FactionBelief> = {};
+  const remaining = { ...totals };
+  for (const faction of known.values()) remaining[faction] -= 1;
+  const hiddenIds = projection.players.filter((player) => !known.has(player.id)).map((player) => player.id);
+  const weightedAssignments: Array<{ assignment: Record<string, Faction>; logWeight: number }> = [];
 
+  enumerateFactionAssignments(hiddenIds, 0, remaining, {}, memory, weightedAssignments);
+  if (weightedAssignments.length === 0) {
+    throw new Error("Known factions are inconsistent with the player-count distribution");
+  }
+  const maxLogWeight = Math.max(...weightedAssignments.map((entry) => entry.logWeight));
+  const normalizer = weightedAssignments.reduce(
+    (sum, entry) => sum + Math.exp(entry.logWeight - maxLogWeight),
+    0,
+  );
+  for (const playerId of hiddenIds) {
+    const belief = emptyBelief();
+    for (const entry of weightedAssignments) {
+      belief[entry.assignment[playerId]!] += Math.exp(entry.logWeight - maxLogWeight) / normalizer;
+    }
+    result[playerId] = belief;
+  }
+  return result;
+}
+
+function independentFactionBeliefs(memory: BotMemory, projection: PlayerProjection): Record<string, FactionBelief> {
+  const distribution = factionsForPlayerCount(projection.players.length);
+  const totals = Object.fromEntries(FACTIONS.map((faction) => [faction, distribution.filter((entry) => entry === faction).length])) as Record<Faction, number>;
+  const revealed = Object.fromEntries(FACTIONS.map((faction) => [faction, projection.players.filter((player) => player.faction === faction || (player.id === projection.own.id && projection.own.faction === faction && !player.faction)).length])) as Record<Faction, number>;
+  const hiddenCount = projection.players.filter((player) => !player.faction && player.id !== projection.own.id).length;
+  const result: Record<string, FactionBelief> = {};
   for (const player of projection.players) {
     if (player.faction) {
       result[player.id] = oneHot(player.faction);
@@ -190,6 +219,34 @@ export function factionBeliefs(memory: BotMemory, projection: PlayerProjection):
   return result;
 }
 
+function enumerateFactionAssignments(
+  playerIds: readonly string[],
+  index: number,
+  remaining: Record<Faction, number>,
+  assignment: Record<string, Faction>,
+  memory: BotMemory,
+  output: Array<{ assignment: Record<string, Faction>; logWeight: number }>,
+): void {
+  if (index === playerIds.length) {
+    if (FACTIONS.some((faction) => remaining[faction] !== 0)) return;
+    const logWeight = playerIds.reduce((sum, playerId) => {
+      const evidence = memory.evidence[playerId] ?? emptyBelief();
+      return sum + Math.max(-8, Math.min(8, evidence[assignment[playerId]!]));
+    }, 0);
+    output.push({ assignment: { ...assignment }, logWeight });
+    return;
+  }
+  const playerId = playerIds[index]!;
+  for (const faction of FACTIONS) {
+    if (remaining[faction] <= 0) continue;
+    assignment[playerId] = faction;
+    remaining[faction] -= 1;
+    enumerateFactionAssignments(playerIds, index + 1, remaining, assignment, memory, output);
+    remaining[faction] += 1;
+    delete assignment[playerId];
+  }
+}
+
 export function chooseBotCommand(
   projection: PlayerProjection,
   memory: BotMemory,
@@ -207,12 +264,17 @@ export function chooseBotDecision(
   if (projection.winner || !projection.players.find((player) => player.id === memory.botId)?.alive) {
     return undefined;
   }
-  const beliefs = factionBeliefs(memory, projection);
+  const policy = options.policy ?? "tactical-v2";
+  const beliefs = policy === "candidate-v3"
+    ? factionBeliefs(memory, projection)
+    : independentFactionBeliefs(memory, projection);
   const excluded = new Set(
     options.excludedCommands?.map((command) => JSON.stringify(command)) ?? [],
   );
   const candidates = projection.legalActions
-    .map((action) => scoreAction(action, projection, beliefs))
+    .map((action) => policy === "baseline-v1"
+      ? scoreBaselineAction(action, projection, beliefs)
+      : scoreAction(action, projection, beliefs))
     .filter((candidate) => !excluded.has(JSON.stringify(candidate.command)));
 
   if (candidates.length === 0) {
@@ -222,12 +284,57 @@ export function chooseBotDecision(
       options.random,
       excluded,
       new Set(options.excludedTransmissionCardIds ?? []),
+      policy,
     );
     return transmission ? { command: transmission, score: 25, reason: "start required transmission" } : undefined;
   }
   const highest = Math.max(...candidates.map((candidate) => candidate.score));
   const tied = candidates.filter((candidate) => Math.abs(candidate.score - highest) < 0.0001);
   return tied[pickIndex(tied.length, options.random)];
+}
+
+/** Frozen pre-tactical policy retained for paired A/B evaluation. */
+function scoreBaselineAction(
+  action: LegalAction,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): BotDecision {
+  const command = action as GameCommand;
+  const ownFaction = projection.own.faction;
+  const card = "cardId" in action ? projection.own.hand.find((item) => item.id === action.cardId) : undefined;
+  switch (action.type) {
+    case "ACCEPT_INTELLIGENCE":
+      return decision(command, intelligenceValue(projection.transmission?.card, ownFaction, ownBlackCount(projection)), "baseline receipt evaluation");
+    case "DECLINE_INTELLIGENCE": return decision(command, 2, "baseline decline");
+    case "ENTER_TRANSMISSION_PHASE": return decision(command, 10, "baseline enter transmission");
+    case "PASS_LOCK": return decision(command, 4, "baseline preserve lock");
+    case "PLAY_LOCK": return decision(command, Math.max(3, intelligenceValue(projection.transmission?.card, ownFaction, ownBlackCount(projection)) + 12), "baseline lock");
+    case "PASS_REACTION": return decision(command, 5, "baseline preserve reaction");
+    case "PLAY_COUNTER": return decision(command, 18, "baseline always counter");
+    case "PLAY_DECRYPT": return decision(command, projection.transmission?.card ? 4 : 14, "baseline decrypt");
+    case "PLAY_INTERCEPT": return decision(command, intelligenceValue(projection.transmission?.card, ownFaction, ownBlackCount(projection)) + 5, "baseline intercept");
+    case "PLAY_SWAP": return decision(command, projection.transmission?.card && intelligenceValue(projection.transmission.card, ownFaction, ownBlackCount(projection)) < 0 ? 16 : 7, "baseline swap");
+    case "PLAY_TRANSFER":
+    case "PLAY_SEPARATION":
+    case "PLAY_FUNCTION_SEPARATION":
+      return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 8 + 8, "baseline ally redirect");
+    case "PLAY_BURN": return decision(command, targetAffinity(action.targetPlayerId, ownFaction, beliefs) * 12 + 8, "baseline ally burn");
+    case "PLAY_PUBLIC_TEXT": return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 5 + 8, "baseline public text");
+    case "PLAY_DANGEROUS_INTELLIGENCE": return decision(command, -targetAffinity(action.targetId, ownFaction, beliefs) * 8 + 10, "baseline dangerous intelligence");
+    case "PLAY_PROBE": return decision(command, informationUncertainty(action.targetId, beliefs) * 8 + 8, "baseline probe");
+    case "PLAY_REINFORCEMENT": return decision(command, 17, "baseline reinforcement");
+    case "PLAY_CONFIDENTIAL_FILE": return decision(command, 22, "baseline confidential file");
+    case "PLAY_LURE": return decision(command, 11, "baseline lure");
+    case "CHOOSE_PROBE_IDENTITY": return decision(command, action.choice === "giveRandom" && projection.own.hand.length > 2 ? 9 : 7, "baseline probe choice");
+    case "CHOOSE_PUBLIC_TEXT_EFFECT": return decision(command, action.choice === "drawTwo" ? 20 : action.choice === "drawOne" ? 13 : 4, "baseline public text choice");
+    case "PLAY_SECRET_ORDER": return decision(command, 12, "baseline secret order");
+    case "CLAIM_NO_SECRET_ORDER_MATCH": return decision(command, 100, "baseline required claim");
+    case "DISCARD_FOR_HAND_LIMIT":
+    case "CHOOSE_DANGEROUS_DISCARD":
+    case "CHOOSE_PROBE_DISCARD":
+    case "CHOOSE_PUBLIC_TEXT_DISCARD":
+      return decision(command, -cardUtility(card, ownFaction), "baseline discard");
+  }
 }
 
 function scoreAction(
@@ -299,6 +406,7 @@ function synthesizeTransmission(
   random?: BotRandom,
   excluded: ReadonlySet<string> = new Set(),
   excludedCardIds: ReadonlySet<PhysicalCardId> = new Set(),
+  policy: BotPolicyId = "tactical-v2",
 ): GameCommand | undefined {
   if (
     projection.phase !== "preTransmission" ||
@@ -327,7 +435,9 @@ function synthesizeTransmission(
           const helpful = transmissionCardValue(card, projection.own.faction);
           candidates.push({
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, targetId: target.id },
-            score: receiptUtility(card, target.id, projection, beliefs) + helpful * 0.1 - cardUtility(card, projection.own.faction) * 0.15,
+            score: policy === "baseline-v1"
+              ? helpful * targetAffinity(target.id, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
+              : receiptUtility(card, target.id, projection, beliefs) + helpful * 0.1 - cardUtility(card, projection.own.faction) * 0.15,
           });
         }
       } else {
@@ -338,7 +448,9 @@ function synthesizeTransmission(
           const recipient = adjacentLivingPlayer(projection, direction);
           candidates.push({
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, direction },
-            score: receiptUtility(card, recipient, projection, beliefs) - cardUtility(card, projection.own.faction) * 0.15,
+            score: policy === "baseline-v1"
+              ? transmissionCardValue(card, projection.own.faction) * targetAffinity(recipient, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
+              : receiptUtility(card, recipient, projection, beliefs) - cardUtility(card, projection.own.faction) * 0.15,
           });
         }
       }
@@ -361,21 +473,33 @@ function intelligenceValue(card: PhysicalCard | undefined, faction: Faction, bla
   return card.color === desired || card.color === "红蓝" ? 38 : -8;
 }
 
-/** Utility of adding a visible intelligence card to a recipient, from this bot's perspective. */
+/** Utility of adding intelligence to a recipient, including guaranteed outcomes when its face is hidden. */
 export function receiptUtility(
   card: PhysicalCard | undefined,
   recipientId: string | undefined,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
 ): number {
-  if (!card || !recipientId) return 0;
+  if (!recipientId) return 0;
   const recipient = projection.players.find((player) => player.id === recipientId);
   if (!recipient) return 0;
   const before = countIntelligence(recipient.intelligence);
-  const after = addIntelligence(before, card);
   const probabilities = recipientId === projection.own.id
     ? oneHot(projection.own.faction)
     : beliefs[recipientId] ?? { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
+  if (!card) {
+    // A sixth physical card always wins for a 特工 unless it could also be
+    // their third black. With at most one current black, even a hidden card is safe.
+    if (before.physical === 5 && before.black <= 1) {
+      const after = { ...before, physical: before.physical + 1 };
+      return probabilities.特工 * (
+        playerBoardUtility(after, "特工", recipientId, projection.own.id, projection.own.faction)
+        - playerBoardUtility(before, "特工", recipientId, projection.own.id, projection.own.faction)
+      );
+    }
+    return 0;
+  }
+  const after = addIntelligence(before, card);
   return FACTIONS.reduce((total, faction) => total + probabilities[faction] * (
     playerBoardUtility(after, faction, recipientId, projection.own.id, projection.own.faction)
     - playerBoardUtility(before, faction, recipientId, projection.own.id, projection.own.faction)
