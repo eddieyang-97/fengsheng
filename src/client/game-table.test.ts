@@ -165,6 +165,8 @@ describe("automatic reaction passing", () => {
   it("immediately passes only when the player's hand is literally empty", () => {
     expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 0)).toBe(0);
     expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 1)).toBe(1_000);
+    expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 1, 500)).toBe(500);
+    expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 1, 3_000)).toBe(3_000);
     expect(automaticPassDelayMs({ type: "PASS_LOCK" })).toBe(0);
   });
 });

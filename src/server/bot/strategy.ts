@@ -13,6 +13,8 @@ export interface BotPolicy {
   readonly burnBase: number;
   /** Strength of the confidence-adjusted cost for spending optional reaction cards. */
   readonly reactionConservation: number;
+  /** Score transfer as improvement over leaving the intelligence with its current recipient. */
+  readonly incrementalTransfer: boolean;
 }
 export const BASELINE_V1: BotPolicy = {
   id: "baseline-v1",
@@ -20,6 +22,7 @@ export const BASELINE_V1: BotPolicy = {
   scoring: "baseline",
   burnBase: 7,
   reactionConservation: 0,
+  incrementalTransfer: false,
 };
 export const TACTICAL_V2: BotPolicy = {
   id: "tactical-v2",
@@ -27,6 +30,7 @@ export const TACTICAL_V2: BotPolicy = {
   scoring: "tactical",
   burnBase: 7,
   reactionConservation: 0,
+  incrementalTransfer: false,
 };
 export const TACTICAL_V3: BotPolicy = {
   id: "tactical-v3",
@@ -34,17 +38,21 @@ export const TACTICAL_V3: BotPolicy = {
   scoring: "tactical",
   burnBase: 4,
   reactionConservation: 1.5,
+  incrementalTransfer: false,
 };
 export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V3;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
 const SWAP_CARD_COST = 1;
+const SECRET_ORDER_CARD_COST = 4;
+const DECRYPT_REJECTION_BLACK_PROBABILITY = 0.7;
 
 interface PublicObservation {
   auditLength: number;
   transmission?: {
     signature: string;
+    startAuditIndex: number;
     senderId: string;
     targetId: string;
     card?: PhysicalCard;
@@ -73,6 +81,11 @@ export interface BotMemory {
   readonly botId: string;
   /** Additive evidence, retained between decisions. It contains no hidden state. */
   evidence: Record<string, FactionBelief>;
+  transmissionInference?: {
+    signature: string;
+    completedDecryptors: string[];
+    blackProbability?: number;
+  };
   previous?: PublicObservation;
 }
 
@@ -83,7 +96,7 @@ export interface BotDecision {
 }
 
 export interface BotDecisionOptions {
-  /** Versioned decision policy. Live bots default to tactical-v2 until a candidate is promoted. */
+  /** Versioned decision policy. Live bots use LIVE_BOT_POLICY unless explicitly overridden. */
   policy?: BotPolicy;
   /** Inject a seeded generator for reproducible games. Defaults to deterministic ordering. */
   random?: BotRandom;
@@ -158,6 +171,7 @@ export function observeBotProjection(memory: BotMemory, projection: PlayerProjec
 
   const priorTransmission = memory.previous?.transmission;
   const currentTransmission = transmissionObservation(projection);
+  observeTransmissionInference(memory, projection, currentTransmission);
   if (currentTransmission && currentTransmission.signature !== priorTransmission?.signature) {
     const target = projection.players.find((player) => player.id === currentTransmission.targetId);
     const senderEvidence = memory.evidence[currentTransmission.senderId] ??= emptyBelief();
@@ -334,7 +348,13 @@ export function chooseBotDecision(
     .map((action) => {
       const scored = policy.scoring === "baseline"
         ? scoreBaselineAction(action, projection, beliefs)
-        : scoreAction(action, projection, beliefs, policy);
+        : scoreAction(
+            action,
+            projection,
+            beliefs,
+            policy,
+            memory.transmissionInference?.blackProbability,
+          );
       return policy.reactionConservation > 0
         ? applyReactionConservation(action, scored, projection, beliefs, policy.reactionConservation)
         : scored;
@@ -406,13 +426,14 @@ function scoreAction(
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
   policy: BotPolicy,
+  inferredBlackProbability?: number,
 ): BotDecision {
   const command = action as GameCommand;
   const ownFaction = projection.own.faction;
   const card = "cardId" in action ? projection.own.hand.find((item) => item.id === action.cardId) : undefined;
   switch (action.type) {
     case "ACCEPT_INTELLIGENCE":
-      return decision(command, 5 + receiptUtility(projection.transmission?.card, projection.own.id, projection, beliefs), "evaluate tactical receipt outcome");
+      return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, inferredBlackProbability), "evaluate tactical receipt outcome");
     case "DECLINE_INTELLIGENCE":
       return decision(command, 5, "preserve the current board state");
     case "ENTER_TRANSMISSION_PHASE":
@@ -420,7 +441,7 @@ function scoreAction(
     case "PASS_LOCK":
       return decision(command, 4, "preserve lock card");
     case "PLAY_LOCK":
-      return decision(command, 6 + receiptUtility(projection.transmission?.card, projection.transmission?.intendedRecipientId, projection, beliefs), "secure a tactically valuable receipt");
+      return decision(command, 6 + currentTransmissionReceiptUtility(projection.transmission?.intendedRecipientId, projection, beliefs, inferredBlackProbability), "secure a tactically valuable receipt");
     case "PASS_REACTION":
       return decision(command, PASS_REACTION_SCORE, "preserve reaction cards");
     case "PLAY_COUNTER":
@@ -428,20 +449,43 @@ function scoreAction(
     case "PLAY_DECRYPT":
       return decision(command, projection.transmission?.card ? 4 : 14, "learn hidden intelligence");
     case "PLAY_INTERCEPT":
-      return decision(command, 5 + receiptUtility(projection.transmission?.card, projection.own.id, projection, beliefs), "intercept tactically useful intelligence");
+      return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, inferredBlackProbability), "intercept tactically useful intelligence");
     case "PLAY_SWAP":
       return decision(
         command,
-        PASS_REACTION_SCORE + swapImprovement(card, projection, beliefs) - SWAP_CARD_COST,
+        PASS_REACTION_SCORE + swapImprovement(card, projection, beliefs, inferredBlackProbability) - SWAP_CARD_COST,
         "swap only when the replacement improves enough to justify spending the card",
       );
-    case "PLAY_TRANSFER":
-    case "PLAY_FUNCTION_SEPARATION":
-      return decision(command, 7 + receiptUtility(projection.transmission?.card, action.targetId, projection, beliefs), "redirect toward the best tactical recipient");
+    case "PLAY_TRANSFER": {
+      const targetValue = currentTransmissionReceiptUtility(action.targetId, projection, beliefs, inferredBlackProbability);
+      const currentValue = currentTransmissionReceiptUtility(
+        projection.transmission?.intendedRecipientId,
+        projection,
+        beliefs,
+        inferredBlackProbability,
+      );
+      return policy.incrementalTransfer
+        ? decision(
+            command,
+            PASS_REACTION_SCORE + targetValue - currentValue - SEPARATION_CARD_COST,
+            "transfer only when the new recipient improves enough to justify spending the card",
+          )
+        : decision(command, 7 + targetValue, "redirect toward the best tactical recipient");
+    }
+    case "PLAY_FUNCTION_SEPARATION": {
+      const currentTargetId = projection.activeFunctionAction?.targetPlayerId;
+      const improvement = activeFunctionTargetUtility(action.targetId, projection, beliefs)
+        - activeFunctionTargetUtility(currentTargetId, projection, beliefs);
+      return decision(
+        command,
+        PASS_REACTION_SCORE + improvement - SEPARATION_CARD_COST,
+        "redirect the active function card only when its new target improves the tactical outcome",
+      );
+    }
     case "PLAY_SEPARATION": {
       const pendingTargetId = projection.transmission?.pendingTransfer?.targetId;
-      const improvement = receiptUtility(projection.transmission?.card, action.targetId, projection, beliefs)
-        - receiptUtility(projection.transmission?.card, pendingTargetId, projection, beliefs);
+      const improvement = currentTransmissionReceiptUtility(action.targetId, projection, beliefs, inferredBlackProbability)
+        - currentTransmissionReceiptUtility(pendingTargetId, projection, beliefs, inferredBlackProbability);
       return decision(
         command,
         PASS_REACTION_SCORE + improvement - SEPARATION_CARD_COST,
@@ -481,7 +525,11 @@ function scoreAction(
     case "CHOOSE_PUBLIC_TEXT_EFFECT":
       return decision(command, action.choice === "drawTwo" ? 20 : action.choice === "drawOne" ? 13 : 4, "maximize hand value");
     case "PLAY_SECRET_ORDER":
-      return decision(command, 12, "constrain an opponent transmission");
+      return decision(
+        command,
+        PASS_REACTION_SCORE + secretOrderImprovement(card, action.word, projection, beliefs) - SECRET_ORDER_CARD_COST,
+        "force a likely opponent away from their most favorable intelligence color",
+      );
     case "CLAIM_NO_SECRET_ORDER_MATCH":
       return decision(command, 100, "required secret-order response");
     case "DISCARD_FOR_HAND_LIMIT":
@@ -639,6 +687,67 @@ export function receiptUtility(
   ), 0);
 }
 
+function receiptColorUtility(
+  color: SingleColor,
+  recipientId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const recipient = projection.players.find((player) => player.id === recipientId);
+  if (!recipient) return 0;
+  const before = countIntelligence(recipient.intelligence);
+  const after = {
+    red: before.red + (color === "红" ? 1 : 0),
+    blue: before.blue + (color === "蓝" ? 1 : 0),
+    black: before.black + (color === "黑" ? 1 : 0),
+    physical: before.physical + 1,
+  };
+  const probabilities = recipientId === projection.own.id
+    ? oneHot(projection.own.faction)
+    : beliefs[recipientId] ?? { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
+  return FACTIONS.reduce((total, faction) => total + probabilities[faction] * (
+    playerBoardUtility(after, faction, recipientId, projection.own.id, projection.own.faction)
+    - playerBoardUtility(before, faction, recipientId, projection.own.id, projection.own.faction)
+  ), 0);
+}
+
+function currentTransmissionReceiptUtility(
+  recipientId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  inferredBlackProbability?: number,
+): number {
+  if (!recipientId || projection.transmission?.card || inferredBlackProbability === undefined) {
+    return receiptUtility(projection.transmission?.card, recipientId, projection, beliefs);
+  }
+  const blackProbability = Math.max(0, Math.min(1, inferredBlackProbability));
+  const otherColorProbability = (1 - blackProbability) / 2;
+  return blackProbability * receiptColorUtility("黑", recipientId, projection, beliefs)
+    + otherColorProbability * receiptColorUtility("红", recipientId, projection, beliefs)
+    + otherColorProbability * receiptColorUtility("蓝", recipientId, projection, beliefs);
+}
+
+function secretOrderImprovement(
+  orderCard: PhysicalCard | undefined,
+  word: Extract<LegalAction, { type: "PLAY_SECRET_ORDER" }>["word"],
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (orderCard?.variant?.kind !== "secretOrder") return 0;
+  const targetId = projection.pendingSecretOrder?.targetPlayerId;
+  if (!targetId) return 0;
+  const requiredColor = orderCard.variant.mapping[word];
+  const colors = ["红", "蓝", "黑"] as const satisfies readonly SingleColor[];
+  const forcedUtility = receiptColorUtility(requiredColor, targetId, projection, beliefs);
+  const targetBestUtility = Math.min(...colors.map((color) =>
+    receiptColorUtility(color, targetId, projection, beliefs)
+  ));
+  const opponentConfidence = projection.own.faction === "特工"
+    ? 1
+    : 1 - (beliefs[targetId]?.[projection.own.faction] ?? 1 / 3);
+  return Math.max(0, forcedUtility - targetBestUtility) * opponentConfidence;
+}
+
 /** A public-board score useful for benchmarks and future shallow search. */
 export function evaluatePublicPosition(
   projection: PlayerProjection,
@@ -662,10 +771,27 @@ function swapImprovement(
   replacement: PhysicalCard | undefined,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
+  inferredBlackProbability?: number,
 ): number {
   const recipient = projection.transmission?.intendedRecipientId;
   return receiptUtility(replacement, recipient, projection, beliefs)
-    - receiptUtility(projection.transmission?.card, recipient, projection, beliefs);
+    - currentTransmissionReceiptUtility(recipient, projection, beliefs, inferredBlackProbability);
+}
+
+function activeFunctionTargetUtility(
+  targetId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (!targetId) return 0;
+  switch (projection.activeFunctionAction?.kind) {
+    case "dangerousIntelligence":
+      return -10 * targetAffinity(targetId, projection.own.faction, beliefs);
+    case "publicText":
+      return 5 * targetAffinity(targetId, projection.own.faction, beliefs);
+    default:
+      return 0;
+  }
 }
 
 function burnUtility(
@@ -882,12 +1008,57 @@ function snapshot(projection: PlayerProjection): PublicObservation {
 function transmissionObservation(projection: PlayerProjection): PublicObservation["transmission"] {
   const current = projection.transmission;
   if (!current) return undefined;
+  let startAuditIndex = -1;
+  for (let index = projection.auditLog.length - 1; index >= 0; index -= 1) {
+    const entry = projection.auditLog[index]!;
+    if (entry.startsWith(`${current.senderId}开始以`) && entry.includes("传递情报")) {
+      startAuditIndex = index;
+      break;
+    }
+  }
   return {
-    signature: [current.senderId, current.card?.id ?? "hidden"].join("|"),
+    signature: [current.senderId, current.card?.id ?? "hidden", startAuditIndex].join("|"),
+    startAuditIndex: Math.max(0, startAuditIndex),
     senderId: current.senderId,
     targetId: current.intendedRecipientId,
     card: current.card,
   };
+}
+
+function observeTransmissionInference(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  current: PublicObservation["transmission"],
+): void {
+  if (!current) {
+    memory.transmissionInference = undefined;
+    return;
+  }
+  const isNewTransmission = memory.transmissionInference?.signature !== current.signature;
+  if (isNewTransmission) {
+    memory.transmissionInference = {
+      signature: current.signature,
+      completedDecryptors: [],
+    };
+  }
+  const inference = memory.transmissionInference!;
+  const scanFrom = isNewTransmission
+    ? current.startAuditIndex
+    : memory.previous?.auditLength ?? projection.auditLog.length;
+  for (const entry of projection.auditLog.slice(scanFrom)) {
+    const completedDecrypt = /^(.+)完成破译$/.exec(entry)?.[1];
+    if (completedDecrypt && !inference.completedDecryptors.includes(completedDecrypt)) {
+      inference.completedDecryptors.push(completedDecrypt);
+      continue;
+    }
+    const rejectingPlayer = /^(.+)拒绝情报，当前接收者：/.exec(entry)?.[1];
+    if (rejectingPlayer && inference.completedDecryptors.includes(rejectingPlayer)) {
+      inference.blackProbability = Math.max(
+        inference.blackProbability ?? 0,
+        DECRYPT_REJECTION_BLACK_PROBABILITY,
+      );
+    }
+  }
 }
 
 function functionObservation(projection: PlayerProjection): PublicObservation["functionAction"] {

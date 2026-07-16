@@ -1,3 +1,11 @@
+import {
+  AUTO_PASS_DELAY_OPTIONS_MS,
+  type AutoPassDelayMs,
+} from "../room/types";
+
+export { AUTO_PASS_DELAY_OPTIONS_MS };
+export type { AutoPassDelayMs };
+
 export const SUPPORTED_PLAYER_COUNTS = [2, 5, 6, 7, 8] as const;
 
 export type PlayerCount = (typeof SUPPORTED_PLAYER_COUNTS)[number];

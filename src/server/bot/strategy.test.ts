@@ -13,7 +13,7 @@ import {
   TACTICAL_V2,
   TACTICAL_V3,
 } from "./strategy";
-import { CANDIDATE_V5, CANDIDATE_V6 } from "../../ai-lab/policies";
+import { CANDIDATE_V5, CANDIDATE_V6, CANDIDATE_V7 } from "../../ai-lab/policies";
 
 const blueCard = cardWhere((card) => card.color === "蓝");
 const redDirectCard = cardWhere((card) => card.color === "红" && card.transmission === "直达");
@@ -22,6 +22,7 @@ const blackCard = cardWhere((card) => card.color === "黑");
 const counterCard = cardWhere((card) => card.name === "识破");
 const transferCard = cardWhere((card) => card.name === "转移");
 const separationCard = cardWhere((card) => card.name === "离间");
+const secretOrderCard = cardWhere((card) => card.variant?.kind === "secretOrder");
 const redSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "红");
 const blueSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "蓝");
 const militaryDrawProbe = cardWhere(
@@ -205,6 +206,39 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(lethal, createBotMemory(lethal))?.type).toBe("DECLINE_INTELLIGENCE");
   });
 
+  it("treats a publicly observed decrypt followed by rejection as evidence of black intelligence", () => {
+    const hiddenTransmission = {
+      ...transmission(blackCard),
+      intendedRecipientId: "c",
+      card: undefined,
+      faceUp: false,
+    };
+    const initial = makeProjection({
+      phase: "transmitting",
+      transmission: hiddenTransmission,
+      auditLog: ["b开始以密电传递情报，当前接收者：c"],
+    });
+    const memory = createBotMemory(initial);
+    const afterDecryptRejection = makeProjection({
+      phase: "transmitting",
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: [blackCard, { ...blackCard, id: "second-black" }] }
+          : player
+      ),
+      transmission: { ...hiddenTransmission, intendedRecipientId: "bot" },
+      auditLog: [
+        "b开始以密电传递情报，当前接收者：c",
+        "c完成破译",
+        "c拒绝情报，当前接收者：bot",
+      ],
+      legalActions: [{ type: "ACCEPT_INTELLIGENCE" }, { type: "DECLINE_INTELLIGENCE" }],
+    });
+
+    expect(chooseBotCommand(afterDecryptRejection, memory)?.type).toBe("DECLINE_INTELLIGENCE");
+    expect(memory.transmissionInference?.blackProbability).toBe(0.7);
+  });
+
   it("candidate-v5 preserves a marginal reaction card under faction uncertainty", () => {
     const projection = makeProjection({
       phase: "transmitting",
@@ -224,6 +258,64 @@ describe("bot strategy", () => {
       .toBe("PASS_REACTION");
     expect(chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V6 })?.type)
       .toBe("PLAY_TRANSFER");
+  });
+
+  it("candidate-v7 transfers only for improvement over the current recipient", () => {
+    const chooseTransfer = (currentIntelligence: PhysicalCard, ownIntelligence: PhysicalCard[]) => {
+      const projection = makeProjection({
+        phase: "transmitting",
+        own: { id: "bot", faction: "军情", hand: [transferCard] },
+        players: makeProjection().players.map((player) =>
+          player.id === "bot" ? { ...player, intelligence: ownIntelligence } : player
+        ),
+        transmission: transmission(currentIntelligence),
+        legalActions: [
+          { type: "PASS_REACTION" },
+          { type: "PLAY_TRANSFER", cardId: transferCard.id as PhysicalCardId, targetId: "b" },
+        ],
+      });
+      return chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V7 })?.type;
+    };
+
+    expect(chooseTransfer(blueCard, [])).toBe("PASS_REACTION");
+    expect(chooseTransfer(blackCard, [blackCard, { ...blackCard, id: "second-black" }]))
+      .toBe("PLAY_TRANSFER");
+  });
+
+  it("does not order a known opponent to transmit their game-winning color", () => {
+    if (secretOrderCard.variant?.kind !== "secretOrder") throw new Error("Expected secret-order fixture");
+    const projection = makeProjection({
+      phase: "preTransmission",
+      activePlayerId: "b",
+      own: { id: "bot", faction: "潜伏", hand: [secretOrderCard] },
+      players: makeProjection().players.map((player) => {
+        if (player.id === "b") {
+          return { ...player, intelligence: [blueCard, { ...blueCard, id: "second-blue" }] };
+        }
+        if (player.id === "c") return { ...player, alive: false, faction: "军情" as Faction };
+        if (player.id === "d") return { ...player, alive: false, faction: "潜伏" as Faction };
+        if (player.id === "e") return { ...player, alive: false, faction: "特工" as Faction };
+        return player;
+      }),
+      pendingSecretOrder: {
+        stage: "offering",
+        targetPlayerId: "b",
+        verifiedNoMatch: false,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        ...(["听风", "看雨", "日落"] as const).map((word) => ({
+          type: "PLAY_SECRET_ORDER" as const,
+          cardId: secretOrderCard.id as PhysicalCardId,
+          word,
+        })),
+      ],
+    });
+
+    const command = chooseBotCommand(projection, createBotMemory(projection));
+    expect(command?.type).toBe("PLAY_SECRET_ORDER");
+    if (command?.type !== "PLAY_SECRET_ORDER") throw new Error("Expected secret order");
+    expect(secretOrderCard.variant.mapping[command.word]).not.toBe("蓝");
   });
 
   it("uses separation only for enough incremental improvement over the pending transfer target", () => {
@@ -263,6 +355,52 @@ describe("bot strategy", () => {
     expect(chooseSeparation(hiddenPlayers, "b", "c")?.type).toBe("PASS_REACTION");
     expect(chooseSeparation(revealedPlayers, "b", "c")?.type).toBe("PASS_REACTION");
     expect(chooseSeparation(revealedPlayers, "c", "b")?.type).toBe("PLAY_SEPARATION");
+  });
+
+  it("redirects 危险情报 toward an opponent and never toward itself", () => {
+    const projection = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [separationCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "c"
+          ? { ...player, faction: "军情" as Faction }
+          : player.id === "d"
+            ? { ...player, faction: "潜伏" as Faction }
+            : player
+      ),
+      activeFunctionAction: {
+        kind: "dangerousIntelligence",
+        sourcePlayerId: "b",
+        targetPlayerId: "c",
+        stage: "reactions",
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_FUNCTION_SEPARATION",
+          cardId: separationCard.id as PhysicalCardId,
+          targetId: "bot",
+        },
+        {
+          type: "PLAY_FUNCTION_SEPARATION",
+          cardId: separationCard.id as PhysicalCardId,
+          targetId: "d",
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))).toMatchObject({
+      type: "PLAY_FUNCTION_SEPARATION",
+      targetId: "d",
+    });
+
+    const selfOnly = {
+      ...projection,
+      legalActions: projection.legalActions.filter((action) =>
+        action.type === "PASS_REACTION" ||
+        (action.type === "PLAY_FUNCTION_SEPARATION" && action.targetId === "bot")
+      ),
+    };
+    expect(chooseBotCommand(selfOnly, createBotMemory(selfOnly))?.type).toBe("PASS_REACTION");
   });
 
   it("uses swap only when the replacement materially improves the pending intelligence", () => {

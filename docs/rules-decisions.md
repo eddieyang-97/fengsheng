@@ -610,6 +610,15 @@ A client must not receive:
 - A reaction timeout applies only to optional reaction priority; it does not automatically answer mandatory accept/decline, card-selection, discard, or other required-choice prompts.
 - While the game is paused for a disconnected living player, no reaction timer advances.
 
+### Client auto-pass delay
+
+- The room host configures the delay used by clients that automatically pass when no usable reaction remains; the default is 1 second.
+- The supported choices are immediate, 0.5, 1, 2, 3, and 5 seconds, available in both the lobby and the in-game host controls.
+- A changed value is room-authoritative and applies to every player beginning with their next eligible auto-pass.
+- Lock passes and reaction passes with a literally empty hand remain immediate.
+- Each player still controls whether their own client uses auto-pass and whether burn is ignored when determining eligibility.
+- Mandatory decisions are never auto-passed by this setting.
+
 ---
 
 ### Persistence
@@ -621,7 +630,7 @@ A client must not receive:
 
 ### New game in the same room
 
-- After a game ends, the host may return every player to the lobby with the same room code, seats, reconnect tokens, capacity, and reaction-timeout setting.
+- After a game ends, the host may return every player to the lobby with the same room code, seats, reconnect tokens, capacity, reaction-timeout setting, and auto-pass delay.
 - Clear the completed authoritative game session and reset every player's alive state before another game starts.
 - The room must still be full and all players connected before the host can start the next game normally.
 

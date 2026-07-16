@@ -7,6 +7,7 @@ import { GameTable } from "./GameTable";
 import { LandingPage } from "./LandingPage";
 import type {
   CreateRoomInput,
+  AutoPassDelayMs,
   InviteEntryState,
   JoinRoomInput,
   LobbyPlayer,
@@ -252,11 +253,16 @@ export function App() {
         )}
         reactionTimer={reactionTimer}
         reactionTimeoutSeconds={(room.reactionTimeoutSeconds ?? 0) as ReactionTimeoutSeconds}
+        autoPassDelayMs={(room.autoPassDelayMs ?? 1_000) as AutoPassDelayMs}
         publicAuditEvents={room.publicAuditEvents}
         spectators={room.spectators}
         onReactionTimeoutChange={(seconds) => void runAction("timeout", () => client.setReactionTimeout({
           seconds: seconds === 0 ? null : seconds,
         }))}
+        onAutoPassDelayChange={(milliseconds) => void runAction(
+          "auto-pass-delay",
+          () => client.setAutoPassDelay({ milliseconds }),
+        )}
         onMarkDisconnectedPlayerDead={(targetPlayerId) => void runAction(
           "mark-dead",
           () => client.markDisconnectedPlayerDead({ targetPlayerId }),
@@ -339,6 +345,11 @@ export function App() {
       )}
       onLeaveRoom={leaveRoom}
       onMoveSeat={(seat) => void runAction("seat", () => client.requestSeat({ seatIndex: seat - 1 }))}
+      autoPassDelayMs={(room.autoPassDelayMs ?? 1_000) as AutoPassDelayMs}
+      onAutoPassDelayChange={(milliseconds) => void runAction(
+        "auto-pass-delay",
+        () => client.setAutoPassDelay({ milliseconds }),
+      )}
       onReactionTimeoutChange={(seconds: ReactionTimeoutSeconds) => void runAction(
         "timeout",
         () => client.setReactionTimeout({

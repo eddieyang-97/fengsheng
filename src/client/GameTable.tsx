@@ -5,7 +5,12 @@ import type { PlayerProjection } from "../game/engine";
 import type { PublicAuditEvent } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
-import { REACTION_TIMEOUT_OPTIONS, type ReactionTimeoutSeconds } from "./lobby-types";
+import {
+  AUTO_PASS_DELAY_OPTIONS_MS,
+  REACTION_TIMEOUT_OPTIONS,
+  type AutoPassDelayMs,
+  type ReactionTimeoutSeconds,
+} from "./lobby-types";
 import "./game-table.css";
 
 export type ProjectedLegalAction = PlayerProjection["legalActions"][number];
@@ -20,6 +25,7 @@ export interface GameTableProps {
   reactionTimer?: ReactionTimerSnapshot | null;
   isHost?: boolean;
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
+  autoPassDelayMs: AutoPassDelayMs;
   publicAuditEvents?: readonly PublicAuditEvent[];
   spectators?: readonly { id: string; displayName: string; connected: boolean }[];
   disconnectedLivingPlayers?: readonly {
@@ -28,6 +34,7 @@ export interface GameTableProps {
     botControlled: boolean;
   }[];
   onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
+  onAutoPassDelayChange: (milliseconds: AutoPassDelayMs) => void;
   onMarkDisconnectedPlayerDead: (playerId: string) => void;
   onSetBotTakeover: (playerId: string, enabled: boolean) => void;
   onNewGame: () => void;
@@ -54,9 +61,10 @@ export function automaticPassCommand(
 export function automaticPassDelayMs(
   action: Extract<GameCommand, { type: "PASS_REACTION" | "PASS_LOCK" }>,
   handCount = 0,
+  configuredDelayMs: AutoPassDelayMs = 1_000,
 ): number {
   if (action.type === "PASS_LOCK") return 0;
-  return handCount === 0 ? 0 : 1_000;
+  return handCount === 0 ? 0 : configuredDelayMs;
 }
 
 export function isNearScrollBottom(
@@ -141,13 +149,16 @@ function ResponsePanel({
   projection,
   playerDisplayNames,
   reactionTimer,
+  offset,
+  onOffsetChange,
 }: {
   projection: PlayerProjection;
   playerDisplayNames: Readonly<Record<string, string>>;
   reactionTimer?: ReactionTimerSnapshot | null;
+  offset: { x: number; y: number };
+  onOffsetChange: (offset: { x: number; y: number }) => void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{
     pointerId: number;
     startX: number;
@@ -186,7 +197,7 @@ function ResponsePanel({
   const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const active = drag.current;
     if (!active || active.pointerId !== event.pointerId) return;
-    setOffset({
+    onOffsetChange({
       x: Math.min(active.maxX, Math.max(active.minX, active.originX + event.clientX - active.startX)),
       y: Math.min(active.maxY, Math.max(active.minY, active.originY + event.clientY - active.startY)),
     });
@@ -209,7 +220,7 @@ function ResponsePanel({
     >
       <div
         className="response-panel__heading"
-        onDoubleClick={() => setOffset({ x: 0, y: 0 })}
+        onDoubleClick={() => onOffsetChange({ x: 0, y: 0 })}
         onPointerCancel={stopDrag}
         onPointerDown={startDrag}
         onPointerMove={moveDrag}
@@ -583,10 +594,12 @@ export function GameTable({
   reactionTimer,
   isHost = false,
   reactionTimeoutSeconds,
+  autoPassDelayMs,
   publicAuditEvents = [],
   spectators = [],
   disconnectedLivingPlayers = [],
   onReactionTimeoutChange,
+  onAutoPassDelayChange,
   onMarkDisconnectedPlayerDead,
   onSetBotTakeover,
   onNewGame,
@@ -601,6 +614,7 @@ export function GameTable({
   const [discardPileOpen, setDiscardPileOpen] = useState(false);
   const [detailCard, setDetailCard] = useState<PhysicalCard>();
   const [privateNoticesCollapsed, setPrivateNoticesCollapsed] = useState(false);
+  const [responsePanelOffset, setResponsePanelOffset] = useState({ x: 0, y: 0 });
   const auditLogRef = useRef<HTMLOListElement>(null);
   const auditLogFollowsLatest = useRef(true);
   const actions = projection.legalActions;
@@ -703,14 +717,14 @@ export function GameTable({
       return;
     }
     lastAutoPassPrompt.current = autoPassPrompt;
-    const delayMs = automaticPassDelayMs(autoPassAction, projection.own.hand.length);
+    const delayMs = automaticPassDelayMs(autoPassAction, projection.own.hand.length, autoPassDelayMs);
     if (delayMs === 0) {
       onCommand(autoPassAction);
       return;
     }
     const timeout = window.setTimeout(() => onCommand(autoPassAction), delayMs);
     return () => window.clearTimeout(timeout);
-  }, [autoPassAction, autoPassNoAction, autoPassPrompt, busy, connected, onCommand, projection.own.hand.length]);
+  }, [autoPassAction, autoPassDelayMs, autoPassNoAction, autoPassPrompt, busy, connected, onCommand, projection.own.hand.length]);
 
   const chooseTarget = (targetId: string) => {
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
@@ -769,6 +783,22 @@ export function GameTable({
               >
                 {REACTION_TIMEOUT_OPTIONS.map((seconds) => (
                   <option key={seconds} value={seconds}>{seconds === 0 ? "关闭" : `${seconds} 秒`}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {isHost && (
+            <label className="table-timeout-control">
+              自动跳过等待
+              <select
+                disabled={busy || !connected}
+                onChange={(event) => onAutoPassDelayChange(Number(event.target.value) as AutoPassDelayMs)}
+                value={autoPassDelayMs}
+              >
+                {AUTO_PASS_DELAY_OPTIONS_MS.map((milliseconds) => (
+                  <option key={milliseconds} value={milliseconds}>
+                    {milliseconds === 0 ? "立即" : `${milliseconds / 1_000} 秒`}
+                  </option>
                 ))}
               </select>
             </label>
@@ -889,6 +919,8 @@ export function GameTable({
 
             {projection.reactionWindow ? (
               <ResponsePanel
+                offset={responsePanelOffset}
+                onOffsetChange={setResponsePanelOffset}
                 playerDisplayNames={playerDisplayNames}
                 projection={projection}
                 reactionTimer={reactionTimer}

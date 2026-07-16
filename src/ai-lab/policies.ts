@@ -6,6 +6,7 @@ export const CANDIDATE_V3: BotPolicy = {
   scoring: "tactical",
   burnBase: 7,
   reactionConservation: 0,
+  incrementalTransfer: false,
 };
 
 export const CANDIDATE_V4: BotPolicy = {
@@ -25,6 +26,12 @@ export const CANDIDATE_V6: BotPolicy = {
   reactionConservation: 0.75,
 };
 
+export const CANDIDATE_V7: BotPolicy = {
+  ...CANDIDATE_V5,
+  id: "candidate-v7",
+  incrementalTransfer: true,
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
@@ -32,6 +39,7 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V4,
   CANDIDATE_V5,
   CANDIDATE_V6,
+  CANDIDATE_V7,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

@@ -512,6 +512,18 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
       }
     });
 
+    socket.on("room:auto-pass-delay", async (request, acknowledge) => {
+      const room = reply(acknowledge, () => {
+        const identity = requireIdentity();
+        return roomService.setAutoPassDelay(
+          identity.roomCode,
+          identity.playerId,
+          request.milliseconds,
+        );
+      });
+      if (room) await broadcastRoom(room.code);
+    });
+
     socket.on("room:start", async (request, acknowledge) => {
       try {
         const identity = requireIdentity();

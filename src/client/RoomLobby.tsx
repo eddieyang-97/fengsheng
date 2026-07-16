@@ -1,7 +1,9 @@
 import { useId, type CSSProperties } from "react";
 
 import {
+  AUTO_PASS_DELAY_OPTIONS_MS,
   REACTION_TIMEOUT_OPTIONS,
+  type AutoPassDelayMs,
   type LobbyPlayer,
   type PlayerCount,
   type ReactionTimeoutSeconds,
@@ -20,6 +22,7 @@ export interface RoomLobbyProps {
   selfPlayerId: string;
   swapRequests?: readonly SeatSwapRequest[];
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
+  autoPassDelayMs: AutoPassDelayMs;
   startDisabledReason?: string;
   busyAction?: string;
   notice?: string;
@@ -33,6 +36,7 @@ export interface RoomLobbyProps {
   onRemoveBot: (playerId: string) => void;
   onLeaveRoom: () => void;
   onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
+  onAutoPassDelayChange: (milliseconds: AutoPassDelayMs) => void;
   onStartGame: (mode: StartMode) => void;
 }
 function timeoutLabel(seconds: ReactionTimeoutSeconds): string {
@@ -159,6 +163,7 @@ export function RoomLobby({
   selfPlayerId,
   swapRequests = [],
   reactionTimeoutSeconds,
+  autoPassDelayMs,
   startDisabledReason,
   busyAction,
   notice,
@@ -172,9 +177,11 @@ export function RoomLobby({
   onRemoveBot,
   onLeaveRoom,
   onReactionTimeoutChange,
+  onAutoPassDelayChange,
   onStartGame,
 }: RoomLobbyProps) {
   const timeoutId = useId();
+  const autoPassDelayId = useId();
   const self = players.find((player) => player.id === selfPlayerId);
   const isHost = self?.isHost ?? false;
   const playerBySeat = new Map(players.map((player) => [player.seat, player]));
@@ -304,6 +311,21 @@ export function RoomLobby({
             >
               {REACTION_TIMEOUT_OPTIONS.map((seconds) => (
                 <option key={seconds} value={seconds}>{timeoutLabel(seconds)}</option>
+              ))}
+            </select>
+            <label htmlFor={autoPassDelayId}>自动跳过等待时间</label>
+            <select
+              disabled={isBusy}
+              id={autoPassDelayId}
+              onChange={(event) =>
+                onAutoPassDelayChange(Number(event.target.value) as AutoPassDelayMs)
+              }
+              value={autoPassDelayMs}
+            >
+              {AUTO_PASS_DELAY_OPTIONS_MS.map((milliseconds) => (
+                <option key={milliseconds} value={milliseconds}>
+                  {milliseconds === 0 ? "立即" : `${milliseconds / 1_000} 秒`}
+                </option>
               ))}
             </select>
             <p className="help-text">必选操作不会自动处理。游戏中修改会从下一次反应开始生效。</p>

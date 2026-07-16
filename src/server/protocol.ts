@@ -1,4 +1,5 @@
 import type {
+  AutoPassDelayMs,
   ReactionTimeoutSeconds,
   RoomCapacity,
   RoomEntryResult,
@@ -96,6 +97,10 @@ export interface ClientToServerEvents {
   ) => void;
   "room:timeout": (
     request: { seconds: ReactionTimeoutSeconds },
+    acknowledge: Acknowledge,
+  ) => void;
+  "room:auto-pass-delay": (
+    request: { milliseconds: AutoPassDelayMs },
     acknowledge: Acknowledge,
   ) => void;
   "room:start": (

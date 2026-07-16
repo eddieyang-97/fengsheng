@@ -6,8 +6,10 @@ export {
   type ProjectedLegalAction,
 } from "./GameTable";
 export {
+  AUTO_PASS_DELAY_OPTIONS_MS,
   REACTION_TIMEOUT_OPTIONS,
   SUPPORTED_PLAYER_COUNTS,
+  type AutoPassDelayMs,
   type CreateRoomInput,
   type InviteEntryState,
   type JoinRoomInput,
