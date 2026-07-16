@@ -104,6 +104,22 @@ function responseActionLabel(
   return item.cardName ?? "卡牌行动";
 }
 
+export function responseActionText(
+  item: PlayerProjection["responseStack"][number],
+  playerDisplayNames: Readonly<Record<string, string>>,
+  transmissionMethod?: NonNullable<PlayerProjection["transmission"]>["method"],
+): string {
+  if (item.kind === "intelligence") {
+    const sender = item.sourcePlayerId
+      ? `【${playerDisplayNames[item.sourcePlayerId] ?? item.sourcePlayerId}】`
+      : "";
+    return `${sender}正在${transmissionMethod ? `以${transmissionMethod}` : ""}传递情报`;
+  }
+  return item.sourcePlayerId
+    ? `【${playerDisplayNames[item.sourcePlayerId] ?? item.sourcePlayerId}】使用 ${responseActionLabel(item)}`
+    : responseActionLabel(item);
+}
+
 function ResponsePanel({
   projection,
   playerDisplayNames,
@@ -187,9 +203,7 @@ function ResponsePanel({
         {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
       </div>
       <strong className="response-panel__action">
-        {current.sourcePlayerId
-          ? `【${playerDisplayNames[current.sourcePlayerId] ?? current.sourcePlayerId}】使用 ${responseActionLabel(current)}`
-          : responseActionLabel(current)}
+        {responseActionText(current, playerDisplayNames, projection.transmission?.method)}
       </strong>
       <span className="response-panel__target">
         目标：【{playerDisplayNames[current.targetPlayerId] ?? current.targetPlayerId}】
@@ -279,7 +293,7 @@ export function cardVariantText(card: PhysicalCard): string | undefined {
   const variant = card.variant;
   if (!variant) return undefined;
   if (variant.kind === "probeIdentity") {
-    return `身份代码：军情→${variant.mapping["军情"]} · 潜伏→${variant.mapping["潜伏"]} · 特工→${variant.mapping["特工"]}`;
+    return `军情→${variant.mapping["军情"]} · 潜伏→${variant.mapping["潜伏"]} · 特工→${variant.mapping["特工"]}`;
   }
   if (variant.kind === "probeDrawDiscard") {
     return `${variant.drawFaction}摸 1 张；其他阵营弃 1 张`;

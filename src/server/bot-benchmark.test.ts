@@ -35,7 +35,7 @@ describe("AI self-play benchmark", () => {
       );
       expect(firstLeg.participants.map((entry) => entry.policy)).toEqual(
         secondLeg.participants.map((entry) =>
-          entry.policy === "candidate-v4" ? "tactical-v2" : "candidate-v4"
+          entry.policy === "candidate-v5" ? "tactical-v2" : "candidate-v5"
         ),
       );
     }

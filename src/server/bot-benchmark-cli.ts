@@ -20,7 +20,7 @@ if (mode === "ab") {
   const results = Array.from({ length: games }, (_, index) => runSelfPlayGame({
     playerCount,
     seed: startSeed + index,
-    comparePolicies: ["tactical-v2", "candidate-v3"],
+    comparePolicies: ["tactical-v2", "candidate-v5"],
   }));
   const disagreements = results.flatMap((result) => result.disagreements);
   const categoryCounts = new Map<string, number>();

@@ -193,9 +193,9 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
   if (!Number.isInteger(options.pairs) || options.pairs < 1) throw new Error("pairs must be a positive integer");
   factionsForPlayerCount(options.playerCount);
   const firstLeg = Array.from({ length: options.playerCount }, (_, index): BotPolicyId =>
-    index % 2 === 0 ? (options.candidatePolicy ?? "candidate-v4") : (options.baselinePolicy ?? "tactical-v2")
+    index % 2 === 0 ? (options.candidatePolicy ?? "candidate-v5") : (options.baselinePolicy ?? "tactical-v2")
   );
-  const candidatePolicy = options.candidatePolicy ?? "candidate-v4";
+  const candidatePolicy = options.candidatePolicy ?? "candidate-v5";
   const baselinePolicy = options.baselinePolicy ?? "tactical-v2";
   const secondLeg = firstLeg.map((policy): BotPolicyId =>
     policy === candidatePolicy ? baselinePolicy : candidatePolicy

@@ -15,6 +15,13 @@ const redDirectCard = cardWhere((card) => card.color === "红" && card.transmiss
 const blueDirectCard = cardWhere((card) => card.color === "蓝" && card.transmission === "直达");
 const blackCard = cardWhere((card) => card.color === "黑");
 const counterCard = cardWhere((card) => card.name === "识破");
+const transferCard = cardWhere((card) => card.name === "转移");
+const militaryDrawProbe = cardWhere(
+  (card) => card.variant?.kind === "probeDrawDiscard" && card.variant.drawFaction === "军情",
+);
+const undercoverDrawProbe = cardWhere(
+  (card) => card.variant?.kind === "probeDrawDiscard" && card.variant.drawFaction === "潜伏",
+);
 
 describe("bot strategy", () => {
   it("selects only a supplied legal action during normal prompts", () => {
@@ -53,6 +60,56 @@ describe("bot strategy", () => {
     };
     observeBotProjection(memory, withTransmission);
     expect(memory.evidence.b.军情).toBeGreaterThan(memory.evidence.b.潜伏);
+  });
+
+  it("treats receiving the +1 probe outcome as evidence that the sender is a teammate", () => {
+    const duringProbe = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [counterCard] },
+      activeFunctionAction: {
+        kind: "probeDrawDiscard",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "reactions",
+      },
+    });
+    const memory = createBotMemory(duringProbe);
+    const before = memory.evidence.b?.军情 ?? 0;
+    const afterProbe = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [counterCard, transferCard] },
+      players: duringProbe.players.map((player) =>
+        player.id === "bot" ? { ...player, handCount: player.handCount + 1 } : player
+      ),
+      activeFunctionAction: undefined,
+    });
+
+    observeBotProjection(memory, afterProbe);
+
+    expect(memory.evidence.b.军情).toBeGreaterThan(before);
+    expect(memory.evidence.b.军情).toBeGreaterThan(memory.evidence.b.潜伏);
+  });
+
+  it("does not treat another 特工 as a teammate after receiving +1", () => {
+    const duringProbe = makeProjection({
+      own: { id: "bot", faction: "特工", hand: [counterCard] },
+      activeFunctionAction: {
+        kind: "probeDrawDiscard",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "reactions",
+      },
+    });
+    const memory = createBotMemory(duringProbe);
+    const afterProbe = makeProjection({
+      own: { id: "bot", faction: "特工", hand: [counterCard, transferCard] },
+      players: duringProbe.players.map((player) =>
+        player.id === "bot" ? { ...player, handCount: player.handCount + 1 } : player
+      ),
+      activeFunctionAction: undefined,
+    });
+
+    observeBotProjection(memory, afterProbe);
+
+    expect(memory.evidence.b.特工).toBe(0);
   });
 
   it("treats publicly revealed factions as certain", () => {
@@ -134,6 +191,67 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(lethal, createBotMemory(lethal))?.type).toBe("DECLINE_INTELLIGENCE");
   });
 
+  it("candidate-v5 preserves a marginal reaction card under faction uncertainty", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "特工", hand: [transferCard] },
+      transmission: { ...transmission(blueCard), card: undefined, faceUp: false },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        { type: "PLAY_TRANSFER", cardId: transferCard.id as PhysicalCardId, targetId: "b" },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: "tactical-v2" })?.type)
+      .toBe("PLAY_TRANSFER");
+    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: "candidate-v5" })?.type)
+      .toBe("PASS_REACTION");
+  });
+
+  it("uses a draw probe on a likely ally when its printed draw faction matches", () => {
+    const projection = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [militaryDrawProbe] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? { ...player, faction: "军情" as Faction }
+          : player.id === "c"
+            ? { ...player, faction: "潜伏" as Faction }
+            : player
+      ),
+      legalActions: [
+        { type: "PLAY_PROBE", cardId: militaryDrawProbe.id as PhysicalCardId, targetId: "b" },
+        { type: "PLAY_PROBE", cardId: militaryDrawProbe.id as PhysicalCardId, targetId: "c" },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))).toMatchObject({
+      type: "PLAY_PROBE",
+      targetId: "b",
+    });
+  });
+
+  it("avoids giving a draw to a likely opponent and probes an opponent who must discard", () => {
+    const projection = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [undercoverDrawProbe] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? { ...player, faction: "潜伏" as Faction }
+          : player.id === "c"
+            ? { ...player, faction: "特工" as Faction }
+            : player
+      ),
+      legalActions: [
+        { type: "PLAY_PROBE", cardId: undercoverDrawProbe.id as PhysicalCardId, targetId: "b" },
+        { type: "PLAY_PROBE", cardId: undercoverDrawProbe.id as PhysicalCardId, targetId: "c" },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))).toMatchObject({
+      type: "PLAY_PROBE",
+      targetId: "c",
+    });
+  });
+
   it("assigns decisive tactical value to an immediate team win", () => {
     const projection = makeProjection({
       phase: "transmitting",
@@ -148,6 +266,8 @@ describe("bot strategy", () => {
     const memory = createBotMemory(projection);
     expect(receiptUtility(blueCard, "bot", projection, factionBeliefs(memory, projection))).toBeGreaterThan(9_000);
     expect(chooseBotCommand(projection, memory)?.type).toBe("ACCEPT_INTELLIGENCE");
+    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: "candidate-v5" })?.type)
+      .toBe("ACCEPT_INTELLIGENCE");
   });
 
   it("accepts hidden sixth intelligence when it guarantees a 特工 victory", () => {

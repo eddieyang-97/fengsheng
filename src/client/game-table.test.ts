@@ -14,6 +14,7 @@ import {
   mergeAuditLogs,
   promptTitle,
   publicTextReceiptEffect,
+  responseActionText,
   seatOrderAnchoredAtPlayer,
   transmissionDirectionForSelection,
 } from "./GameTable";
@@ -74,7 +75,7 @@ const projection = {
 
 describe("game table card parameters", () => {
   it("shows the printed 试探 and 秘密下达 variants", () => {
-    expect(cardVariantText(identityProbe)).toBe("身份代码：军情→间谍 · 潜伏→卧底 · 特工→好人");
+    expect(cardVariantText(identityProbe)).toBe("军情→间谍 · 潜伏→卧底 · 特工→好人");
     expect(cardVariantText(secretOrder)).toBe("听风→红 · 看雨→蓝 · 日落→黑");
   });
 
@@ -149,6 +150,27 @@ describe("match log auto-follow", () => {
   it("follows new entries only while the reader remains near the bottom", () => {
     expect(isNearScrollBottom(468, 500, 1_000)).toBe(true);
     expect(isNearScrollBottom(400, 500, 1_000)).toBe(false);
+  });
+});
+
+describe("current response wording", () => {
+  it("describes intelligence as being transmitted rather than used", () => {
+    expect(responseActionText({
+      id: "intelligence-1",
+      kind: "intelligence",
+      sourcePlayerId: "甲",
+      targetPlayerId: "乙",
+    }, { 甲: "小甲" }, "文本")).toBe("【小甲】正在以文本传递情报");
+  });
+
+  it("continues to describe function cards as used", () => {
+    expect(responseActionText({
+      id: "card-1",
+      kind: "card",
+      sourcePlayerId: "甲",
+      targetPlayerId: "乙",
+      cardName: "危险情报",
+    }, { 甲: "小甲" })).toBe("【小甲】使用 危险情报");
   });
 });
 

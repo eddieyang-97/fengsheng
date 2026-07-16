@@ -6,7 +6,7 @@ const FACTIONS = ["军情", "潜伏", "特工"] as const satisfies readonly Fact
 
 export type BotRandom = () => number;
 export type LegalAction = PlayerProjection["legalActions"][number];
-export type BotPolicyId = "baseline-v1" | "tactical-v2" | "candidate-v3" | "candidate-v4";
+export type BotPolicyId = "baseline-v1" | "tactical-v2" | "candidate-v3" | "candidate-v4" | "candidate-v5";
 
 interface PublicObservation {
   auditLength: number;
@@ -25,6 +25,7 @@ interface PublicObservation {
   players: Record<string, {
     alive: boolean;
     faction?: Faction;
+    handCount: number;
     intelligence: PhysicalCard[];
   }>;
 }
@@ -49,7 +50,7 @@ export interface BotDecision {
 }
 
 export interface BotDecisionOptions {
-  /** Versioned decision policy. Live bots default to the current candidate. */
+  /** Versioned decision policy. Live bots default to tactical-v2 until a candidate is promoted. */
   policy?: BotPolicyId;
   /** Inject a seeded generator for reproducible games. Defaults to deterministic ordering. */
   random?: BotRandom;
@@ -138,6 +139,23 @@ export function observeBotProjection(memory: BotMemory, projection: PlayerProjec
 
   const priorFunction = memory.previous?.functionAction;
   const currentFunction = functionObservation(projection);
+  if (
+    priorFunction?.kind === "probeDrawDiscard" &&
+    priorFunction.targetId === projection.own.id &&
+    currentFunction?.signature !== priorFunction.signature &&
+    projection.own.faction !== "特工"
+  ) {
+    const priorHandCount = memory.previous?.players[projection.own.id]?.handCount;
+    const currentHandCount = projection.players.find((player) => player.id === projection.own.id)?.handCount;
+    if (
+      priorHandCount !== undefined &&
+      currentHandCount !== undefined &&
+      currentHandCount === priorHandCount + 1
+    ) {
+      const sourceEvidence = memory.evidence[priorFunction.sourceId] ??= emptyBelief();
+      sourceEvidence[projection.own.faction] += 1.1;
+    }
+  }
   if (currentFunction && currentFunction.signature !== priorFunction?.signature) {
     const target = projection.players.find((player) => player.id === currentFunction.targetId);
     const sourceEvidence = memory.evidence[currentFunction.sourceId] ??= emptyBelief();
@@ -196,7 +214,7 @@ export function factionBeliefsForPolicy(
   projection: PlayerProjection,
   policy: BotPolicyId,
 ): Record<string, FactionBelief> {
-  return policy === "candidate-v3" || policy === "candidate-v4"
+  return policy === "candidate-v3" || policy === "candidate-v4" || policy === "candidate-v5"
     ? factionBeliefs(memory, projection)
     : independentFactionBeliefs(memory, projection);
 }
@@ -280,9 +298,14 @@ export function chooseBotDecision(
     options.excludedCommands?.map((command) => JSON.stringify(command)) ?? [],
   );
   const candidates = projection.legalActions
-    .map((action) => policy === "baseline-v1"
-      ? scoreBaselineAction(action, projection, beliefs)
-      : scoreAction(action, projection, beliefs, policy))
+    .map((action) => {
+      const scored = policy === "baseline-v1"
+        ? scoreBaselineAction(action, projection, beliefs)
+        : scoreAction(action, projection, beliefs, policy);
+      return policy === "candidate-v5"
+        ? applyCandidateV5Discipline(action, scored, projection, beliefs)
+        : scored;
+    })
     .filter((candidate) => !excluded.has(JSON.stringify(candidate.command)));
 
   if (candidates.length === 0) {
@@ -382,8 +405,8 @@ function scoreAction(
     case "PLAY_BURN":
       return decision(
         command,
-        (policy === "candidate-v4" ? 4 : 7) + burnUtility(action.targetPlayerId, projection, beliefs),
-        policy === "candidate-v4"
+        (policy === "candidate-v4" || policy === "candidate-v5" ? 4 : 7) + burnUtility(action.targetPlayerId, projection, beliefs),
+        policy === "candidate-v4" || policy === "candidate-v5"
           ? "burn only when the expected protection exceeds card-conservation cost"
           : "remove dangerous black intelligence when it helps the bot's side",
       );
@@ -391,8 +414,16 @@ function scoreAction(
       return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 5 + 8, "exchange with a likely ally");
     case "PLAY_DANGEROUS_INTELLIGENCE":
       return decision(command, -targetAffinity(action.targetId, ownFaction, beliefs) * 8 + 10, "pressure a likely opponent");
-    case "PLAY_PROBE":
-      return decision(command, informationUncertainty(action.targetId, beliefs) * 8 + 8, "probe an uncertain opponent");
+    case "PLAY_PROBE": {
+      const effectValue = probeTargetUtility(card, action.targetId, projection, beliefs);
+      return decision(
+        command,
+        8 + effectValue * 8 + informationUncertainty(action.targetId, beliefs) * 2,
+        card?.variant?.kind === "probeDrawDiscard"
+          ? "give the draw to a likely ally or force a likely opponent to discard"
+          : "probe an uncertain opponent",
+      );
+    }
     case "PLAY_REINFORCEMENT":
       return decision(command, 17, "gain cards");
     case "PLAY_CONFIDENTIAL_FILE":
@@ -413,6 +444,46 @@ function scoreAction(
     case "CHOOSE_PUBLIC_TEXT_DISCARD":
       return decision(command, -cardUtility(card, ownFaction), "discard least useful card");
   }
+}
+
+const CANDIDATE_V5_DISCRETIONARY_REACTIONS = new Set<LegalAction["type"]>([
+  "PLAY_LOCK",
+  "PLAY_COUNTER",
+  "PLAY_INTERCEPT",
+  "PLAY_SWAP",
+  "PLAY_TRANSFER",
+  "PLAY_SEPARATION",
+  "PLAY_FUNCTION_SEPARATION",
+  "PLAY_BURN",
+  "PLAY_LURE",
+]);
+
+function applyCandidateV5Discipline(
+  action: LegalAction,
+  scored: BotDecision,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): BotDecision {
+  if (!CANDIDATE_V5_DISCRETIONARY_REACTIONS.has(action.type) || Math.abs(scored.score) >= 1_000) {
+    return scored;
+  }
+  const targetId = reactionDecisionTarget(action, projection);
+  const belief = targetId ? beliefs[targetId] : undefined;
+  const confidence = belief ? Math.max(...FACTIONS.map((faction) => belief[faction])) : 1 / 3;
+  const conservationCost = 1.5 + (1 - confidence) * 3;
+  return {
+    ...scored,
+    score: scored.score - conservationCost,
+    reason: `${scored.reason}; require ${conservationCost.toFixed(2)} confidence margin before spending a reaction card`,
+  };
+}
+
+function reactionDecisionTarget(action: LegalAction, projection: PlayerProjection): string | undefined {
+  if ("targetPlayerId" in action) return action.targetPlayerId;
+  if ("targetId" in action) return action.targetId;
+  if (action.type === "PLAY_INTERCEPT") return projection.own.id;
+  if (action.type === "PLAY_COUNTER") return projection.responseStack.at(-1)?.targetPlayerId;
+  return projection.transmission?.intendedRecipientId;
 }
 
 function synthesizeTransmission(
@@ -698,6 +769,28 @@ function informationUncertainty(playerId: string, beliefs: Record<string, Factio
   return belief ? 1 - Math.max(...FACTIONS.map((faction) => belief[faction])) : 1;
 }
 
+function probeTargetUtility(
+  card: PhysicalCard | undefined,
+  targetId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (card?.variant?.kind !== "probeDrawDiscard") return 0;
+  const drawFaction = card.variant.drawFaction;
+  const belief = beliefs[targetId];
+  if (!belief) return 0;
+  const target = projection.players.find((player) => player.id === targetId);
+  return FACTIONS.reduce((total, faction) => {
+    const targetDraws = faction === drawFaction;
+    const effectActuallyChangesHand = targetDraws || (target?.handCount ?? 0) > 0;
+    if (!effectActuallyChangesHand) return total;
+    // 特工 are independent even when both have the same printed faction.
+    const aligned = projection.own.faction !== "特工" && faction === projection.own.faction;
+    const targetBenefit = targetDraws ? 1 : -1;
+    return total + belief[faction] * (aligned ? targetBenefit : -targetBenefit);
+  }, 0);
+}
+
 function ownBlackCount(projection: PlayerProjection): number {
   return projection.players.find((player) => player.id === projection.own.id)?.intelligence.filter((card) => card.color === "黑").length ?? 0;
 }
@@ -733,6 +826,7 @@ function snapshot(projection: PlayerProjection): PublicObservation {
     players: Object.fromEntries(projection.players.map((player) => [player.id, {
       alive: player.alive,
       faction: player.faction,
+      handCount: player.handCount,
       intelligence: [...player.intelligence],
     }])),
   };
