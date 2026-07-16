@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { PHYSICAL_DECK, type Faction, type PhysicalCard, type PhysicalCardId } from "../game/cards";
-import type { PlayerProjection } from "../game/engine";
+import { PHYSICAL_DECK, type Faction, type PhysicalCard, type PhysicalCardId } from "../../game/cards";
+import type { PlayerProjection } from "../../game/engine";
 import {
+  BASELINE_V1,
   chooseBotCommand,
   createBotMemory,
   createSeededBotRandom,
   factionBeliefs,
   observeBotProjection,
   receiptUtility,
-} from "./bot-strategy";
+  TACTICAL_V2,
+} from "./strategy";
+import { CANDIDATE_V5 } from "../../ai-lab/policies";
 
 const blueCard = cardWhere((card) => card.color === "蓝");
 const redDirectCard = cardWhere((card) => card.color === "红" && card.transmission === "直达");
@@ -202,9 +205,9 @@ describe("bot strategy", () => {
       ],
     });
 
-    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: "tactical-v2" })?.type)
+    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: TACTICAL_V2 })?.type)
       .toBe("PLAY_TRANSFER");
-    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: "candidate-v5" })?.type)
+    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V5 })?.type)
       .toBe("PASS_REACTION");
   });
 
@@ -266,7 +269,7 @@ describe("bot strategy", () => {
     const memory = createBotMemory(projection);
     expect(receiptUtility(blueCard, "bot", projection, factionBeliefs(memory, projection))).toBeGreaterThan(9_000);
     expect(chooseBotCommand(projection, memory)?.type).toBe("ACCEPT_INTELLIGENCE");
-    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: "candidate-v5" })?.type)
+    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V5 })?.type)
       .toBe("ACCEPT_INTELLIGENCE");
   });
 
@@ -287,7 +290,7 @@ describe("bot strategy", () => {
     const memory = createBotMemory(projection);
     expect(receiptUtility(undefined, "bot", projection, factionBeliefs(memory, projection)))
       .toBeGreaterThan(9_000);
-    expect(chooseBotCommand(projection, memory, { policy: "tactical-v2", random: () => 0.99 })?.type)
+    expect(chooseBotCommand(projection, memory, { policy: TACTICAL_V2, random: () => 0.99 })?.type)
       .toBe("ACCEPT_INTELLIGENCE");
   });
 
@@ -323,7 +326,7 @@ describe("bot strategy", () => {
       ],
     };
     expect(chooseBotCommand(helpful, createBotMemory(helpful))?.type).toBe("PASS_REACTION");
-    expect(chooseBotCommand(helpful, createBotMemory(helpful), { policy: "baseline-v1" })?.type)
+    expect(chooseBotCommand(helpful, createBotMemory(helpful), { policy: BASELINE_V1 })?.type)
       .toBe("PLAY_COUNTER");
   });
 

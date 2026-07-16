@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./bot-benchmark";
+import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
+import { CANDIDATE_V5 } from "./policies";
+import { TACTICAL_V2 } from "../server/bot/strategy";
 
 describe("AI self-play benchmark", () => {
   it("finishes deterministic duel batches without stalling", () => {
@@ -46,7 +48,7 @@ describe("AI self-play benchmark", () => {
     const observed = runSelfPlayGame({
       playerCount: 5,
       seed: 101,
-      comparePolicies: ["tactical-v2", "candidate-v3"],
+      comparePolicies: [TACTICAL_V2, CANDIDATE_V5],
     });
 
     expect(observed.winner).toEqual(ordinary.results[0]?.winner);
@@ -54,7 +56,7 @@ describe("AI self-play benchmark", () => {
     expect(observed.disagreements.length).toBeGreaterThan(0);
     expect(observed.disagreements[0]).toMatchObject({
       seed: 101,
-      policies: ["tactical-v2", "candidate-v3"],
+      policies: [TACTICAL_V2.id, CANDIDATE_V5.id],
     });
     expect(observed.disagreements.every((entry) =>
       JSON.stringify(entry.decisions[0]?.command) !== JSON.stringify(entry.decisions[1]?.command)

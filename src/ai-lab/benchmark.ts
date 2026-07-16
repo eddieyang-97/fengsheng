@@ -1,13 +1,14 @@
 import { factionsForPlayerCount, type WinnerState } from "../game/engine";
-import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, type BotDecision, type BotMemory, type BotPolicyId, type FactionBelief } from "./bot-strategy";
-import { GameSessionService, type GameCommand } from "./game-session";
+import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, TACTICAL_V2, type BotDecision, type BotMemory, type BotPolicy, type FactionBelief } from "../server/bot/strategy";
+import { GameSessionService, type GameCommand } from "../server/game-session";
+import { CANDIDATE_V5 } from "./policies";
 
 export interface SelfPlayGameOptions {
   playerCount: 2 | 5 | 6 | 7 | 8;
   seed: number;
   maxCommands?: number;
-  policies?: readonly BotPolicyId[];
-  comparePolicies?: readonly [BotPolicyId, BotPolicyId];
+  policies?: readonly BotPolicy[];
+  comparePolicies?: readonly [BotPolicy, BotPolicy];
 }
 
 export interface BotDisagreement {
@@ -25,7 +26,7 @@ export interface BotDisagreement {
   };
   intelligenceCounts: Record<string, { red: number; blue: number; black: number; physical: number }>;
   legalActionTypes: string[];
-  policies: readonly [BotPolicyId, BotPolicyId];
+  policies: readonly [string, string];
   decisions: readonly [BotDecision | undefined, BotDecision | undefined];
   beliefs: readonly [Record<string, FactionBelief>, Record<string, FactionBelief>];
   publicEvent?: string;
@@ -47,7 +48,7 @@ export interface SelfPlayGameResult {
   participants: Array<{
     id: string;
     faction: string;
-    policy: BotPolicyId;
+    policy: string;
     won: boolean;
   }>;
   disagreements: BotDisagreement[];
@@ -78,8 +79,8 @@ export interface PairedTournamentOptions {
   pairs: number;
   startSeed?: number;
   maxCommandsPerGame?: number;
-  candidatePolicy?: BotPolicyId;
-  baselinePolicy?: BotPolicyId;
+  candidatePolicy?: BotPolicy;
+  baselinePolicy?: BotPolicy;
 }
 
 export interface PairedTournamentResult {
@@ -103,7 +104,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
   if (options.policies && options.policies.length !== ids.length) {
     throw new Error("policies must contain exactly one policy per player");
   }
-  const policies = options.policies ?? ids.map(() => "tactical-v2" as const);
+  const policies = options.policies ?? ids.map(() => TACTICAL_V2);
   const roomCode = `BENCH-${options.seed}`;
   const games = new GameSessionService();
   games.create(roomCode, ids, options.seed);
@@ -192,13 +193,13 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
 export function runPairedTournament(options: PairedTournamentOptions): PairedTournamentResult {
   if (!Number.isInteger(options.pairs) || options.pairs < 1) throw new Error("pairs must be a positive integer");
   factionsForPlayerCount(options.playerCount);
-  const firstLeg = Array.from({ length: options.playerCount }, (_, index): BotPolicyId =>
-    index % 2 === 0 ? (options.candidatePolicy ?? "candidate-v5") : (options.baselinePolicy ?? "tactical-v2")
+  const firstLeg = Array.from({ length: options.playerCount }, (_, index): BotPolicy =>
+    index % 2 === 0 ? (options.candidatePolicy ?? CANDIDATE_V5) : (options.baselinePolicy ?? TACTICAL_V2)
   );
-  const candidatePolicy = options.candidatePolicy ?? "candidate-v5";
-  const baselinePolicy = options.baselinePolicy ?? "tactical-v2";
-  const secondLeg = firstLeg.map((policy): BotPolicyId =>
-    policy === candidatePolicy ? baselinePolicy : candidatePolicy
+  const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V5;
+  const baselinePolicy = options.baselinePolicy ?? TACTICAL_V2;
+  const secondLeg = firstLeg.map((policy): BotPolicy =>
+    policy.id === candidatePolicy.id ? baselinePolicy : candidatePolicy
   );
   const startSeed = options.startSeed ?? 1;
   const results: SelfPlayGameResult[] = [];
@@ -215,13 +216,13 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
     results.push(...pair);
     const participants = pair.flatMap((result) => result.participants);
     pairDifferences.push(
-      winRateFor(participants, candidatePolicy) - winRateFor(participants, baselinePolicy),
+      winRateFor(participants, candidatePolicy.id) - winRateFor(participants, baselinePolicy.id),
     );
   }
 
   const participants = results.flatMap((result) => result.participants);
-  const candidate = policySummary(participants, candidatePolicy);
-  const baseline = policySummary(participants, baselinePolicy);
+  const candidate = policySummary(participants, candidatePolicy.id);
+  const baseline = policySummary(participants, baselinePolicy.id);
   const difference = average(pairDifferences);
   const standardError = pairDifferences.length > 1
     ? Math.sqrt(pairDifferences.reduce((sum, value) => sum + (value - difference) ** 2, 0) / (pairDifferences.length - 1)) / Math.sqrt(pairDifferences.length)
@@ -279,7 +280,7 @@ function summarizeGame(
   games: GameSessionService,
   roomCode: string,
   options: SelfPlayGameOptions,
-  policies: readonly BotPolicyId[],
+  policies: readonly BotPolicy[],
   commands: number,
   rejectedCommands: number,
   status: SelfPlayGameResult["status"],
@@ -305,7 +306,7 @@ function summarizeGame(
     participants: state.seatOrder.map((id, index) => ({
       id,
       faction: state.players[id].faction,
-      policy: policies[index]!,
+      policy: policies[index]!.id,
       won: didPlayerWin(state.winner, id, state.players[id].faction),
     })),
     disagreements,
@@ -316,7 +317,7 @@ function describeDisagreement(
   seed: number,
   commandNumber: number,
   projection: ReturnType<GameSessionService["project"]>,
-  policies: readonly [BotPolicyId, BotPolicyId],
+  policies: readonly [BotPolicy, BotPolicy],
   decisions: readonly [BotDecision | undefined, BotDecision | undefined],
   memory: BotMemory,
 ): BotDisagreement {
@@ -345,7 +346,7 @@ function describeDisagreement(
       return [player.id, counts];
     })),
     legalActionTypes: [...new Set(projection.legalActions.map((action) => action.type))],
-    policies,
+    policies: [policies[0].id, policies[1].id],
     decisions,
     beliefs: policies.map((policy) => factionBeliefsForPolicy(memory, projection, policy)) as [
       Record<string, FactionBelief>,
@@ -362,7 +363,7 @@ function didPlayerWin(winner: WinnerState | undefined, playerId: string, faction
 
 function policySummary(
   participants: readonly SelfPlayGameResult["participants"][number][],
-  policy: BotPolicyId,
+  policy: string,
 ): { wins: number; entries: number; winRate: number } {
   const entries = participants.filter((participant) => participant.policy === policy);
   const wins = entries.filter((participant) => participant.won).length;
@@ -371,7 +372,7 @@ function policySummary(
 
 function winRateFor(
   participants: readonly SelfPlayGameResult["participants"][number][],
-  policy: BotPolicyId,
+  policy: string,
 ): number {
   return policySummary(participants, policy).winRate;
 }

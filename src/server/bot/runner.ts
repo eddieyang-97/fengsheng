@@ -1,12 +1,13 @@
-import type { RoomService } from "../room";
-import type { GameCommand, GameSessionService } from "./game-session";
+import type { RoomService } from "../../room";
+import type { GameCommand, GameSessionService } from "../game-session";
 import {
   chooseBotCommand,
   createBotMemory,
   createSeededBotRandom,
+  LIVE_BOT_POLICY,
   type BotMemory,
   type BotRandom,
-} from "./bot-strategy";
+} from "./strategy";
 
 export interface BotRunnerClock {
   setTimeout(callback: () => void, delayMs: number): unknown;
@@ -149,6 +150,7 @@ export class BotRunner {
       this.randoms.set(key, random);
       const stateKey = `${key}:${projection.auditLog.length}:${projection.phase}`;
       const command = chooseBotCommand(projection, memory, {
+        policy: LIVE_BOT_POLICY,
         random,
         excludedCommands: this.rejected.get(stateKey),
         excludedTransmissionCardIds: (this.rejected.get(stateKey) ?? [])

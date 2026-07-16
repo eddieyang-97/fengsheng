@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { RoomService } from "../room";
-import { BotRunner, type BotRunnerClock } from "./bot-runner";
-import { GameSessionService } from "./game-session";
+import { RoomService } from "../../room";
+import { GameSessionService } from "../game-session";
+import { BotRunner, type BotRunnerClock } from "./runner";
 
 class ManualClock implements BotRunnerClock {
   callbacks: Array<() => void> = [];

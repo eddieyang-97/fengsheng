@@ -5,7 +5,7 @@ import express, { type Express } from "express";
 import { Server } from "socket.io";
 
 import { RoomError, RoomService, type StartRoomResult } from "../room";
-import { BotRunner, type BotRunnerClock } from "./bot-runner";
+import { BotRunner, type BotRunnerClock } from "./bot/runner";
 import { GameSessionError, GameSessionService } from "./game-session";
 import {
   ReactionTimeoutScheduler,

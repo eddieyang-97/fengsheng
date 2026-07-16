@@ -140,6 +140,28 @@ describe("automatic reaction passing", () => {
     ])).toBeUndefined();
   });
 
+  it("can ignore burn actions without ignoring other available reactions", () => {
+    const burnAction = {
+      type: "PLAY_BURN" as const,
+      cardId: "p1-04" as const,
+      targetPlayerId: "乙",
+      targetIntelligenceCardId: "p1-05" as const,
+    };
+    expect(automaticPassCommand([
+      { type: "PASS_REACTION" },
+      burnAction,
+    ])).toBeUndefined();
+    expect(automaticPassCommand([
+      { type: "PASS_REACTION" },
+      burnAction,
+    ], true)).toEqual({ type: "PASS_REACTION" });
+    expect(automaticPassCommand([
+      { type: "PASS_REACTION" },
+      burnAction,
+      { type: "PLAY_COUNTER", cardId: "p1-03", targetInteractionId: "interaction-1" },
+    ], true)).toBeUndefined();
+  });
+
   it("waits one second for reactions but skips unavailable lock immediately", () => {
     expect(automaticPassDelayMs({ type: "PASS_REACTION" })).toBe(1_000);
     expect(automaticPassDelayMs({ type: "PASS_LOCK" })).toBe(0);

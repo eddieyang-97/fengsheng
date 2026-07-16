@@ -29,7 +29,7 @@ export {
   BotRunner,
   type BotRunnerClock,
   type BotRunnerOptions,
-} from "./bot-runner";
+} from "./bot";
 export {
   chooseBotCommand,
   chooseBotDecision,
@@ -39,4 +39,4 @@ export {
   observeBotProjection,
   type BotDecision,
   type BotMemory,
-} from "./bot-strategy";
+} from "./bot";

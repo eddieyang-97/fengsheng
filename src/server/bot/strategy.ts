@@ -1,12 +1,33 @@
-import type { Faction, PhysicalCard, PhysicalCardId, SingleColor } from "../game/cards";
-import { factionsForPlayerCount, type ActiveFunctionKind, type PlayerProjection } from "../game/engine";
-import type { GameCommand } from "./game-session";
+import type { Faction, PhysicalCard, PhysicalCardId, SingleColor } from "../../game/cards";
+import { factionsForPlayerCount, type ActiveFunctionKind, type PlayerProjection } from "../../game/engine";
+import type { GameCommand } from "../game-session";
 
 const FACTIONS = ["军情", "潜伏", "特工"] as const satisfies readonly Faction[];
 
 export type BotRandom = () => number;
 export type LegalAction = PlayerProjection["legalActions"][number];
-export type BotPolicyId = "baseline-v1" | "tactical-v2" | "candidate-v3" | "candidate-v4" | "candidate-v5";
+export interface BotPolicy {
+  readonly id: string;
+  readonly beliefModel: "independent" | "exact";
+  readonly scoring: "baseline" | "tactical";
+  readonly burnBase: number;
+  readonly reactionDiscipline: boolean;
+}
+export const BASELINE_V1: BotPolicy = {
+  id: "baseline-v1",
+  beliefModel: "independent",
+  scoring: "baseline",
+  burnBase: 7,
+  reactionDiscipline: false,
+};
+export const TACTICAL_V2: BotPolicy = {
+  id: "tactical-v2",
+  beliefModel: "independent",
+  scoring: "tactical",
+  burnBase: 7,
+  reactionDiscipline: false,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V2;
 
 interface PublicObservation {
   auditLength: number;
@@ -51,7 +72,7 @@ export interface BotDecision {
 
 export interface BotDecisionOptions {
   /** Versioned decision policy. Live bots default to tactical-v2 until a candidate is promoted. */
-  policy?: BotPolicyId;
+  policy?: BotPolicy;
   /** Inject a seeded generator for reproducible games. Defaults to deterministic ordering. */
   random?: BotRandom;
   /** Commands rejected against the unchanged authoritative state. */
@@ -212,9 +233,9 @@ export function factionBeliefs(memory: BotMemory, projection: PlayerProjection):
 export function factionBeliefsForPolicy(
   memory: BotMemory,
   projection: PlayerProjection,
-  policy: BotPolicyId,
+  policy: BotPolicy,
 ): Record<string, FactionBelief> {
-  return policy === "candidate-v3" || policy === "candidate-v4" || policy === "candidate-v5"
+  return policy.beliefModel === "exact"
     ? factionBeliefs(memory, projection)
     : independentFactionBeliefs(memory, projection);
 }
@@ -292,17 +313,17 @@ export function chooseBotDecision(
   if (projection.winner || !projection.players.find((player) => player.id === memory.botId)?.alive) {
     return undefined;
   }
-  const policy = options.policy ?? "tactical-v2";
+  const policy = options.policy ?? LIVE_BOT_POLICY;
   const beliefs = factionBeliefsForPolicy(memory, projection, policy);
   const excluded = new Set(
     options.excludedCommands?.map((command) => JSON.stringify(command)) ?? [],
   );
   const candidates = projection.legalActions
     .map((action) => {
-      const scored = policy === "baseline-v1"
+      const scored = policy.scoring === "baseline"
         ? scoreBaselineAction(action, projection, beliefs)
         : scoreAction(action, projection, beliefs, policy);
-      return policy === "candidate-v5"
+      return policy.reactionDiscipline
         ? applyCandidateV5Discipline(action, scored, projection, beliefs)
         : scored;
     })
@@ -372,7 +393,7 @@ function scoreAction(
   action: LegalAction,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
-  policy: BotPolicyId,
+  policy: BotPolicy,
 ): BotDecision {
   const command = action as GameCommand;
   const ownFaction = projection.own.faction;
@@ -405,8 +426,8 @@ function scoreAction(
     case "PLAY_BURN":
       return decision(
         command,
-        (policy === "candidate-v4" || policy === "candidate-v5" ? 4 : 7) + burnUtility(action.targetPlayerId, projection, beliefs),
-        policy === "candidate-v4" || policy === "candidate-v5"
+        policy.burnBase + burnUtility(action.targetPlayerId, projection, beliefs),
+        policy.burnBase < TACTICAL_V2.burnBase
           ? "burn only when the expected protection exceeds card-conservation cost"
           : "remove dangerous black intelligence when it helps the bot's side",
       );
@@ -492,7 +513,7 @@ function synthesizeTransmission(
   random?: BotRandom,
   excluded: ReadonlySet<string> = new Set(),
   excludedCardIds: ReadonlySet<PhysicalCardId> = new Set(),
-  policy: BotPolicyId = "tactical-v2",
+  policy: BotPolicy = LIVE_BOT_POLICY,
 ): GameCommand | undefined {
   if (
     projection.phase !== "preTransmission" ||
@@ -521,7 +542,7 @@ function synthesizeTransmission(
           const helpful = transmissionCardValue(card, projection.own.faction);
           candidates.push({
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, targetId: target.id },
-            score: policy === "baseline-v1"
+            score: policy.scoring === "baseline"
               ? helpful * targetAffinity(target.id, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
               : receiptUtility(card, target.id, projection, beliefs) + helpful * 0.1 - cardUtility(card, projection.own.faction) * 0.15,
           });
@@ -534,7 +555,7 @@ function synthesizeTransmission(
           const recipient = adjacentLivingPlayer(projection, direction);
           candidates.push({
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, direction },
-            score: policy === "baseline-v1"
+            score: policy.scoring === "baseline"
               ? transmissionCardValue(card, projection.own.faction) * targetAffinity(recipient, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
               : receiptUtility(card, recipient, projection, beliefs) - cardUtility(card, projection.own.faction) * 0.15,
           });

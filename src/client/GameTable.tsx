@@ -34,12 +34,17 @@ export interface GameTableProps {
 }
 
 const AUTO_PASS_STORAGE_KEY = "fengsheng:auto-pass-no-action";
+const AUTO_PASS_IGNORE_BURN_STORAGE_KEY = "fengsheng:auto-pass-ignore-burn";
 
 export function automaticPassCommand(
   actions: readonly ProjectedLegalAction[],
+  ignoreBurn = false,
 ): Extract<GameCommand, { type: "PASS_REACTION" | "PASS_LOCK" }> | undefined {
-  if (actions.length !== 1) return undefined;
-  const action = actions[0];
+  const relevantActions = ignoreBurn
+    ? actions.filter((action) => action.type !== "PLAY_BURN")
+    : actions;
+  if (relevantActions.length !== 1) return undefined;
+  const action = relevantActions[0];
   return action?.type === "PASS_REACTION" || action?.type === "PASS_LOCK"
     ? action
     : undefined;
@@ -63,6 +68,15 @@ export function isNearScrollBottom(
 function loadAutoPassPreference(): boolean {
   try {
     const stored = localStorage.getItem(AUTO_PASS_STORAGE_KEY);
+    return stored === null ? true : stored === "true";
+  } catch {
+    return true;
+  }
+}
+
+function loadAutoPassIgnoreBurnPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(AUTO_PASS_IGNORE_BURN_STORAGE_KEY);
     return stored === null ? true : stored === "true";
   } catch {
     return true;
@@ -587,6 +601,7 @@ export function GameTable({
 }: GameTableProps) {
   const [selectedCardId, setSelectedCardId] = useState<string>();
   const [autoPassNoAction, setAutoPassNoAction] = useState(loadAutoPassPreference);
+  const [autoPassIgnoreBurn, setAutoPassIgnoreBurn] = useState(loadAutoPassIgnoreBurnPreference);
   const lastAutoPassPrompt = useRef<string | undefined>(undefined);
   const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("直达");
   const [direction, setDirection] = useState<"clockwise" | "counterclockwise">("clockwise");
@@ -671,7 +686,7 @@ export function GameTable({
   const transmissionRecipientIndex = projection.transmission
     ? displaySeatOrder.indexOf(projection.transmission.intendedRecipientId)
     : -1;
-  const autoPassAction = automaticPassCommand(actions);
+  const autoPassAction = automaticPassCommand(actions, autoPassIgnoreBurn);
   const autoPassPrompt = reactionTimer?.promptId ?? (
     projection.reactionWindow
       ? `${projection.reactionWindow.kind}:${projection.reactionWindow.currentResponderId}:${projection.auditLog.length}`
@@ -702,7 +717,7 @@ export function GameTable({
     }
     const timeout = window.setTimeout(() => onCommand(autoPassAction), delayMs);
     return () => window.clearTimeout(timeout);
-  }, [autoPassAction, autoPassNoAction, autoPassPrompt, busy, connected, onCommand]);
+  }, [autoPassAction, autoPassIgnoreBurn, autoPassNoAction, autoPassPrompt, busy, connected, onCommand]);
 
   const chooseTarget = (targetId: string) => {
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
@@ -733,6 +748,23 @@ export function GameTable({
               type="checkbox"
             />
             无可用反应或锁定时自动跳过
+          </label>
+          <label className="auto-pass-control">
+            <input
+              checked={autoPassIgnoreBurn}
+              disabled={!autoPassNoAction}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setAutoPassIgnoreBurn(checked);
+                try {
+                  localStorage.setItem(AUTO_PASS_IGNORE_BURN_STORAGE_KEY, String(checked));
+                } catch {
+                  // The preference remains active for this page when storage is unavailable.
+                }
+              }}
+              type="checkbox"
+            />
+            自动跳过时忽略烧毁
           </label>
           {isHost && (
             <label className="table-timeout-control">
