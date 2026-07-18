@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { PhysicalCard } from "../game/cards";
 import type { SpectatorProjection } from "../game/engine";
 import type { PublicAuditEvent } from "../room";
-import { formatAuditEntries, mergeAuditLogs } from "./GameTable";
+import { formatAuditEntries, mergeAuditLogs, publicCardSummary } from "./GameTable";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import "./game-table.css";
 
@@ -22,7 +22,11 @@ function cardTone(card: PhysicalCard): string {
 
 function PublicCard({ card }: { card: PhysicalCard }) {
   return (
-    <div className={`game-card game-card--${cardTone(card)}`}>
+    <div
+      aria-label={publicCardSummary(card)}
+      className={`game-card game-card--${cardTone(card)}`}
+      title={publicCardSummary(card)}
+    >
       <strong>{card.name}</strong>
       <span>{card.color} · {card.transmission}</span>
       {card.color === "黑" && card.unburnable && <small className="unburnable-badge">不可烧毁</small>}

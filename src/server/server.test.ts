@@ -8,7 +8,14 @@ import {
   type PhysicalCard,
   type PhysicalCardId,
 } from "../game/cards";
-import type { GameState } from "../game/engine";
+import {
+  enterTransmissionPhase,
+  passLockOpportunity,
+  passReaction,
+  startTransmission,
+  type GameState,
+  type PlayerProjection,
+} from "../game/engine";
 import type { GameCommand } from "./game-session";
 
 import type {
@@ -483,7 +490,233 @@ describe("game server sessions", () => {
       () => !server!.roomService.getRoom(created.room.code).gamePausedForDisconnect,
     );
   });
+
+  it("accepts 掉包 through the server after a transfer response window resolves", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 82, botDelayMs: 60_000 });
+    const fixture = await createTransferBoundaryFixture(server, sockets);
+
+    expect(fixture.state.reactionWindow?.kind).toBe("transfer");
+    expect(await emitRawAck(fixture.reactorSocket, "game:command", {
+      command: { type: "PLAY_SWAP", cardId: fixture.swapCardId },
+    })).toMatchObject({ ok: false });
+    expect(await emitRawAck(fixture.reactorSocket, "game:command", {
+      command: { type: "PLAY_INTERCEPT", cardId: fixture.interceptCardId },
+    })).toMatchObject({ ok: false });
+
+    const transferProjection = server.gameSessionService.project(
+      fixture.roomCode,
+      fixture.reactorId,
+    );
+    expect(transferProjection.legalActions).toContainEqual(expect.objectContaining({
+      type: "PLAY_COUNTER",
+      cardId: fixture.counterCardId,
+    }));
+
+    await passTransferWindowThroughServer(fixture);
+
+    expect(fixture.state.reactionWindow).toMatchObject({
+      kind: "intelligence",
+      affectedPlayerId: fixture.transferredTargetId,
+    });
+    expect(fixture.state.transmission).toMatchObject({
+      intendedRecipientId: fixture.transferredTargetId,
+      transferredRecipientCommitted: true,
+    });
+    expect(server.gameSessionService.project(fixture.roomCode, fixture.reactorId).legalActions)
+      .toContainEqual({ type: "PLAY_SWAP", cardId: fixture.swapCardId });
+
+    const accepted = await emitRawAck(fixture.reactorSocket, "game:command", {
+      command: { type: "PLAY_SWAP", cardId: fixture.swapCardId },
+    });
+
+    expect(accepted).toMatchObject({ ok: true });
+    expect(fixture.state.reactionWindow?.kind).toBe("swap");
+    expect(fixture.state.transmission).toMatchObject({
+      intendedRecipientId: fixture.transferredTargetId,
+      transferredRecipientCommitted: true,
+      pendingSwap: { sourceCardId: fixture.swapCardId },
+    });
+  });
+
+  it("accepts 截获 through the server after a transfer response window resolves", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 83, botDelayMs: 60_000 });
+    const fixture = await createTransferBoundaryFixture(server, sockets);
+
+    expect(fixture.state.reactionWindow?.kind).toBe("transfer");
+    expect(await emitRawAck(fixture.reactorSocket, "game:command", {
+      command: { type: "PLAY_INTERCEPT", cardId: fixture.interceptCardId },
+    })).toMatchObject({ ok: false });
+
+    await passTransferWindowThroughServer(fixture);
+
+    expect(fixture.state.reactionWindow).toMatchObject({
+      kind: "intelligence",
+      affectedPlayerId: fixture.transferredTargetId,
+    });
+    expect(server.gameSessionService.project(fixture.roomCode, fixture.reactorId).legalActions)
+      .toContainEqual({ type: "PLAY_INTERCEPT", cardId: fixture.interceptCardId });
+
+    const accepted = await emitRawAck(fixture.reactorSocket, "game:command", {
+      command: { type: "PLAY_INTERCEPT", cardId: fixture.interceptCardId },
+    });
+
+    expect(accepted).toMatchObject({ ok: true });
+    expect(fixture.state.reactionWindow).toMatchObject({
+      kind: "intelligence",
+      affectedPlayerId: fixture.reactorId,
+    });
+    expect(fixture.state.transmission).toMatchObject({
+      intendedRecipientId: fixture.reactorId,
+      interceptorCommitted: true,
+      transferredRecipientCommitted: false,
+    });
+  });
+
+  it("accepts 识破 through the server when it counters 转移", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 84, botDelayMs: 60_000 });
+    const fixture = await createTransferBoundaryFixture(server, sockets);
+    const counter = server.gameSessionService
+      .project(fixture.roomCode, fixture.reactorId)
+      .legalActions.find((action) => action.type === "PLAY_COUNTER");
+    if (!counter || counter.type !== "PLAY_COUNTER") throw new Error("Expected transfer counter");
+
+    const accepted = await emitRawAck(fixture.reactorSocket, "game:command", {
+      command: counter,
+    });
+
+    expect(accepted).toMatchObject({ ok: true });
+    expect(fixture.state.reactionWindow?.kind).toBe("transfer");
+    expect(fixture.state.interactionStack.at(-1)).toMatchObject({
+      kind: "counter",
+      sourcePlayerId: fixture.reactorId,
+    });
+    expect(fixture.state.transmission?.pendingTransfer).toBeUndefined();
+    expect(fixture.state.players[fixture.reactorId].hand).not.toContain(fixture.counterCardId);
+
+    await passTransferWindowThroughServer(fixture);
+
+    expect(fixture.state.reactionWindow).toBeUndefined();
+    expect(fixture.state.transmission).toMatchObject({
+      intendedRecipientId: fixture.originalRecipientId,
+      receiptStage: "decision",
+      transferredRecipientCommitted: false,
+    });
+  });
 });
+
+interface TransferBoundaryFixture {
+  roomCode: string;
+  state: GameState;
+  socketsByPlayer: Map<string, TestSocket>;
+  reactorId: string;
+  reactorSocket: TestSocket;
+  originalRecipientId: string;
+  transferredTargetId: string;
+  swapCardId: PhysicalCardId;
+  interceptCardId: PhysicalCardId;
+  counterCardId: PhysicalCardId;
+}
+
+async function createTransferBoundaryFixture(
+  server: GameServer,
+  sockets: TestSocket[],
+): Promise<TransferBoundaryFixture> {
+  await server.listen(0, "127.0.0.1");
+  const port = (server.httpServer.address() as AddressInfo).port;
+  const clients = Array.from({ length: 5 }, () => connect(port));
+  sockets.push(...clients);
+  await Promise.all(clients.map(connected));
+  const created = await emitAck<SafeRoomEntryResult>(clients[0], "room:create", {
+    capacity: 5,
+    displayName: "玩家1",
+  });
+  const entries = [created];
+  for (let index = 1; index < clients.length; index += 1) {
+    entries.push(await emitAck<SafeRoomEntryResult>(clients[index], "room:join", {
+      roomCode: created.room.code,
+      displayName: `玩家${index + 1}`,
+    }));
+  }
+  await emitAck<SafeStartRoomResult>(clients[0], "room:start", { seatMode: "as-is" });
+
+  const socketsByPlayer = new Map(entries.map((entry, index) => [entry.playerId, clients[index]]));
+  const state = server.gameSessionService.getState(created.room.code);
+  const senderIndex = state.seatOrder.indexOf(state.activePlayerId);
+  const senderId = state.activePlayerId;
+  const originalRecipientId = state.seatOrder[(senderIndex + 1) % state.seatOrder.length];
+  const transferredTargetId = state.seatOrder[(senderIndex + 2) % state.seatOrder.length];
+  const reactorId = state.seatOrder[(senderIndex + 3) % state.seatOrder.length];
+  const intelligence = PHYSICAL_DECK.find((card) =>
+    card.transmission === "直达" && !["转移", "掉包", "截获", "识破"].includes(card.name)
+  )!;
+  const transfer = PHYSICAL_DECK.find((card) => card.name === "转移")!;
+  const swap = PHYSICAL_DECK.find((card) => card.name === "掉包")!;
+  const intercept = PHYSICAL_DECK.find((card) => card.name === "截获")!;
+  const counter = PHYSICAL_DECK.find((card) => card.name === "识破")!;
+  for (const card of [intelligence, transfer, swap, intercept, counter]) detachCard(state, card.id);
+  state.players[senderId].hand.push(intelligence.id as PhysicalCardId);
+  state.players[originalRecipientId].hand.push(transfer.id as PhysicalCardId);
+  state.players[reactorId].hand.push(
+    swap.id as PhysicalCardId,
+    intercept.id as PhysicalCardId,
+    counter.id as PhysicalCardId,
+  );
+
+  enterTransmissionPhase(state, senderId);
+  while (state.reactionWindow) {
+    passReaction(
+      state,
+      state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex],
+    );
+  }
+  startTransmission(state, senderId, intelligence.id as PhysicalCardId, {
+    targetId: originalRecipientId,
+  });
+  passLockOpportunity(state, senderId);
+  while (true) {
+    const window = state.reactionWindow as NonNullable<GameState["reactionWindow"]> | undefined;
+    if (!window) throw new Error("Expected initial intelligence reaction window");
+    const responderId = window.responderOrder[window.nextResponderIndex];
+    if (responderId === originalRecipientId) break;
+    passReaction(state, responderId);
+  }
+  const transferAccepted = await emitRawAck(socketsByPlayer.get(originalRecipientId)!, "game:command", {
+    command: {
+      type: "PLAY_TRANSFER",
+      cardId: transfer.id as PhysicalCardId,
+      targetId: transferredTargetId,
+    },
+  });
+  expect(transferAccepted).toMatchObject({ ok: true });
+  expect(state.reactionWindow).toMatchObject({
+    kind: "transfer",
+    affectedPlayerId: transferredTargetId,
+  });
+
+  return {
+    roomCode: created.room.code,
+    state,
+    socketsByPlayer,
+    reactorId,
+    reactorSocket: socketsByPlayer.get(reactorId)!,
+    originalRecipientId,
+    transferredTargetId,
+    swapCardId: swap.id as PhysicalCardId,
+    interceptCardId: intercept.id as PhysicalCardId,
+    counterCardId: counter.id as PhysicalCardId,
+  };
+}
+
+async function passTransferWindowThroughServer(fixture: TransferBoundaryFixture): Promise<void> {
+  while (fixture.state.reactionWindow?.kind === "transfer") {
+    const responderId = fixture.state.reactionWindow.responderOrder[
+      fixture.state.reactionWindow.nextResponderIndex
+    ];
+    await emitAck<PlayerProjection>(fixture.socketsByPlayer.get(responderId)!, "game:command", {
+      command: { type: "PASS_REACTION" },
+    });
+  }
+}
 
 function transmissionCommand(card: PhysicalCard, targetId: string): GameCommand {
   return {

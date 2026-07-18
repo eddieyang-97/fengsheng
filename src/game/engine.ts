@@ -254,7 +254,7 @@ export interface GameState {
   privateNotices: Record<PlayerId, PrivateCardNotice[]>;
 }
 
-export interface PrivateCardNotice {
+export interface PrivateSingleCardNotice {
   kind:
     | "publicTextGained"
     | "publicTextLost"
@@ -266,6 +266,16 @@ export interface PrivateCardNotice {
   otherPlayerId: PlayerId;
   cardId: PhysicalCardId;
 }
+
+export interface PrivateHandInspectionNotice {
+  kind: "secretOrderHandInspected" | "dangerousHandInspected";
+  otherPlayerId: PlayerId;
+  cardIds: PhysicalCardId[];
+}
+
+export type PrivateCardNotice =
+  | PrivateSingleCardNotice
+  | PrivateHandInspectionNotice;
 
 export interface PublicPlayerProjection {
   id: PlayerId;
@@ -290,11 +300,18 @@ export interface PlayerProjection {
     hand: PhysicalCard[];
   };
   auditLog: string[];
-  privateNotices: Array<{
-    kind: PrivateCardNotice["kind"];
-    otherPlayerId: PlayerId;
-    card: PhysicalCard;
-  }>;
+  privateNotices: Array<
+    | {
+        kind: PrivateSingleCardNotice["kind"];
+        otherPlayerId: PlayerId;
+        card: PhysicalCard;
+      }
+    | {
+        kind: PrivateHandInspectionNotice["kind"];
+        otherPlayerId: PlayerId;
+        cards: PhysicalCard[];
+      }
+  >;
   transmission?: {
     senderId: PlayerId;
     method: FixedTransmissionMethod;
@@ -794,10 +811,12 @@ export function assertGameStateInvariants(state: GameState): void {
       const transferFrame = [...state.interactionStack]
         .reverse()
         .find((frame) => frame.kind === "transfer");
+      // An odd counter chain restores the snapshot from before the transfer,
+      // so the transfer window remains open while pendingTransfer is absent.
       if (
         !transferFrame ||
-        !state.transmission?.pendingTransfer ||
-        transferFrame.sourcePlayerId !== state.transmission.intendedRecipientId
+        (state.transmission?.pendingTransfer &&
+          transferFrame.sourcePlayerId !== state.transmission.intendedRecipientId)
       ) {
         throw new Error("转移互动与响应窗口关联不一致");
       }
@@ -1084,6 +1103,16 @@ function projectedCardById(id: PhysicalCardId): PhysicalCard {
   return structuredClone(cardById(id));
 }
 
+function projectedPublicDiscard(state: GameState): PhysicalCard[] {
+  const stagedPublicTextId =
+    state.activeFunctionAction?.kind === "publicText"
+      ? state.activeFunctionAction.sourceCardId
+      : undefined;
+  return state.publicDiscard
+    .filter((cardId) => cardId !== stagedPublicTextId)
+    .map(projectedCardById);
+}
+
 function nextLivingPlayer(
   state: GameState,
   fromId: PlayerId,
@@ -1296,7 +1325,14 @@ function advanceToNextTurn(state: GameState): void {
   state.auditLog.push(`${nextPlayerId}回合开始并摸${drawn.length}张牌`);
 }
 
-function clearUnresolvedTurnState(state: GameState, discardTransmission: boolean): void {
+function clearUnresolvedTurnState(
+  state: GameState,
+  discardTransmission: boolean,
+): PhysicalCardId | undefined {
+  const discardedTransmissionCardId =
+    discardTransmission && state.transmission
+      ? state.transmission.cardId
+      : undefined;
   if (discardTransmission && state.transmission) {
     state.publicDiscard.push(state.transmission.cardId);
   }
@@ -1309,6 +1345,7 @@ function clearUnresolvedTurnState(state: GameState, discardTransmission: boolean
   state.activeFunctionStack = [];
   state.secretOrderStack = [];
   state.burnContexts = [];
+  return discardedTransmissionCardId;
 }
 
 function survivingFactionWinner(state: GameState): WinnerState | undefined {
@@ -1333,9 +1370,17 @@ function finishFactionEliminationVictory(
 ): boolean {
   const winner = survivingFactionWinner(state);
   if (!winner) return false;
-  clearUnresolvedTurnState(state, discardTransmission);
+  const discardedTransmissionCardId = clearUnresolvedTurnState(
+    state,
+    discardTransmission,
+  );
   state.winner = winner;
   state.phase = "gameOver";
+  if (discardedTransmissionCardId) {
+    state.auditLog.push(
+      `待传情报${describeCardBrief(discardedTransmissionCardId)}被公开弃置`,
+    );
+  }
   state.auditLog.push("其他阵营已全部死亡，游戏立即结束");
   assertGameStateInvariants(state);
   return true;
@@ -1425,8 +1470,15 @@ export function resolveHostImposedDeath(
   // Active-sender death has precedence over returned intelligence where the
   // sender is also the current intended recipient.
   if (wasActiveSender) {
-    clearUnresolvedTurnState(state, Boolean(state.transmission));
-    state.auditLog.push(`${playerId}作为当前行动玩家死亡，其回合中止`);
+    const discardedTransmissionCardId = clearUnresolvedTurnState(
+      state,
+      Boolean(state.transmission),
+    );
+    state.auditLog.push(
+      discardedTransmissionCardId
+        ? `${playerId}作为当前行动玩家死亡，其回合中止；待传情报${describeCardBrief(discardedTransmissionCardId)}被公开弃置`
+        : `${playerId}作为当前行动玩家死亡，其回合中止`,
+    );
     advanceToNextTurn(state);
     assertGameStateInvariants(state);
     return;
@@ -1435,8 +1487,10 @@ export function resolveHostImposedDeath(
   if (wasIntendedRecipient && state.transmission) {
     cancelPendingBurnsForDeathCleanup(state);
     if (wasCommittedRecipient) {
-      clearUnresolvedTurnState(state, true);
-      state.auditLog.push(`${playerId}死亡，必须接收的待传情报被公开弃置`);
+      const discardedTransmissionCardId = clearUnresolvedTurnState(state, true);
+      state.auditLog.push(
+        `${playerId}死亡，必须接收的待传情报${describeCardBrief(discardedTransmissionCardId!)}被公开弃置`,
+      );
       advanceToNextTurn(state);
     } else {
       const transmission = state.transmission;
@@ -1616,7 +1670,9 @@ export function claimNoSecretOrderMatch(state: GameState, actorId: PlayerId): vo
     !pending ||
     pending.stage !== "selection" ||
     pending.countered ||
+    pending.verifiedNoMatch ||
     !pending.requiredColor ||
+    !pending.sourcePlayerId ||
     actorId !== state.activePlayerId
   ) throw new Error("当前没有可验证的秘密下达");
   const matching = state.players[actorId].hand.some((id) =>
@@ -1624,6 +1680,11 @@ export function claimNoSecretOrderMatch(state: GameState, actorId: PlayerId): vo
   );
   if (matching) throw new Error("手牌中存在符合秘密下达颜色的牌");
   pending.verifiedNoMatch = true;
+  state.privateNotices[pending.sourcePlayerId].push({
+    kind: "secretOrderHandInspected",
+    otherPlayerId: actorId,
+    cardIds: [...state.players[actorId].hand],
+  });
   state.auditLog.push(`${actorId}声明无匹配牌并通过服务器验证`);
   assertGameStateInvariants(state);
 }
@@ -1919,7 +1980,9 @@ function finishActiveFunctionAction(state: GameState): void {
       });
       if (cardById(obtainedCardId).name === "公开文本") {
         state.publicDiscard.push(obtainedCardId);
-        state.auditLog.push(`${source.id}随机取得公开文本并将其公开弃置`);
+        state.auditLog.push(
+          `${source.id}随机取得公开文本并将其公开弃置：${describeCardBrief(obtainedCardId)}`,
+        );
       } else {
         source.hand.push(obtainedCardId);
         state.auditLog.push(`${source.id}完成与${target.id}的公开文本交换`);
@@ -1952,6 +2015,11 @@ function finishActiveFunctionAction(state: GameState): void {
       );
     } else {
       action.stage = "awaitingDiscard";
+      state.privateNotices[source.id].push({
+        kind: "dangerousHandInspected",
+        otherPlayerId: target.id,
+        cardIds: [...target.hand],
+      });
       state.auditLog.push(`${source.id}私下查看${target.id}的手牌`);
       assertGameStateInvariants(state);
       return;
@@ -1976,7 +2044,9 @@ function finishActiveFunctionAction(state: GameState): void {
       const [discarded] = target.hand.splice(0, 1);
       if (!discarded) throw new Error("试探自动弃牌失败");
       state.publicDiscard.push(discarded);
-      state.auditLog.push(`${target.id}因试探自动弃置唯一的手牌`);
+      state.auditLog.push(
+        `${target.id}因试探自动弃置唯一的手牌：${describeCardBrief(discarded)}`,
+      );
     } else {
       action.stage = "awaitingProbeDiscard";
       state.auditLog.push(`${target.id}须因试探弃置一张手牌`);
@@ -2040,7 +2110,9 @@ export function chooseProbeDiscard(
   if (index < 0) throw new Error("只能弃置自己的手牌");
   target.hand.splice(index, 1);
   state.publicDiscard.push(cardId);
-  state.auditLog.push(`${actorId}因试探弃置一张手牌`);
+  state.auditLog.push(
+    `${actorId}因试探弃置一张手牌：${describeCardBrief(cardId)}`,
+  );
   state.activeFunctionAction = undefined;
   state.activeFunctionStack = [];
   assertGameStateInvariants(state);
@@ -2105,7 +2177,9 @@ export function discardForHandLimit(
 
   player.hand.splice(cardIndex, 1);
   state.publicDiscard.push(cardId);
-  state.auditLog.push(`${actorId}因手牌上限弃置一张牌：${cardById(cardId).name}`);
+  state.auditLog.push(
+    `${actorId}因手牌上限弃置一张牌：${describeCardBrief(cardId)}`,
+  );
   if (player.hand.length <= 7) {
     beginPreTransmissionPhase(state, actorId);
   } else {
@@ -2510,7 +2584,9 @@ function beginPublicTextReceiptEffect(
       const [discarded] = receiver.hand.splice(0, 1);
       if (!discarded) throw new Error("公开文本自动弃牌失败");
       state.publicDiscard.push(discarded);
-      state.auditLog.push(`${receiver.id}因公开文本自动弃置唯一的手牌`);
+      state.auditLog.push(
+        `${receiver.id}因公开文本自动弃置唯一的手牌：${describeCardBrief(discarded)}`,
+      );
       finishAcceptedIntelligence(state, receiver);
       return;
     }
@@ -2631,7 +2707,9 @@ export function choosePublicTextReceiptEffect(
       const [discarded] = receiver.hand.splice(0, 1);
       if (!discarded) throw new Error("公开文本自动弃牌失败");
       state.publicDiscard.push(discarded);
-      state.auditLog.push(`${actorId}因公开文本自动弃置唯一的手牌`);
+      state.auditLog.push(
+        `${actorId}因公开文本自动弃置唯一的手牌：${describeCardBrief(discarded)}`,
+      );
       finishAcceptedIntelligence(state, receiver);
       return;
     }
@@ -2669,7 +2747,9 @@ export function choosePublicTextReceiptDiscard(
 
   receiver.hand.splice(cardIndex, 1);
   state.publicDiscard.push(cardId);
-  state.auditLog.push(`${actorId}因公开文本弃置一张手牌`);
+  state.auditLog.push(
+    `${actorId}因公开文本弃置一张手牌：${describeCardBrief(cardId)}`,
+  );
   finishAcceptedIntelligence(state, receiver);
 }
 
@@ -2874,10 +2954,27 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
     }
 }
 
+function isBurnAtRiskFromPendingHandEffect(
+  state: GameState,
+  actorId: PlayerId,
+): boolean {
+  const action = state.activeFunctionAction;
+  return Boolean(
+    action?.stage === "reactions" &&
+      action.targetPlayerId === actorId &&
+      (action.kind === "publicText" || action.kind === "dangerousIntelligence"),
+  );
+}
+
 function isOpenBurnWindow(state: GameState, actorId: PlayerId): boolean {
   const currentResponder =
     state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex];
-  if (state.reactionWindow) return currentResponder === actorId;
+  if (state.reactionWindow) {
+    return (
+      currentResponder === actorId &&
+      !isBurnAtRiskFromPendingHandEffect(state, actorId)
+    );
+  }
   return (
     state.phase === "initialized" &&
     state.activePlayerId === actorId &&
@@ -2959,7 +3056,9 @@ function resolveBurnContext(state: GameState): void {
     if (index >= 0) {
       target!.intelligence.splice(index, 1);
       state.publicDiscard.push(context.targetIntelligenceCardId);
-      state.auditLog.push(`${context.targetPlayerId}的一张黑色情报被烧毁`);
+      state.auditLog.push(
+        `${context.targetPlayerId}的黑色情报${describeCardBrief(context.targetIntelligenceCardId)}被烧毁并公开弃置`,
+      );
     } else {
       state.auditLog.push("烧毁结算时目标情报已离场");
     }
@@ -3464,6 +3563,7 @@ export function projectGameForPlayer(
   }
   const canViewerBurn =
     viewer.alive &&
+    !isBurnAtRiskFromPendingHandEffect(state, viewerId) &&
     ((currentReactionResponderId === viewerId && Boolean(state.reactionWindow)) ||
       (state.phase === "initialized" &&
         state.activePlayerId === viewerId &&
@@ -3666,7 +3766,7 @@ export function projectGameForPlayer(
     activePlayerId: state.activePlayerId,
     seatOrder: [...state.seatOrder],
     drawPileCount: state.drawPile.length,
-    publicDiscard: state.publicDiscard.map(projectedCardById),
+    publicDiscard: projectedPublicDiscard(state),
     players: state.seatOrder.map((id) => {
       const player = state.players[id];
       return {
@@ -3688,11 +3788,19 @@ export function projectGameForPlayer(
       hand: viewer.hand.map(projectedCardById),
     },
     auditLog: [...state.auditLog],
-    privateNotices: state.privateNotices[viewerId].map((notice) => ({
-      kind: notice.kind,
-      otherPlayerId: notice.otherPlayerId,
-      card: projectedCardById(notice.cardId),
-    })),
+    privateNotices: state.privateNotices[viewerId].map((notice) =>
+      "cardIds" in notice
+        ? {
+            kind: notice.kind,
+            otherPlayerId: notice.otherPlayerId,
+            cards: notice.cardIds.map(projectedCardById),
+          }
+        : {
+            kind: notice.kind,
+            otherPlayerId: notice.otherPlayerId,
+            card: projectedCardById(notice.cardId),
+          },
+    ),
     transmission: transmission
       ? {
           senderId: transmission.senderId,

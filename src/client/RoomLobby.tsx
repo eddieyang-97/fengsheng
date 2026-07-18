@@ -84,7 +84,7 @@ function SeatCard({
             <div className="badges">
               {player.isHost && <span className="badge badge--host">房主</span>}
               {player.isBot ? (
-                <span className="badge badge--bot">AI</span>
+                <span className="badge badge--bot">机器人</span>
               ) : (
                 <span className={`badge ${player.isConnected ? "badge--online" : "badge--offline"}`}>
                   {player.isConnected ? "在线" : "已断线"}
@@ -110,7 +110,7 @@ function SeatCard({
               onClick={() => onRemoveBot(player.id)}
               type="button"
             >
-              移除 AI
+              移除机器人
             </button>
           )}
           {isHost && !player.isHost && !player.isBot && (
@@ -138,13 +138,13 @@ function SeatCard({
           </button>
           {isHost && (
             <button
-              aria-label={`在 ${seat} 号座位添加 AI`}
+              aria-label={`在 ${seat} 号座位添加机器人`}
               className="button button--small button--secondary"
               disabled={disabled}
               onClick={() => onAddBot(seat)}
               type="button"
             >
-              添加 AI
+              添加机器人
             </button>
           )}
         </>
@@ -341,7 +341,7 @@ export function RoomLobby({
                 onClick={onFillEmptySeatsWithBots}
                 type="button"
               >
-                用 AI 填满空位
+                用机器人填满空位
               </button>
             )}
             {startDisabledReason && (

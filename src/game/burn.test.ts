@@ -8,6 +8,7 @@ import {
   passReaction,
   playBurn,
   playCounter,
+  playDangerousIntelligence,
   playPublicText,
   projectGameForPlayer,
   resolveHostImposedDeath,
@@ -110,6 +111,10 @@ describe("烧毁", () => {
 
     expect(state.players["乙"].intelligence).not.toContain(intelligence);
     expect(state.publicDiscard).toEqual(expect.arrayContaining([burn, intelligence]));
+    const burnedCard = PHYSICAL_DECK.find((card) => card.id === intelligence)!;
+    expect(state.auditLog).toContain(
+      `乙的黑色情报「${burnedCard.name}（${burnedCard.color} · ${burnedCard.transmission}）」被烧毁并公开弃置`,
+    );
   });
 
   it.each(unburnableIds)(
@@ -215,6 +220,35 @@ describe("烧毁", () => {
 
     expect(state.reactionWindow).toEqual(suspended);
     expect(state.activeFunctionAction?.kind).toBe("publicText");
+  });
+
+  it.each([
+    ["公开文本", playPublicText],
+    ["危险情报", playDangerousIntelligence],
+  ] as const)("%s的当前目标不能在响应窗口使用有被处理风险的烧毁", (_name, play) => {
+    const state = game(712);
+    const functionCard = findCard((card) => card.name === _name);
+    const burn = findCard((card) => card.name === "烧毁", [functionCard]);
+    const intelligence = ordinaryBlack([functionCard, burn]);
+    inHand(state, "甲", functionCard);
+    inHand(state, "乙", burn);
+    acceptedBy(state, "丁", intelligence);
+    play(state, "甲", functionCard, "乙");
+    while (
+      state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex] !== "乙"
+    ) {
+      const window = state.reactionWindow;
+      if (!window) throw new Error("功能牌响应窗口提前结束");
+      passReaction(state, window.responderOrder[window.nextResponderIndex]);
+    }
+
+    expect(projectGameForPlayer(state, "乙").legalActions).not.toContainEqual(
+      expect.objectContaining({ type: "PLAY_BURN", cardId: burn }),
+    );
+    expect(() => playBurn(state, "乙", burn, "丁", intelligence)).toThrow(
+      "当前没有可使用烧毁",
+    );
+    expect(state.players["乙"].hand).toContain(burn);
   });
 
   it("在秘密下达窗口中烧毁后恢复原响应位置", () => {

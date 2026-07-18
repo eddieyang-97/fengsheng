@@ -12,6 +12,7 @@ import {
   playReinforcement,
   playSeparationOnFunction,
   projectGameForPlayer,
+  projectGameForSpectator,
   type GameState,
 } from "./engine";
 
@@ -190,6 +191,35 @@ describe("行动阶段功能牌框架", () => {
     expect(projectGameForPlayer(state, "丙").privateNotices).toEqual([]);
   });
 
+  it("公开文本等待响应时不提前显示在弃牌堆，只在被取消后显示", () => {
+    const state = game(26);
+    const publicText = cardId("公开文本");
+    const counter = cardId("识破");
+    putInHand(state, "甲", publicText);
+    putInHand(state, "丙", counter);
+
+    playPublicText(state, "甲", publicText, "乙");
+
+    expect(state.publicDiscard).toContain(publicText);
+    for (const viewerId of players) {
+      expect(projectGameForPlayer(state, viewerId).publicDiscard.map((card) => card.id))
+        .not.toContain(publicText);
+    }
+    expect(projectGameForSpectator(state).publicDiscard.map((card) => card.id))
+      .not.toContain(publicText);
+
+    const interactionId = state.activeFunctionStack.at(-1)?.id;
+    if (!interactionId) throw new Error("缺少公开文本互动帧");
+    playCounter(state, "丙", counter, interactionId);
+    passAll(state);
+
+    expect(state.activeFunctionAction).toBeUndefined();
+    expect(projectGameForPlayer(state, "甲").publicDiscard.map((card) => card.id))
+      .toContain(publicText);
+    expect(projectGameForSpectator(state).publicDiscard.map((card) => card.id))
+      .toContain(publicText);
+  });
+
   it("识破取消栈顶功能牌，且一次原始行动最多使用一次离间", () => {
     const counterState = game(12);
     const reinforcement = cardId("增援");
@@ -317,6 +347,24 @@ describe("已实现的行动阶段功能牌", () => {
     );
   });
 
+  it("公开文本随机取得另一张公开文本时公开记录完整实体牌信息", () => {
+    const state = game(25);
+    const usedPublicText = cardId("公开文本");
+    const obtainedPublicText = cardId("公开文本", [usedPublicText]);
+    putInHand(state, "甲", usedPublicText);
+    putInHand(state, "乙", obtainedPublicText, 0);
+    state.drawPile.push(...state.players["乙"].hand.splice(1));
+
+    playPublicText(state, "甲", usedPublicText, "乙");
+    passAll(state);
+
+    const card = PHYSICAL_DECK.find((candidate) => candidate.id === obtainedPublicText)!;
+    expect(state.publicDiscard).toContain(obtainedPublicText);
+    expect(state.auditLog).toContain(
+      `甲随机取得公开文本并将其公开弃置：「${card.name}（${card.color} · ${card.transmission}）」`,
+    );
+  });
+
   it("危险情报仅向使用者展示目标手牌，再公开弃置所选牌", () => {
     const state = game(23);
     const dangerous = cardId("危险情报");
@@ -327,6 +375,7 @@ describe("已实现的行动阶段功能牌", () => {
     passAll(state);
 
     expect(state.activeFunctionAction?.stage).toBe("awaitingDiscard");
+    const inspectedHand = [...state.players["乙"].hand];
     expect(
       projectGameForPlayer(state, "甲").activeFunctionAction?.inspectedHand?.map(
         (card) => card.id,
@@ -335,6 +384,16 @@ describe("已实现的行动阶段功能牌", () => {
     expect(
       projectGameForPlayer(state, "乙").activeFunctionAction?.inspectedHand,
     ).toBeUndefined();
+    expect(projectGameForPlayer(state, "甲").privateNotices).toContainEqual({
+      kind: "dangerousHandInspected",
+      otherPlayerId: "乙",
+      cards: inspectedHand.map((id) => expect.objectContaining({ id })),
+    });
+    for (const viewerId of ["乙", "丙", "丁", "戊"] as const) {
+      expect(projectGameForPlayer(state, viewerId).privateNotices).not.toContainEqual(
+        expect.objectContaining({ kind: "dangerousHandInspected" }),
+      );
+    }
 
     chooseDangerousIntelligenceDiscard(state, "甲", chosen);
 
@@ -357,10 +416,16 @@ describe("已实现的行动阶段功能牌", () => {
     expect(projectGameForPlayer(state, "丙").privateNotices).not.toContainEqual(
       expect.objectContaining({ card: expect.objectContaining({ id: chosen }) }),
     );
-    expect(state.auditLog.at(-1)).toContain(
-      PHYSICAL_DECK.find((candidate) => candidate.id === chosen)!.name,
+    const discarded = PHYSICAL_DECK.find((candidate) => candidate.id === chosen)!;
+    expect(state.auditLog.at(-1)).toBe(
+      `甲通过危险情报弃置乙的一张牌：「${discarded.name}（${discarded.color} · ${discarded.transmission}）」`,
     );
     expect(state.activeFunctionAction).toBeUndefined();
+    expect(projectGameForPlayer(state, "甲").privateNotices).toContainEqual({
+      kind: "dangerousHandInspected",
+      otherPlayerId: "乙",
+      cards: inspectedHand.map((id) => expect.objectContaining({ id })),
+    });
   });
 
   it("危险情报目标只有一张手牌时自动弃置", () => {

@@ -15,6 +15,8 @@ import "./game-table.css";
 
 export type ProjectedLegalAction = PlayerProjection["legalActions"][number];
 type BurnCommand = Extract<GameCommand, { type: "PLAY_BURN" }>;
+type ProjectedReactionKind = NonNullable<PlayerProjection["reactionWindow"]>["kind"];
+type ProjectedReceiptStage = NonNullable<PlayerProjection["transmission"]>["receiptStage"];
 export type IdentityMarker = "" | Faction;
 
 export interface GameTableProps {
@@ -333,6 +335,10 @@ export function cardVariantText(card: PhysicalCard): string | undefined {
   return undefined;
 }
 
+export function publicCardSummary(card: PhysicalCard): string {
+  return `${card.name} · ${card.color} · ${card.transmission}`;
+}
+
 export function publicTextReceiptEffect(card: PhysicalCard): string | undefined {
   if (card.name !== "公开文本") return undefined;
   if (card.variant?.kind === "publicTextBlack") {
@@ -468,7 +474,7 @@ function CardView({ card, selected, playable, inspectable, onClick }: {
       className={`game-card game-card--${cardTone(card)}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}${inspectable ? " game-card--inspectable" : ""}`}
       disabled={!onClick}
       onClick={onClick}
-      title={`${card.name} · ${card.color} · ${card.transmission}${card.unburnable ? " · 不可烧毁" : ""}`}
+      title={`${publicCardSummary(card)}${card.unburnable ? " · 不可烧毁" : ""}`}
       type="button"
     >
       <strong>{card.name}</strong>
@@ -563,6 +569,43 @@ export function promptTitle(projection: PlayerProjection): string {
   return projection.activePlayerId === projection.own.id ? "你的行动阶段" : "请选择操作";
 }
 
+const REACTION_WINDOW_LABELS: Record<ProjectedReactionKind, string> = {
+  intelligence: "情报传递",
+  transfer: "转移",
+  lock: "锁定",
+  swap: "掉包",
+  lure: "调虎离山",
+  decrypt: "破译",
+  burn: "烧毁",
+  function: "功能牌",
+  secretOrder: "秘密下达",
+};
+
+const RECEIPT_STAGE_LABELS: Record<ProjectedReceiptStage, string> = {
+  lockOffer: "等待是否锁定",
+  reactions: "等待情报响应",
+  decision: "等待接收决定",
+};
+
+export function reactionWindowLabel(kind: ProjectedReactionKind): string {
+  return REACTION_WINDOW_LABELS[kind];
+}
+
+export function receiptStageLabel(stage: ProjectedReceiptStage): string {
+  return RECEIPT_STAGE_LABELS[stage];
+}
+
+export function promptActions(
+  actions: readonly ProjectedLegalAction[],
+  selectedCardId?: string,
+): ProjectedLegalAction[] {
+  return actions.filter((action) => {
+    const cardId = actionCardId(action);
+    if (!cardId || action.type === "PLAY_LOCK") return true;
+    return cardId === selectedCardId && !actionTargetId(action);
+  });
+}
+
 export function mergeAuditLogs(
   gameEntries: readonly string[],
   orderedEvents: readonly PublicAuditEvent[] = [],
@@ -605,6 +648,38 @@ export function updateIdentityMarkers(
   return updated;
 }
 
+export function privateNoticeText(
+  notice: PlayerProjection["privateNotices"][number],
+  playerDisplayNames: Readonly<Record<string, string>>,
+): string {
+  const otherPlayer = playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId;
+  if (notice.kind === "secretOrderHandInspected") {
+    return `你通过秘密下达查看了【${otherPlayer}】的手牌：`;
+  }
+  if (notice.kind === "dangerousHandInspected") {
+    return `你通过危险情报查看了【${otherPlayer}】的手牌：`;
+  }
+  if (notice.kind === "publicTextGained") {
+    return `你从【${otherPlayer}】手中取得了这张牌：`;
+  }
+  if (notice.kind === "publicTextLost") {
+    return `【${otherPlayer}】通过公开文本从你手中取得了这张牌：`;
+  }
+  if (notice.kind === "dangerousDiscardLost") {
+    return `【${otherPlayer}】通过危险情报从你手中弃置了这张牌：`;
+  }
+  if (notice.kind === "dangerousDiscardMade") {
+    return `你通过危险情报从【${otherPlayer}】手中弃置了这张牌：`;
+  }
+  if (notice.kind === "probePlayed") {
+    return `你对【${otherPlayer}】使用的试探详情：`;
+  }
+  if (notice.kind === "secretOrderPlayed") {
+    return `你对【${otherPlayer}】使用的秘密下达详情：`;
+  }
+  return `【${otherPlayer}】对你使用的秘密下达详情：`;
+}
+
 export function GameTable({
   projection,
   playerDisplayNames = {},
@@ -643,8 +718,7 @@ export function GameTable({
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
   const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
   const targetIds = new Set(selectedActions.filter((action) => action.type !== "PLAY_BURN").map(actionTargetId).filter((id): id is string => Boolean(id)));
-  const immediateActions = actions.filter((action) => !actionCardId(action));
-  const selectedImmediateActions = selectedActions.filter((action) => !actionTargetId(action));
+  const visiblePromptActions = promptActions(actions, selectedCardId);
   const inspectedHand = inspectedHandForProjection(projection);
   const selectedBurnActions = selectedCardId
     ? (actions as readonly GameCommand[]).filter(
@@ -843,8 +917,8 @@ export function GameTable({
                 type="button"
               >
                 {player.botControlled
-                  ? `取消 AI 接管 ${player.displayName}`
-                  : `让 AI 接管 ${player.displayName}`}
+                  ? `取消机器人接管 ${player.displayName}`
+                  : `让机器人接管 ${player.displayName}`}
               </button>
               <button
                 className="mark-dead-button"
@@ -983,7 +1057,9 @@ export function GameTable({
                     {" → "}
                     {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}
                   </strong>
-                  <span>{projection.transmission.locked ? "已锁定" : projection.transmission.receiptStage}</span>
+                  <span>{projection.transmission.locked
+                    ? "已锁定"
+                    : receiptStageLabel(projection.transmission.receiptStage)}</span>
                 </>
               ) : (
                 <><p>当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
@@ -995,13 +1071,15 @@ export function GameTable({
           <section className="prompt-panel">
             <div>
               <p>
-                {projection.reactionWindow ? `反应窗口：${projection.reactionWindow.kind}` : "行动提示"}
+                {projection.reactionWindow
+                  ? `响应窗口：${reactionWindowLabel(projection.reactionWindow.kind)}`
+                  : "行动提示"}
                 {!projection.reactionWindow && reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
               </p>
               <h2>{promptTitle(projection)}</h2>
             </div>
             <div className="prompt-actions">
-              {[...immediateActions, ...selectedImmediateActions].map((action, index) => (
+              {visiblePromptActions.map((action, index) => (
                 <button disabled={busy || !connected} key={`${action.type}-${index}`} onClick={() => onCommand(action)} type="button">
                   {actionDetail(action, projection, playerDisplayNames)}
                 </button>
@@ -1022,23 +1100,18 @@ export function GameTable({
                 </button>
               </header>
               {!privateNoticesCollapsed && projection.privateNotices.map((notice, index) => (
-                  <div className="private-notice" key={`${notice.kind}-${notice.card.id}-${index}`}>
-                    <p>
-                      {notice.kind === "publicTextGained"
-                        ? `你从【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】手中取得了这张牌：`
-                        : notice.kind === "publicTextLost"
-                          ? `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】通过公开文本从你手中取得了这张牌：`
-                        : notice.kind === "dangerousDiscardLost"
-                          ? `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】通过危险情报从你手中弃置了这张牌：`
-                          : notice.kind === "dangerousDiscardMade"
-                            ? `你通过危险情报从【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】手中弃置了这张牌：`
-                            : notice.kind === "probePlayed"
-                              ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的试探详情：`
-                              : notice.kind === "secretOrderPlayed"
-                                ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的秘密下达详情：`
-                                : `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】对你使用的秘密下达详情：`}
-                    </p>
-                    <CardView card={notice.card} />
+                  <div
+                    className="private-notice"
+                    key={`${notice.kind}-${notice.otherPlayerId}-${index}`}
+                  >
+                    <p>{privateNoticeText(notice, playerDisplayNames)}</p>
+                    {"cards" in notice ? (
+                      <div className="hand-row">
+                        {notice.cards.map((card) => <CardView card={card} key={card.id} />)}
+                      </div>
+                    ) : (
+                      <CardView card={notice.card} />
+                    )}
                   </div>
                 ))}
             </section>

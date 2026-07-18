@@ -247,7 +247,7 @@ export function App() {
           room.players.map((player) => [
             player.id,
             player.botControlled && !player.isBot
-              ? `${player.displayName}（AI 接管）`
+              ? `${player.displayName}（机器人接管）`
               : player.displayName,
           ]),
         )}

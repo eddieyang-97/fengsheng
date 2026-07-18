@@ -134,6 +134,10 @@ describe("公开文本作为接收情报", () => {
     choosePublicTextReceiptDiscard(state, "乙", discarded);
 
     expect(state.publicDiscard).toContain(discarded);
+    const discardedCard = PHYSICAL_DECK.find((card) => card.id === discarded)!;
+    expect(state.auditLog).toContain(
+      `乙因公开文本弃置一张手牌：「${discardedCard.name}（${discardedCard.color} · ${discardedCard.transmission}）」`,
+    );
     expect(state.pendingPublicTextReceipt).toBeUndefined();
     expect(state.activePlayerId).toBe("乙");
   });
@@ -152,6 +156,10 @@ describe("公开文本作为接收情报", () => {
     expect(state.players["乙"].hand).not.toContain(onlyCard);
     expect(state.players["乙"].hand).toHaveLength(2);
     expect(state.publicDiscard).toContain(onlyCard);
+    const discardedCard = PHYSICAL_DECK.find((card) => card.id === onlyCard)!;
+    expect(state.auditLog).toContain(
+      `乙因公开文本自动弃置唯一的手牌：「${discardedCard.name}（${discardedCard.color} · ${discardedCard.transmission}）」`,
+    );
     expect(state.pendingPublicTextReceipt).toBeUndefined();
   });
 

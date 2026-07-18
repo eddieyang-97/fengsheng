@@ -129,6 +129,10 @@ describe("试探", () => {
     const discarded = discard.players["乙"].hand[0];
     chooseProbeDiscard(discard, "乙", discarded);
     expect(discard.publicDiscard).toContain(discarded);
+    const discardedCard = PHYSICAL_DECK.find((card) => card.id === discarded)!;
+    expect(discard.auditLog).toContain(
+      `乙因试探弃置一张手牌：「${discardedCard.name}（${discardedCard.color} · ${discardedCard.transmission}）」`,
+    );
 
     const draw = game(304);
     const drawId = card(
@@ -159,6 +163,10 @@ describe("试探", () => {
 
     expect(state.players["乙"].hand).toEqual([]);
     expect(state.publicDiscard).toContain(onlyCard);
+    const discardedCard = PHYSICAL_DECK.find((card) => card.id === onlyCard)!;
+    expect(state.auditLog).toContain(
+      `乙因试探自动弃置唯一的手牌：「${discardedCard.name}（${discardedCard.color} · ${discardedCard.transmission}）」`,
+    );
     expect(state.activeFunctionAction).toBeUndefined();
   });
 });
@@ -295,7 +303,7 @@ describe("秘密下达", () => {
     expect(state.pendingSecretOrder).toBeUndefined();
   });
 
-  it("无匹配声明由服务器验证，且仅命令使用者临时看到手牌", () => {
+  it("无匹配声明由服务器验证，且仅秘密下达使用者持续看到当时的完整手牌", () => {
     const state = game(321);
     const orderId = card((candidate) => candidate.variant?.kind === "secretOrder");
     putInHand(state, "乙", orderId);
@@ -319,9 +327,38 @@ describe("秘密下达", () => {
     expect(projectGameForPlayer(state, "甲").legalActions).toEqual([
       { type: "CLAIM_NO_SECRET_ORDER_MATCH" },
     ]);
+    const inspectedHand = [...state.players["甲"].hand];
     claimNoSecretOrderMatch(state, "甲");
     expect(projectGameForPlayer(state, "乙").pendingSecretOrder?.inspectedHand?.map((c) => c.id))
-      .toEqual(state.players["甲"].hand);
+      .toEqual(inspectedHand);
     expect(projectGameForPlayer(state, "丙").pendingSecretOrder?.inspectedHand).toBeUndefined();
+    expect(projectGameForPlayer(state, "乙").privateNotices).toContainEqual({
+      kind: "secretOrderHandInspected",
+      otherPlayerId: "甲",
+      cards: inspectedHand.map((id) =>
+        expect.objectContaining({ id }),
+      ),
+    });
+    for (const viewerId of ["甲", "丙", "丁", "戊"] as const) {
+      expect(projectGameForPlayer(state, viewerId).privateNotices).not.toContainEqual(
+        expect.objectContaining({ kind: "secretOrderHandInspected" }),
+      );
+    }
+    expect(() => claimNoSecretOrderMatch(state, "甲")).toThrow("当前没有可验证的秘密下达");
+
+    const transmitted = inspectedHand[0];
+    const transmittedCard = PHYSICAL_DECK.find((candidate) => candidate.id === transmitted)!;
+    startTransmission(state, "甲", transmitted, {
+      ...(transmittedCard.transmission === "任意" ? { method: "直达" as const } : {}),
+      ...((transmittedCard.transmission === "直达" || transmittedCard.transmission === "任意")
+        ? { targetId: "乙" }
+        : {}),
+      ...(transmittedCard.circle ? { direction: "clockwise" as const } : {}),
+    });
+    expect(projectGameForPlayer(state, "乙").privateNotices).toContainEqual({
+      kind: "secretOrderHandInspected",
+      otherPlayerId: "甲",
+      cards: inspectedHand.map((id) => expect.objectContaining({ id })),
+    });
   });
 });

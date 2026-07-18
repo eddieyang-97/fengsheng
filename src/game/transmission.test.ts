@@ -172,6 +172,10 @@ describe("开始传递", () => {
 
     expect(state.players["甲"].hand).toHaveLength(7);
     expect(state.publicDiscard).toContain(discardedCard);
+    const discarded = PHYSICAL_DECK.find((card) => card.id === discardedCard)!;
+    expect(state.auditLog).toContain(
+      `甲因手牌上限弃置一张牌：「${discarded.name}（${discarded.color} · ${discarded.transmission}）」`,
+    );
     expect(
       projectGameForPlayer(state, "乙").publicDiscard.map((card) => card.id),
     ).toContain(discardedCard);

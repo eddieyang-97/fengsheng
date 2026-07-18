@@ -138,6 +138,10 @@ describe("房主判定断线玩家死亡", () => {
     expect(state.activePlayerId).toBe("乙");
     expect(state.players["乙"].hand).toHaveLength(nextHandBefore + 2);
     expect(state.phase).toBe("initialized");
+    const discarded = PHYSICAL_DECK.find((card) => card.id === intelligence)!;
+    expect(state.auditLog).toContain(
+      `甲作为当前行动玩家死亡，其回合中止；待传情报「${discarded.name}（${discarded.color} · ${discarded.transmission}）」被公开弃置`,
+    );
   });
 
   it("普通接收者死亡视为拒绝，而锁定接收者死亡会弃置情报并结束回合", () => {
@@ -159,6 +163,10 @@ describe("房主判定断线玩家死亡", () => {
     playLock(locked, "甲", lock);
     resolveHostImposedDeath(locked, "乙");
     expect(locked.publicDiscard).toContain(lockedDirect);
+    const discarded = PHYSICAL_DECK.find((card) => card.id === lockedDirect)!;
+    expect(locked.auditLog).toContain(
+      `乙死亡，必须接收的待传情报「${discarded.name}（${discarded.color} · ${discarded.transmission}）」被公开弃置`,
+    );
     expect(locked.transmission).toBeUndefined();
     expect(locked.activePlayerId).toBe("丙");
   });

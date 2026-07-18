@@ -13,8 +13,13 @@ import {
   inspectedHandForProjection,
   isNearScrollBottom,
   mergeAuditLogs,
+  privateNoticeText,
+  promptActions,
   promptTitle,
+  publicCardSummary,
   publicTextReceiptEffect,
+  reactionWindowLabel,
+  receiptStageLabel,
   responseActionText,
   seatOrderAnchoredAtPlayer,
   transmissionDirectionForSelection,
@@ -81,6 +86,10 @@ describe("game table card parameters", () => {
     expect(cardVariantText(secretOrder)).toBe("听风→红 · 看雨→蓝 · 日落→黑");
   });
 
+  it("keeps the transmission method in accepted intelligence summaries", () => {
+    expect(publicCardSummary(redPublicText)).toBe("公开文本 · 红 · 文本");
+  });
+
   it("distinguishes the selected action parameters", () => {
     expect(actionDetail(
       { type: "PLAY_PROBE", cardId: "p1-02", targetId: "乙" },
@@ -135,6 +144,21 @@ describe("private identity markers", () => {
   });
 });
 
+describe("私人通知文案", () => {
+  it("说明秘密下达和危险情报的手牌查看结果", () => {
+    expect(privateNoticeText({
+      kind: "secretOrderHandInspected",
+      otherPlayerId: "乙",
+      cards: [identityProbe],
+    }, { 乙: "小乙" })).toBe("你通过秘密下达查看了【小乙】的手牌：");
+    expect(privateNoticeText({
+      kind: "dangerousHandInspected",
+      otherPlayerId: "丙",
+      cards: [secretOrder],
+    }, {})).toBe("你通过危险情报查看了【丙】的手牌：");
+  });
+});
+
 describe("automatic reaction passing", () => {
   it("passes only when PASS_REACTION or PASS_LOCK is the sole legal action", () => {
     expect(automaticPassCommand([{ type: "PASS_REACTION" }])).toEqual({
@@ -182,6 +206,59 @@ describe("automatic reaction passing", () => {
     expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 1, 500)).toBe(500);
     expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 1, 3_000)).toBe(3_000);
     expect(automaticPassDelayMs({ type: "PASS_LOCK" })).toBe(0);
+  });
+});
+
+describe("锁定 prompt actions", () => {
+  it("在未选中手牌时也直接显示锁定，但其他手牌响应仍需选牌", () => {
+    const actions = [
+      { type: "PASS_LOCK" as const },
+      { type: "PLAY_LOCK" as const, cardId: "p1-05" as const },
+      {
+        type: "PLAY_COUNTER" as const,
+        cardId: "p1-03" as const,
+        targetInteractionId: "interaction-1",
+      },
+    ];
+
+    expect(promptActions(actions)).toEqual([
+      { type: "PASS_LOCK" },
+      { type: "PLAY_LOCK", cardId: "p1-05" },
+    ]);
+    expect(promptActions(actions, "p1-03")).toEqual(actions);
+  });
+});
+
+describe("界面状态文案", () => {
+  it("完整翻译响应窗口类型", () => {
+    expect([
+      "intelligence",
+      "transfer",
+      "lock",
+      "swap",
+      "lure",
+      "decrypt",
+      "burn",
+      "function",
+      "secretOrder",
+    ].map((kind) => reactionWindowLabel(kind as Parameters<typeof reactionWindowLabel>[0])))
+      .toEqual([
+        "情报传递",
+        "转移",
+        "锁定",
+        "掉包",
+        "调虎离山",
+        "破译",
+        "烧毁",
+        "功能牌",
+        "秘密下达",
+      ]);
+  });
+
+  it("完整翻译情报接收阶段", () => {
+    expect(receiptStageLabel("lockOffer")).toBe("等待是否锁定");
+    expect(receiptStageLabel("reactions")).toBe("等待情报响应");
+    expect(receiptStageLabel("decision")).toBe("等待接收决定");
   });
 });
 
