@@ -286,7 +286,9 @@ May redirect the target of:
 
 The new target cannot be the original target.
 - At most one 离间 may be played against each original card action; the redirected action cannot be redirected again with another 离间.
-- 识破 may counter 离间 and restores the original target.
+- Redirecting 锁定 changes the current intelligence recipient; if 离间 survives, the lock applies to the new recipient.
+- After 离间 resolves, the original card action remains pending and resumes its own reaction timing with the final target.
+- 识破 may counter 离间 and restores the original target and the response position from which 离间 was played.
 
 ---
 
@@ -612,9 +614,10 @@ A client must not receive:
 
 ### Client auto-pass delay
 
-- The room host configures the delay used by clients that automatically pass when no usable reaction remains; the default is 1 second.
-- The supported choices are immediate, 0.5, 1, 2, 3, and 5 seconds, available in both the lobby and the in-game host controls.
-- A changed value is room-authoritative and applies to every player beginning with their next eligible auto-pass.
+- Each player configures their own delay used by their client when no usable reaction remains; the default is 1 second.
+- The supported choices are immediate, 0.5, 1, 2, 3, and 5 seconds, available to every seated player in both the lobby and the in-game controls.
+- The preference is stored locally in that player's browser, applies beginning with their next eligible auto-pass, and does not change any other player's setting.
+- Auto-pass delay changes are client preferences and are not written to the public audit log.
 - Lock passes and reaction passes with a literally empty hand remain immediate.
 - Each player still controls whether their own client uses auto-pass and whether burn is ignored when determining eligibility.
 - Mandatory decisions are never auto-passed by this setting.

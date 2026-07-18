@@ -1,7 +1,6 @@
 import { io, type Socket } from "socket.io-client";
 
 import type {
-  AutoPassDelayMs,
   RoomEntryResult,
   RoomSnapshot,
   StartRoomResult,
@@ -42,7 +41,6 @@ export interface LobbySocketClient {
   removeBot(input: { targetPlayerId: string }): Promise<void>;
   setBotTakeover(input: { targetPlayerId: string; enabled: boolean }): Promise<void>;
   setReactionTimeout(input: { seconds: number | null }): Promise<void>;
-  setAutoPassDelay(input: { milliseconds: AutoPassDelayMs }): Promise<void>;
   markDisconnectedPlayerDead(input: { targetPlayerId: string }): Promise<void>;
   startRoom(input: { seatMode: StartSeatMode }): Promise<StartRoomResult>;
   returnToLobby(): Promise<void>;
@@ -93,7 +91,6 @@ export function createLobbySocketClient(socket: Socket = io()): LobbySocketClien
     removeBot: (input) => emitAck(socket, "room:bot:remove", input),
     setBotTakeover: (input) => emitAck(socket, "room:bot:takeover", input),
     setReactionTimeout: (input) => emitAck(socket, "room:timeout", input),
-    setAutoPassDelay: (input) => emitAck(socket, "room:auto-pass-delay", input),
     markDisconnectedPlayerDead: (input) => emitAck(socket, "room:mark-dead", input),
     startRoom: (input) => emitAck(socket, "room:start", input),
     returnToLobby: () => emitAck(socket, "room:new-game", {}),

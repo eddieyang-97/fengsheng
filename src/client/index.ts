@@ -7,6 +7,7 @@ export {
 } from "./GameTable";
 export {
   AUTO_PASS_DELAY_OPTIONS_MS,
+  DEFAULT_AUTO_PASS_DELAY_MS,
   REACTION_TIMEOUT_OPTIONS,
   SUPPORTED_PLAYER_COUNTS,
   type AutoPassDelayMs,
@@ -18,4 +19,6 @@ export {
   type ReactionTimeoutSeconds,
   type SeatSwapRequest,
   type StartMode,
+  isAutoPassDelayMs,
+  parseAutoPassDelayPreference,
 } from "./lobby-types";

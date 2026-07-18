@@ -527,7 +527,6 @@ describe("同房间新游戏", () => {
     expect(reset.players.every((player) => player.alive)).toBe(true);
     expect(reset.players.map((player) => player.seatIndex)).toEqual([0, 1]);
     expect(reset.reactionTimeoutSeconds).toBe(15);
-    expect(reset.autoPassDelayMs).toBe(1_000);
     expect(reset.publicAuditLog.at(-1)).toBe("房主发起新游戏，所有玩家返回大厅");
   });
 
@@ -589,40 +588,6 @@ describe("反应时限", () => {
       () => service.setReactionTimeout(room.code, room.hostId, 25 as 20),
       "INVALID_TIMEOUT",
     );
-  });
-});
-
-describe("自动跳过等待时间", () => {
-  it("默认一秒，房主可修改且设置会写入公开日志", () => {
-    const service = createService();
-    const room = fillDuel(service);
-    expect(service.getRoom(room.code).autoPassDelayMs).toBe(1_000);
-
-    const changed = service.setAutoPassDelay(room.code, room.hostId, 2_000);
-    expect(changed.autoPassDelayMs).toBe(2_000);
-    expect(changed.publicAuditLog.at(-1)).toContain("2 秒");
-  });
-
-  it("非房主不能修改，且拒绝未支持的等待时间", () => {
-    const service = createService();
-    const room = fillDuel(service);
-    expectRoomError(
-      () => service.setAutoPassDelay(room.code, room.guestId, 500),
-      "NOT_HOST",
-    );
-    expectRoomError(
-      () => service.setAutoPassDelay(room.code, room.hostId, 750 as 500),
-      "INVALID_AUTO_PASS_DELAY",
-    );
-  });
-
-  it("同一房间开始新游戏时保留房主设置", () => {
-    const service = createService();
-    const room = fillDuel(service);
-    service.startRoom(room.code, room.hostId, "as-is");
-    service.setAutoPassDelay(room.code, room.hostId, 3_000);
-
-    expect(service.returnToLobby(room.code, room.hostId).autoPassDelayMs).toBe(3_000);
   });
 });
 

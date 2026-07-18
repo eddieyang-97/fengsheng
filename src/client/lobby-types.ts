@@ -1,10 +1,16 @@
-import {
-  AUTO_PASS_DELAY_OPTIONS_MS,
-  type AutoPassDelayMs,
-} from "../room/types";
+export const AUTO_PASS_DELAY_OPTIONS_MS = [0, 500, 1_000, 2_000, 3_000, 5_000] as const;
+export type AutoPassDelayMs = (typeof AUTO_PASS_DELAY_OPTIONS_MS)[number];
+export const DEFAULT_AUTO_PASS_DELAY_MS: AutoPassDelayMs = 1_000;
 
-export { AUTO_PASS_DELAY_OPTIONS_MS };
-export type { AutoPassDelayMs };
+export function isAutoPassDelayMs(value: number): value is AutoPassDelayMs {
+  return (AUTO_PASS_DELAY_OPTIONS_MS as readonly number[]).includes(value);
+}
+
+export function parseAutoPassDelayPreference(value: string | null): AutoPassDelayMs {
+  if (value === null) return DEFAULT_AUTO_PASS_DELAY_MS;
+  const parsed = Number(value);
+  return isAutoPassDelayMs(parsed) ? parsed : DEFAULT_AUTO_PASS_DELAY_MS;
+}
 
 export const SUPPORTED_PLAYER_COUNTS = [2, 5, 6, 7, 8] as const;
 

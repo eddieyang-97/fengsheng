@@ -8,6 +8,7 @@ import {
   playConfidentialFile,
   playCounter,
   playDangerousIntelligence,
+  playProbe,
   playPublicText,
   playReinforcement,
   playSeparationOnFunction,
@@ -263,6 +264,36 @@ describe("行动阶段功能牌框架", () => {
     expect(() =>
       playSeparationOnFunction(separationState, "戊", secondSeparation, "乙"),
     ).toThrow("同一原始卡牌行动最多使用一次离间");
+  });
+
+  it("试探生成离间合法动作，且空手的新目标仍可成为试探目标", () => {
+    const state = game(14);
+    const probe = PHYSICAL_DECK.find(
+      (card) => "variant" in card && card.variant?.kind === "probeIdentity",
+    )!.id;
+    const separation = cardId("离间", [probe]);
+    putInHand(state, "甲", probe);
+    putInHand(state, "丙", separation);
+    state.drawPile.push(...state.players["丁"].hand.splice(0));
+
+    playProbe(state, "甲", probe, "乙");
+
+    expect(projectGameForPlayer(state, "丙").legalActions).toContainEqual({
+      type: "PLAY_FUNCTION_SEPARATION",
+      cardId: separation,
+      targetId: "丁",
+    });
+    playSeparationOnFunction(state, "丙", separation, "丁");
+    passAll(state);
+
+    expect(state.activeFunctionAction).toMatchObject({
+      kind: "probeIdentity",
+      targetPlayerId: "丁",
+      stage: "awaitingProbeChoice",
+    });
+    expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
+      { type: "CHOOSE_PROBE_IDENTITY", choice: "announce" },
+    ]);
   });
 });
 

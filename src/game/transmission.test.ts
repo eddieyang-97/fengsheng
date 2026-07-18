@@ -665,19 +665,19 @@ describe("转移", () => {
     expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
       type: "PLAY_SEPARATION",
       cardId: separationCard,
-      targetId: "乙",
+      targetId: "甲",
     });
-    playSeparationOnTransfer(state, "丁", separationCard, "乙");
+    playSeparationOnTransfer(state, "丁", separationCard, "甲");
 
-    expect(state.transmission?.pendingTransfer?.targetId).toBe("乙");
+    expect(state.transmission?.pendingTransfer?.targetId).toBe("甲");
     expect(state.reactionWindow).toMatchObject({
-      affectedPlayerId: "乙",
-      responderOrder: ["丙", "丁", "戊", "甲", "乙"],
+      affectedPlayerId: "甲",
+      responderOrder: ["乙", "丙", "丁", "戊", "甲"],
       nextResponderIndex: 0,
     });
     expect(state.publicDiscard).toContain(separationCard);
     passAllReactions(state);
-    expect(state.transmission?.intendedRecipientId).toBe("乙");
+    expect(state.transmission?.intendedRecipientId).toBe("甲");
   });
 
   it("拒绝损坏的响应位置和转移目标关联", () => {
@@ -788,6 +788,98 @@ describe("发送者锁定与目标最后响应", () => {
     expect(() =>
       playCounter(state, "丙", counter, state.interactionStack.at(-1)!.id),
     ).toThrow("不能使用识破反制自己的卡牌行动");
+  });
+
+  it("离间可改换锁定目标，结算后从新目标重开锁定响应", () => {
+    const state = initializedWithActive(players, 73);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const lock = cardIdWhere((card) => card.name === "锁定", [intelligence]);
+    const separation = cardIdWhere((card) => card.name === "离间", [
+      intelligence,
+      lock,
+    ]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "甲", lock, 1);
+    putCardInHand(state, "丙", separation, 0);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    playLock(state, "甲", lock);
+
+    expect(projectGameForPlayer(state, "丙").legalActions).toContainEqual({
+      type: "PLAY_SEPARATION",
+      cardId: separation,
+      targetId: "丁",
+    });
+    playSeparationOnTransfer(state, "丙", separation, "丁");
+    finishCurrentReactionWindow(state);
+
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "丁",
+      locked: true,
+      returnedToSender: false,
+    });
+    expect(state.reactionWindow).toMatchObject({
+      kind: "lock",
+      affectedPlayerId: "丁",
+      responderOrder: ["戊", "甲", "乙", "丙", "丁"],
+      nextResponderIndex: 0,
+    });
+    expect(state.interactionStack).toHaveLength(1);
+    expect(state.interactionStack[0]).toMatchObject({
+      kind: "lock",
+      targetPlayerId: "丁",
+      separationUsed: true,
+    });
+
+    passAllReactions(state);
+    expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
+      { type: "ACCEPT_INTELLIGENCE" },
+    ]);
+  });
+
+  it("识破离间后恢复锁定原目标及离间出牌者的原响应位置", () => {
+    const state = initializedWithActive(players, 731);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const lock = cardIdWhere((card) => card.name === "锁定", [intelligence]);
+    const separation = cardIdWhere((card) => card.name === "离间", [
+      intelligence,
+      lock,
+    ]);
+    const counter = cardIdWhere((card) => card.name === "识破", [
+      intelligence,
+      lock,
+      separation,
+    ]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "甲", lock, 1);
+    putCardInHand(state, "丙", separation, 0);
+    putCardInHand(state, "戊", counter, 0);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    playLock(state, "甲", lock);
+    playSeparationOnTransfer(state, "丙", separation, "丁");
+    playCounter(
+      state,
+      "戊",
+      counter,
+      state.interactionStack.at(-1)!.id,
+    );
+    finishCurrentReactionWindow(state);
+
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "乙",
+      locked: true,
+    });
+    expect(state.reactionWindow).toMatchObject({
+      kind: "lock",
+      affectedPlayerId: "乙",
+      responderOrder: ["丙", "丁", "戊", "甲", "乙"],
+      nextResponderIndex: 0,
+    });
+    expect(state.interactionStack).toHaveLength(1);
+    expect(projectGameForPlayer(state, "丙").legalActions).not.toContainEqual(
+      expect.objectContaining({ type: "PLAY_SEPARATION" }),
+    );
   });
 });
 

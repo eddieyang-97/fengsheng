@@ -7,10 +7,8 @@ export {
   type RoomServiceOptions,
 } from "./room-service";
 export {
-  AUTO_PASS_DELAY_OPTIONS_MS,
   REACTION_TIMEOUT_OPTIONS,
   SUPPORTED_ROOM_CAPACITIES,
-  type AutoPassDelayMs,
   type PlayerCredentials,
   type NormalDeathResolver,
   type ReactionTimeoutSeconds,

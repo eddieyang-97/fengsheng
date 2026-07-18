@@ -295,6 +295,28 @@ export function RoomLobby({
         </div>
       </section>
 
+      {!isSpectator && (
+        <section className="panel host-panel">
+          <p className="eyebrow">个人设置</p>
+          <h2>自动跳过</h2>
+          <label htmlFor={autoPassDelayId}>没有可用反应时的等待时间</label>
+          <select
+            id={autoPassDelayId}
+            onChange={(event) =>
+              onAutoPassDelayChange(Number(event.target.value) as AutoPassDelayMs)
+            }
+            value={autoPassDelayMs}
+          >
+            {AUTO_PASS_DELAY_OPTIONS_MS.map((milliseconds) => (
+              <option key={milliseconds} value={milliseconds}>
+                {milliseconds === 0 ? "立即" : `${milliseconds / 1_000} 秒`}
+              </option>
+            ))}
+          </select>
+          <p className="help-text">只影响你当前浏览器中的自动跳过，不会改变其他玩家的设置。</p>
+        </section>
+      )}
+
       {isHost ? (
         <section className="host-grid">
           <div className="panel host-panel">
@@ -313,22 +335,7 @@ export function RoomLobby({
                 <option key={seconds} value={seconds}>{timeoutLabel(seconds)}</option>
               ))}
             </select>
-            <label htmlFor={autoPassDelayId}>自动跳过等待时间</label>
-            <select
-              disabled={isBusy}
-              id={autoPassDelayId}
-              onChange={(event) =>
-                onAutoPassDelayChange(Number(event.target.value) as AutoPassDelayMs)
-              }
-              value={autoPassDelayMs}
-            >
-              {AUTO_PASS_DELAY_OPTIONS_MS.map((milliseconds) => (
-                <option key={milliseconds} value={milliseconds}>
-                  {milliseconds === 0 ? "立即" : `${milliseconds / 1_000} 秒`}
-                </option>
-              ))}
-            </select>
-            <p className="help-text">必选操作不会自动处理。游戏中修改会从下一次反应开始生效。</p>
+            <p className="help-text">必选操作不会由反应时限自动处理。游戏中修改会从下一次反应开始生效。</p>
           </div>
 
           <div className="panel host-panel start-panel">

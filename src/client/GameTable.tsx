@@ -892,22 +892,19 @@ export function GameTable({
               </select>
             </label>
           )}
-          {isHost && (
-            <label className="table-timeout-control">
-              自动跳过等待
-              <select
-                disabled={busy || !connected}
-                onChange={(event) => onAutoPassDelayChange(Number(event.target.value) as AutoPassDelayMs)}
-                value={autoPassDelayMs}
-              >
-                {AUTO_PASS_DELAY_OPTIONS_MS.map((milliseconds) => (
-                  <option key={milliseconds} value={milliseconds}>
-                    {milliseconds === 0 ? "立即" : `${milliseconds / 1_000} 秒`}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+          <label className="table-timeout-control">
+            我的自动跳过等待
+            <select
+              onChange={(event) => onAutoPassDelayChange(Number(event.target.value) as AutoPassDelayMs)}
+              value={autoPassDelayMs}
+            >
+              {AUTO_PASS_DELAY_OPTIONS_MS.map((milliseconds) => (
+                <option key={milliseconds} value={milliseconds}>
+                  {milliseconds === 0 ? "立即" : `${milliseconds / 1_000} 秒`}
+                </option>
+              ))}
+            </select>
+          </label>
           {isHost && disconnectedLivingPlayers.map((player) => (
             <span className="disconnected-player-actions" key={player.id}>
               <button

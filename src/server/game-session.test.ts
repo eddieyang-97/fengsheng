@@ -62,6 +62,164 @@ describe("GameSessionService", () => {
     expect(sessions.project("ABCDEF", targetId).own.id).toBe(targetId);
   });
 
+  it("dispatches 离间 against 锁定 using the server-generated legal target", () => {
+    const sessions = new GameSessionService();
+    const state = sessions.create("ABCDEF", players, 240);
+    const senderId = state.activePlayerId;
+    const senderIndex = state.seatOrder.indexOf(senderId);
+    const recipientId = state.seatOrder[(senderIndex + 1) % state.seatOrder.length];
+    const reactorId = state.seatOrder[(senderIndex + 2) % state.seatOrder.length];
+    const redirectedTargetId = state.seatOrder[(senderIndex + 3) % state.seatOrder.length];
+    const intelligence = PHYSICAL_DECK.find(
+      (card) => card.transmission === "直达" && card.name !== "锁定",
+    )!;
+    const lock = PHYSICAL_DECK.find(
+      (card) => card.name === "锁定",
+    )!;
+    const separation = PHYSICAL_DECK.find(
+      (card) => card.name === "离间",
+    )!;
+    for (const card of [intelligence, lock, separation]) detachCard(state, card.id);
+    state.players[senderId].hand.push(
+      intelligence.id as PhysicalCardId,
+      lock.id as PhysicalCardId,
+    );
+    state.players[reactorId].hand.push(separation.id as PhysicalCardId);
+
+    sessions.dispatch("ABCDEF", senderId, {
+      type: "START_TRANSMISSION",
+      cardId: intelligence.id as PhysicalCardId,
+      targetId: recipientId,
+    });
+    sessions.dispatch("ABCDEF", senderId, {
+      type: "PLAY_LOCK",
+      cardId: lock.id as PhysicalCardId,
+    });
+
+    expect(sessions.project("ABCDEF", reactorId).legalActions).toContainEqual({
+      type: "PLAY_SEPARATION",
+      cardId: separation.id,
+      targetId: redirectedTargetId,
+    });
+    sessions.dispatch("ABCDEF", reactorId, {
+      type: "PLAY_SEPARATION",
+      cardId: separation.id as PhysicalCardId,
+      targetId: redirectedTargetId,
+    });
+
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: redirectedTargetId,
+      locked: true,
+    });
+    expect(state.reactionWindow).toMatchObject({
+      kind: "lock",
+      affectedPlayerId: redirectedTargetId,
+    });
+  });
+
+  it("dispatches 试探的离间 and offers the original transmission sender for 转移离间", () => {
+    const functionSessions = new GameSessionService();
+    const functionState = functionSessions.create("ABCDEF", players, 241);
+    const functionSourceId = functionState.activePlayerId;
+    const sourceIndex = functionState.seatOrder.indexOf(functionSourceId);
+    const originalTargetId = functionState.seatOrder[(sourceIndex + 1) % players.length];
+    const functionReactorId = functionState.seatOrder[(sourceIndex + 2) % players.length];
+    const newFunctionTargetId = functionState.seatOrder[(sourceIndex + 3) % players.length];
+    const probe = PHYSICAL_DECK.find(
+      (card) => "variant" in card && card.variant?.kind === "probeIdentity",
+    )!;
+    const functionSeparation = PHYSICAL_DECK.find(
+      (card) => card.name === "离间",
+    )!;
+    for (const card of [probe, functionSeparation]) detachCard(functionState, card.id);
+    functionState.players[functionSourceId].hand.push(probe.id as PhysicalCardId);
+    functionState.players[functionReactorId].hand.push(
+      functionSeparation.id as PhysicalCardId,
+    );
+
+    functionSessions.dispatch("ABCDEF", functionSourceId, {
+      type: "PLAY_PROBE",
+      cardId: probe.id as PhysicalCardId,
+      targetId: originalTargetId,
+    });
+    expect(functionSessions.project("ABCDEF", functionReactorId).legalActions)
+      .toContainEqual({
+        type: "PLAY_FUNCTION_SEPARATION",
+        cardId: functionSeparation.id,
+        targetId: newFunctionTargetId,
+      });
+    functionSessions.dispatch("ABCDEF", functionReactorId, {
+      type: "PLAY_FUNCTION_SEPARATION",
+      cardId: functionSeparation.id as PhysicalCardId,
+      targetId: newFunctionTargetId,
+    });
+    expect(functionState.activeFunctionAction?.targetPlayerId).toBe(
+      newFunctionTargetId,
+    );
+
+    const transferSessions = new GameSessionService();
+    const transferState = transferSessions.create("GHIJKL", players, 242);
+    const senderId = transferState.activePlayerId;
+    const senderIndex = transferState.seatOrder.indexOf(senderId);
+    const recipientId = transferState.seatOrder[(senderIndex + 1) % players.length];
+    const transferTargetId = transferState.seatOrder[(senderIndex + 2) % players.length];
+    const transferReactorId = transferState.seatOrder[(senderIndex + 3) % players.length];
+    const intelligence = PHYSICAL_DECK.find(
+      (card) => card.transmission === "直达",
+    )!;
+    const transfer = PHYSICAL_DECK.find(
+      (card) => card.name === "转移",
+    )!;
+    const transferSeparation = PHYSICAL_DECK.find(
+      (card) => card.name === "离间",
+    )!;
+    for (const card of [intelligence, transfer, transferSeparation]) {
+      detachCard(transferState, card.id);
+    }
+    transferState.players[senderId].hand.push(intelligence.id as PhysicalCardId);
+    transferState.players[recipientId].hand.push(transfer.id as PhysicalCardId);
+    transferState.players[transferReactorId].hand.push(
+      transferSeparation.id as PhysicalCardId,
+    );
+
+    transferSessions.dispatch("GHIJKL", senderId, {
+      type: "START_TRANSMISSION",
+      cardId: intelligence.id as PhysicalCardId,
+      targetId: recipientId,
+    });
+    transferSessions.dispatch("GHIJKL", senderId, { type: "PASS_LOCK" });
+    while (
+      transferState.reactionWindow?.responderOrder[
+        transferState.reactionWindow.nextResponderIndex
+      ] !== recipientId
+    ) {
+      const responderId = transferState.reactionWindow!.responderOrder[
+        transferState.reactionWindow!.nextResponderIndex
+      ];
+      transferSessions.dispatch("GHIJKL", responderId, {
+        type: "PASS_REACTION",
+      });
+    }
+    transferSessions.dispatch("GHIJKL", recipientId, {
+      type: "PLAY_TRANSFER",
+      cardId: transfer.id as PhysicalCardId,
+      targetId: transferTargetId,
+    });
+
+    expect(transferSessions.project("GHIJKL", transferReactorId).legalActions)
+      .toContainEqual({
+        type: "PLAY_SEPARATION",
+        cardId: transferSeparation.id,
+        targetId: senderId,
+      });
+    transferSessions.dispatch("GHIJKL", transferReactorId, {
+      type: "PLAY_SEPARATION",
+      cardId: transferSeparation.id as PhysicalCardId,
+      targetId: senderId,
+    });
+    expect(transferState.transmission?.pendingTransfer?.targetId).toBe(senderId);
+  });
+
   it("keeps private notices after later commands such as automatic passes", () => {
     const sessions = new GameSessionService();
     const state = sessions.create("ABCDEF", players, 142);

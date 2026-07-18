@@ -111,6 +111,16 @@ describe("game table card parameters", () => {
       projection,
       {},
     )).toBe("随机交出一张手牌");
+    expect(actionDetail(
+      { type: "PLAY_SEPARATION", cardId: "p1-11", targetId: "乙" },
+      projection,
+      { 乙: "小乙" },
+    )).toBe("离间 → 小乙");
+    expect(actionDetail(
+      { type: "PLAY_FUNCTION_SEPARATION", cardId: "p1-11", targetId: "乙" },
+      projection,
+      { 乙: "小乙" },
+    )).toBe("离间 → 小乙");
   });
 
   it("describes every public-text receipt variant", () => {

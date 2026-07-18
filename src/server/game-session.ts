@@ -23,7 +23,7 @@ import {
   playProbe,
   playReinforcement,
   playSeparationOnFunction,
-  playSeparationOnTransfer,
+  playSeparationOnTransmission,
   playSecretOrder,
   playSwap,
   playTransfer,
@@ -236,7 +236,7 @@ function dispatchGameCommand(
     case "PLAY_COUNTER":
       return playCounter(state, actorId, command.cardId, command.targetInteractionId);
     case "PLAY_SEPARATION":
-      return playSeparationOnTransfer(state, actorId, command.cardId, command.targetId);
+      return playSeparationOnTransmission(state, actorId, command.cardId, command.targetId);
     case "CHOOSE_PUBLIC_TEXT_EFFECT":
       return choosePublicTextReceiptEffect(state, actorId, command.choice);
     case "CHOOSE_PUBLIC_TEXT_DISCARD":

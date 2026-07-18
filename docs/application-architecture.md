@@ -74,7 +74,7 @@ to run without binding production resources or real time.
 - players, seats, connection state, host, bot status, and temporary bot control;
 - named spectators who consume no seat;
 - reconnect tokens and pending seat-swap requests;
-- reaction timeout and client auto-pass delay settings;
+- room-authoritative reaction timeout settings;
 - disconnect pause state and mirrored player life;
 - interleaved room/game public audit events.
 
@@ -210,8 +210,9 @@ Automatic pass with no usable response is a client convenience distinct from
 the server reaction timeout:
 
 - the server-generated `legalActions` determine whether only a pass remains;
-- the player stores opt-in and burn-ignore preferences locally;
-- the room-authoritative auto-pass delay is used for the next eligible prompt;
+- the player stores opt-in, burn-ignore, and delay preferences locally;
+- each browser's configured delay is used for that player's next eligible prompt;
+- changing the delay does not send a room command or affect another player;
 - a prompt fingerprint prevents duplicate submission;
 - the effect is cancelled when projection context, connection, or component
   state changes.

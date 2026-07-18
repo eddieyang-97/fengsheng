@@ -3,8 +3,6 @@ export type RoomCapacity = (typeof SUPPORTED_ROOM_CAPACITIES)[number];
 
 export const REACTION_TIMEOUT_OPTIONS = [null, 10, 15, 20, 30, 60] as const;
 export type ReactionTimeoutSeconds = (typeof REACTION_TIMEOUT_OPTIONS)[number];
-export const AUTO_PASS_DELAY_OPTIONS_MS = [0, 500, 1_000, 2_000, 3_000, 5_000] as const;
-export type AutoPassDelayMs = (typeof AUTO_PASS_DELAY_OPTIONS_MS)[number];
 
 export type RoomPhase = "lobby" | "started";
 export type StartSeatMode = "as-is" | "random";
@@ -51,7 +49,6 @@ export interface RoomSnapshot {
   spectators: RoomSpectatorSnapshot[];
   pendingSeatSwaps: SeatSwapRequestSnapshot[];
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
-  autoPassDelayMs: AutoPassDelayMs;
   gamePausedForDisconnect: boolean;
   publicAuditLog: string[];
   publicAuditEvents: PublicAuditEvent[];

@@ -5,16 +5,18 @@ import type { RoomEntryResult, RoomSnapshot } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import { GameTable } from "./GameTable";
 import { LandingPage } from "./LandingPage";
-import type {
-  CreateRoomInput,
-  AutoPassDelayMs,
-  InviteEntryState,
-  JoinRoomInput,
-  LobbyPlayer,
-  PlayerCount,
-  ReactionTimeoutSeconds,
-  SeatSwapRequest,
-  StartMode,
+import {
+  DEFAULT_AUTO_PASS_DELAY_MS,
+  parseAutoPassDelayPreference,
+  type AutoPassDelayMs,
+  type CreateRoomInput,
+  type InviteEntryState,
+  type JoinRoomInput,
+  type LobbyPlayer,
+  type PlayerCount,
+  type ReactionTimeoutSeconds,
+  type SeatSwapRequest,
+  type StartMode,
 } from "./lobby-types";
 import { RoomLobby } from "./RoomLobby";
 import { SpectatorTable } from "./SpectatorTable";
@@ -27,7 +29,26 @@ interface StoredCredentials {
 }
 
 const ROOM_PATH = /^\/([A-Za-z]{6})\/?$/;
+const AUTO_PASS_DELAY_STORAGE_KEY = "fengsheng:auto-pass-delay-ms";
 const client = createLobbySocketClient();
+
+function loadAutoPassDelayPreference(): AutoPassDelayMs {
+  try {
+    return parseAutoPassDelayPreference(
+      localStorage.getItem(AUTO_PASS_DELAY_STORAGE_KEY),
+    );
+  } catch {
+    return DEFAULT_AUTO_PASS_DELAY_MS;
+  }
+}
+
+function saveAutoPassDelayPreference(milliseconds: AutoPassDelayMs): void {
+  try {
+    localStorage.setItem(AUTO_PASS_DELAY_STORAGE_KEY, String(milliseconds));
+  } catch {
+    // Local storage can be unavailable in privacy-restricted browsers.
+  }
+}
 
 function roomFromPath(pathname = window.location.pathname): string | undefined {
   return ROOM_PATH.exec(pathname)?.[1]?.toUpperCase();
@@ -76,6 +97,12 @@ export function App() {
   const [spectatorGame, setSpectatorGame] = useState<SpectatorProjection>();
   const [connected, setConnected] = useState(true);
   const [reactionTimer, setReactionTimer] = useState<ReactionTimerSnapshot | null>(null);
+  const [autoPassDelayMs, setAutoPassDelayMs] = useState(loadAutoPassDelayPreference);
+
+  const updateAutoPassDelay = useCallback((milliseconds: AutoPassDelayMs) => {
+    setAutoPassDelayMs(milliseconds);
+    saveAutoPassDelayPreference(milliseconds);
+  }, []);
 
   const enterRoom = useCallback((entry: RoomEntryResult) => {
     const nextCredentials = {
@@ -253,16 +280,13 @@ export function App() {
         )}
         reactionTimer={reactionTimer}
         reactionTimeoutSeconds={(room.reactionTimeoutSeconds ?? 0) as ReactionTimeoutSeconds}
-        autoPassDelayMs={(room.autoPassDelayMs ?? 1_000) as AutoPassDelayMs}
+        autoPassDelayMs={autoPassDelayMs}
         publicAuditEvents={room.publicAuditEvents}
         spectators={room.spectators}
         onReactionTimeoutChange={(seconds) => void runAction("timeout", () => client.setReactionTimeout({
           seconds: seconds === 0 ? null : seconds,
         }))}
-        onAutoPassDelayChange={(milliseconds) => void runAction(
-          "auto-pass-delay",
-          () => client.setAutoPassDelay({ milliseconds }),
-        )}
+        onAutoPassDelayChange={updateAutoPassDelay}
         onMarkDisconnectedPlayerDead={(targetPlayerId) => void runAction(
           "mark-dead",
           () => client.markDisconnectedPlayerDead({ targetPlayerId }),
@@ -345,11 +369,8 @@ export function App() {
       )}
       onLeaveRoom={leaveRoom}
       onMoveSeat={(seat) => void runAction("seat", () => client.requestSeat({ seatIndex: seat - 1 }))}
-      autoPassDelayMs={(room.autoPassDelayMs ?? 1_000) as AutoPassDelayMs}
-      onAutoPassDelayChange={(milliseconds) => void runAction(
-        "auto-pass-delay",
-        () => client.setAutoPassDelay({ milliseconds }),
-      )}
+      autoPassDelayMs={autoPassDelayMs}
+      onAutoPassDelayChange={updateAutoPassDelay}
       onReactionTimeoutChange={(seconds: ReactionTimeoutSeconds) => void runAction(
         "timeout",
         () => client.setReactionTimeout({

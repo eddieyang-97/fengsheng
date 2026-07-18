@@ -1,9 +1,7 @@
 import { RoomError } from "./errors";
 import {
-  AUTO_PASS_DELAY_OPTIONS_MS,
   REACTION_TIMEOUT_OPTIONS,
   SUPPORTED_ROOM_CAPACITIES,
-  type AutoPassDelayMs,
   type PlayerCredentials,
   type NormalDeathResolver,
   type ReactionTimeoutSeconds,
@@ -44,7 +42,6 @@ interface RoomRecord {
   spectators: Map<string, RoomSpectator>;
   pendingSeatSwaps: Map<string, SeatSwapRequest>;
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
-  autoPassDelayMs: AutoPassDelayMs;
   publicAuditLog: string[];
   publicAuditEvents: PublicAuditEvent[];
   nextAuditSequence: number;
@@ -123,7 +120,6 @@ export class RoomService {
       spectators: new Map(),
       pendingSeatSwaps: new Map(),
       reactionTimeoutSeconds: 15,
-      autoPassDelayMs: 1_000,
       publicAuditLog: [],
       publicAuditEvents: [],
       nextAuditSequence: 1,
@@ -540,22 +536,6 @@ export class RoomService {
     return this.requireRoom(roomCode).reactionTimeoutSeconds;
   }
 
-  setAutoPassDelay(
-    roomCode: string,
-    hostPlayerId: string,
-    milliseconds: AutoPassDelayMs,
-  ): RoomSnapshot {
-    const room = this.requireRoom(roomCode);
-    this.requireHost(room, hostPlayerId);
-    if (!AUTO_PASS_DELAY_OPTIONS_MS.includes(milliseconds)) {
-      throw new RoomError("INVALID_AUTO_PASS_DELAY", "不支持该自动跳过等待时间");
-    }
-    room.autoPassDelayMs = milliseconds;
-    const label = milliseconds === 0 ? "立即" : `${milliseconds / 1_000} 秒`;
-    appendAudit(room, `房主将自动跳过等待时间改为 ${label}`, "room", this.now());
-    return this.snapshot(room);
-  }
-
   /** Adds newly produced authoritative game entries to the shared public order. */
   synchronizeGameAuditLog(roomCode: string, gameAuditLog: readonly string[]): RoomSnapshot {
     const room = this.requireRoom(roomCode);
@@ -709,7 +689,6 @@ export class RoomService {
         ...request,
       })),
       reactionTimeoutSeconds: room.reactionTimeoutSeconds,
-      autoPassDelayMs: room.autoPassDelayMs,
       gamePausedForDisconnect:
         room.phase === "started" &&
         players.some(

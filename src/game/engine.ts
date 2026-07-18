@@ -106,6 +106,8 @@ export interface ActiveFunctionFrame {
   targetPlayerId: PlayerId;
   targetInteractionId?: string;
   snapshot: ActiveFunctionSnapshot;
+  resumeReactionWindow?: ReactionWindow;
+  resumeReactionCompleted?: boolean;
 }
 
 export type CardActionKind =
@@ -155,6 +157,7 @@ export interface CardActionFrame {
   targetInteractionId?: string;
   snapshot: ReversibleInteractionSnapshot;
   resumeReactionWindow?: ReactionWindow;
+  resumeReactionCompleted?: boolean;
   /** Compatibility aliases for older intercept-focused consumers. */
   previousRecipientId: PlayerId;
   previousReturnedToSender: boolean;
@@ -1169,6 +1172,16 @@ function cloneReactionWindow(window: ReactionWindow | undefined): ReactionWindow
     : undefined;
 }
 
+function lastIndexMatching<T>(
+  values: readonly T[],
+  predicate: (value: T) => boolean,
+): number {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (predicate(values[index])) return index;
+  }
+  return -1;
+}
+
 function hasReactionKind(state: GameState, kind: ReactionWindow["kind"]): boolean {
   return (
     state.reactionWindow?.kind === kind ||
@@ -1427,6 +1440,38 @@ function pruneSuspendedBurnPrioritiesAfterDeath(
   }
 }
 
+function pruneFrameResumePrioritiesAfterDeath(
+  state: GameState,
+  deadPlayerId: PlayerId,
+): void {
+  const frames: Array<ActiveFunctionFrame | CardActionFrame> = [
+    ...state.activeFunctionStack,
+    ...state.interactionStack,
+  ];
+  for (const frame of frames) {
+    const window = frame.resumeReactionWindow;
+    if (!window) continue;
+    const passed = new Set(
+      window.responderOrder.slice(0, window.nextResponderIndex),
+    );
+    passed.delete(deadPlayerId);
+    window.responderOrder = reactionOrderAfterTarget(
+      state,
+      window.affectedPlayerId,
+    );
+    let nextIndex = 0;
+    while (
+      nextIndex < window.responderOrder.length &&
+      passed.has(window.responderOrder[nextIndex])
+    ) {
+      nextIndex += 1;
+    }
+    frame.resumeReactionCompleted =
+      nextIndex === window.responderOrder.length;
+    window.nextResponderIndex = frame.resumeReactionCompleted ? 0 : nextIndex;
+  }
+}
+
 function cancelPendingBurnsForDeathCleanup(state: GameState): void {
   if (state.burnContexts.length === 0) return;
   state.burnContexts = [];
@@ -1464,6 +1509,7 @@ export function resolveHostImposedDeath(
   player.alive = false;
   player.factionRevealed = true;
   pruneSuspendedBurnPrioritiesAfterDeath(state, playerId);
+  pruneFrameResumePrioritiesAfterDeath(state, playerId);
   state.auditLog.push(`${playerId}被房主判定死亡，阵营公开为${player.faction}`);
 
   if (finishFactionEliminationVictory(state, Boolean(state.transmission))) return;
@@ -1881,6 +1927,9 @@ export function playSeparationOnFunction(
     throw new Error("尚未轮到该玩家响应");
   }
   if (action.separationUsed) throw new Error("同一原始卡牌行动最多使用一次离间");
+  if (state.activeFunctionStack.at(-1)?.kind !== "function") {
+    throw new Error("离间只能改换当前栈顶原始功能牌行动的目标");
+  }
   const actor = state.players[actorId];
   const cardIndex = actor?.hand.indexOf(cardId) ?? -1;
   if (!actor?.alive || cardIndex < 0 || cardById(cardId).name !== "离间") {
@@ -1897,7 +1946,7 @@ export function playSeparationOnFunction(
     ((action.kind === "publicText" || action.kind === "dangerousIntelligence") &&
       state.players[targetId].hand.length === 0)
   ) {
-    throw new Error("离间必须选择另一名拥有手牌的合法存活目标");
+    throw new Error("离间必须选择另一个合法存活目标");
   }
 
   const sequence = state.nextInteractionSequence;
@@ -1916,6 +1965,7 @@ export function playSeparationOnFunction(
       targetPlayerId: action.targetPlayerId,
       countered: action.countered,
     },
+    resumeReactionWindow: cloneReactionWindow(window),
   });
   action.targetPlayerId = targetId;
   state.reactionWindow = {
@@ -1928,9 +1978,52 @@ export function playSeparationOnFunction(
   assertGameStateInvariants(state);
 }
 
+function settleFunctionSeparation(state: GameState): boolean {
+  const separationIndex = lastIndexMatching(
+    state.activeFunctionStack,
+    (frame) => frame.kind === "separation",
+  );
+  if (separationIndex < 0) return false;
+  const action = state.activeFunctionAction;
+  const separationFrame = state.activeFunctionStack[separationIndex];
+  const functionFrame = state.activeFunctionStack.find(
+    (frame) => frame.kind === "function",
+  );
+  if (!action || !separationFrame?.resumeReactionWindow || !functionFrame) {
+    throw new Error("离间缺少原功能牌响应位置");
+  }
+
+  const separationSurvived =
+    action.targetPlayerId === separationFrame.targetPlayerId;
+  state.activeFunctionStack = state.activeFunctionStack.slice(
+    0,
+    separationIndex,
+  );
+  if (separationSurvived) {
+    functionFrame.targetPlayerId = action.targetPlayerId;
+    state.reactionWindow = {
+      kind: "function",
+      affectedPlayerId: action.targetPlayerId,
+      responderOrder: reactionOrderAfterTarget(state, action.targetPlayerId),
+      nextResponderIndex: 0,
+    };
+  } else {
+    state.reactionWindow = cloneReactionWindow(
+      separationFrame.resumeReactionWindow,
+    );
+    if (separationFrame.resumeReactionCompleted) {
+      finishPassedReactionWindow(state, state.reactionWindow!);
+      return true;
+    }
+  }
+  assertGameStateInvariants(state);
+  return true;
+}
+
 function finishActiveFunctionAction(state: GameState): void {
   const action = state.activeFunctionAction;
   if (!action) throw new Error("当前没有待结算的功能牌行动");
+  if (settleFunctionSeparation(state)) return;
   state.reactionWindow = undefined;
   if (action.countered) {
     state.auditLog.push(`${cardById(action.sourceCardId).name}被识破，效果取消`);
@@ -2907,6 +3000,7 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
       transmission.receiptStage = "decision";
       assertGameStateInvariants(state);
     } else if (window.kind === "transfer") {
+      if (settleTransmissionSeparation(state, window)) return;
       if (state.transmission?.pendingTransfer) {
         resolveTransfer(state);
       } else {
@@ -2938,9 +3032,14 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
           lureFrame.resumeReactionWindow,
         );
         state.interactionStack = [];
+        if (lureFrame.resumeReactionCompleted) {
+          finishPassedReactionWindow(state, state.reactionWindow!);
+          return;
+        }
         assertGameStateInvariants(state);
       }
     } else if (window.kind === "lock") {
+      if (settleTransmissionSeparation(state, window)) return;
       state.reactionWindow = undefined;
       state.interactionStack = [];
       if (state.transmission?.interceptorCommitted) {
@@ -3418,7 +3517,58 @@ function playCounterOnFunction(
 
 export const playCounterIntercept = playCounter;
 
-export function playSeparationOnTransfer(
+function settleTransmissionSeparation(
+  state: GameState,
+  window: ReactionWindow,
+): boolean {
+  if (window.kind !== "transfer" && window.kind !== "lock") return false;
+  const separationIndex = lastIndexMatching(
+    state.interactionStack,
+    (frame) => frame.kind === "separation",
+  );
+  if (separationIndex < 0) return false;
+  const separationFrame = state.interactionStack[separationIndex];
+  const baseFrame = state.interactionStack
+    .slice(0, separationIndex)
+    .reverse()
+    .find((frame) => frame.kind === window.kind);
+  const transmission = state.transmission;
+  if (!separationFrame?.resumeReactionWindow || !baseFrame || !transmission) {
+    throw new Error("离间缺少原传递响应位置");
+  }
+
+  const currentTargetId =
+    window.kind === "transfer"
+      ? transmission.pendingTransfer?.targetId
+      : transmission.intendedRecipientId;
+  const separationSurvived =
+    currentTargetId === separationFrame.targetPlayerId;
+  state.interactionStack = state.interactionStack.slice(0, separationIndex);
+  if (separationSurvived) {
+    baseFrame.targetPlayerId = separationFrame.targetPlayerId;
+    state.reactionWindow = {
+      kind: window.kind,
+      affectedPlayerId: separationFrame.targetPlayerId,
+      responderOrder: reactionOrderAfterTarget(
+        state,
+        separationFrame.targetPlayerId,
+      ),
+      nextResponderIndex: 0,
+    };
+  } else {
+    state.reactionWindow = cloneReactionWindow(
+      separationFrame.resumeReactionWindow,
+    );
+    if (separationFrame.resumeReactionCompleted) {
+      finishPassedReactionWindow(state, state.reactionWindow!);
+      return true;
+    }
+  }
+  assertGameStateInvariants(state);
+  return true;
+}
+
+export function playSeparationOnTransmission(
   state: GameState,
   actorId: PlayerId,
   cardId: PhysicalCardId,
@@ -3426,18 +3576,21 @@ export function playSeparationOnTransfer(
 ): void {
   const window = state.reactionWindow;
   const transmission = state.transmission;
-  const pending = transmission?.pendingTransfer;
-  const transferFrame = [...state.interactionStack]
+  const isTransfer = window?.kind === "transfer";
+  const isLock = window?.kind === "lock";
+  const pending = isTransfer ? transmission?.pendingTransfer : undefined;
+  const baseFrame = [...state.interactionStack]
     .reverse()
-    .find((frame) => frame.kind === "transfer");
+    .find((frame) => frame.kind === window?.kind);
   if (
     !window ||
     !transmission ||
-    !pending ||
-    !transferFrame ||
-    window.kind !== "transfer"
+    !baseFrame ||
+    (!isTransfer && !isLock) ||
+    (isTransfer && !pending) ||
+    (isLock && !transmission.locked)
   ) {
-    throw new Error("当前没有可被离间改换目标的转移");
+    throw new Error("当前没有可被离间改换目标的卡牌行动");
   }
   if (window.responderOrder[window.nextResponderIndex] !== actorId) {
     throw new Error("尚未轮到该玩家响应");
@@ -3448,37 +3601,53 @@ export function playSeparationOnTransfer(
   if (cardIndex < 0 || cardById(cardId).name !== "离间") {
     throw new Error("必须使用自己手中的离间牌");
   }
-  if (transferFrame.separationUsed) {
+  if (baseFrame.separationUsed) {
     throw new Error("同一个原始卡牌行动最多只能使用一次离间");
   }
+  if (state.interactionStack.at(-1) !== baseFrame) {
+    throw new Error("离间只能改换当前栈顶原始卡牌行动的目标");
+  }
+  const currentTargetId = isTransfer
+    ? pending!.targetId
+    : transmission.intendedRecipientId;
   if (
-    targetId === pending.targetId ||
-    targetId === transferFrame.targetPlayerId ||
+    targetId === currentTargetId ||
+    targetId === baseFrame.targetPlayerId ||
     !state.players[targetId]?.alive
   ) {
-    throw new Error("离间必须为转移选择另一个合法存活目标");
+    throw new Error("离间必须选择另一个合法存活目标");
   }
 
   actor.hand.splice(cardIndex, 1);
   state.publicDiscard.push(cardId);
-  transferFrame.separationUsed = true;
+  baseFrame.separationUsed = true;
   pushCardActionFrame(state, {
     kind: "separation",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: targetId,
     snapshot: captureInteractionSnapshot(transmission),
+    resumeReactionWindow: cloneReactionWindow(window),
   });
-  pending.targetId = targetId;
+  if (isTransfer) {
+    pending!.targetId = targetId;
+  } else {
+    transmission.intendedRecipientId = targetId;
+    transmission.returnedToSender = targetId === transmission.senderId;
+  }
   state.reactionWindow = {
-    kind: "transfer",
+    kind: window.kind,
     affectedPlayerId: targetId,
     responderOrder: reactionOrderAfterTarget(state, targetId),
     nextResponderIndex: 0,
   };
-  state.auditLog.push(`${actorId}使用离间，将转移目标改为：${targetId}`);
+  state.auditLog.push(
+    `${actorId}使用离间，将${isTransfer ? "转移" : "锁定"}目标改为：${targetId}`,
+  );
   assertGameStateInvariants(state);
 }
+
+export const playSeparationOnTransfer = playSeparationOnTransmission;
 
 export function projectGameForPlayer(
   state: GameState,
@@ -3600,10 +3769,28 @@ export function projectGameForPlayer(
           }),
         )
     : [];
+  const transmissionSeparationFrame =
+    state.reactionWindow?.kind === "transfer" ||
+    state.reactionWindow?.kind === "lock"
+      ? [...state.interactionStack]
+          .reverse()
+          .find((frame) => frame.kind === state.reactionWindow?.kind)
+      : undefined;
+  const transmissionSeparationIsTop =
+    transmissionSeparationFrame !== undefined &&
+    state.interactionStack.at(-1) === transmissionSeparationFrame;
+  const transmissionSeparationTargetId =
+    state.reactionWindow?.kind === "transfer"
+      ? transmission?.pendingTransfer?.targetId
+      : state.reactionWindow?.kind === "lock" && transmission?.locked
+        ? transmission.intendedRecipientId
+        : undefined;
   const separationActions =
     currentReactionResponderId === viewerId &&
-    state.reactionWindow?.kind === "transfer" &&
-    transmission?.pendingTransfer
+    transmissionSeparationFrame &&
+    transmissionSeparationIsTop &&
+    !transmissionSeparationFrame.separationUsed &&
+    transmissionSeparationTargetId
       ? viewer.hand
           .filter((cardId) => cardById(cardId).name === "离间")
           .flatMap((cardId) =>
@@ -3611,8 +3798,7 @@ export function projectGameForPlayer(
               .filter(
                 (targetId) =>
                   state.players[targetId].alive &&
-                  targetId !== transmission.senderId &&
-                  targetId !== transmission.pendingTransfer?.targetId,
+                  targetId !== transmissionSeparationTargetId,
               )
               .map((targetId) => ({
                 type: "PLAY_SEPARATION" as const,
@@ -3692,9 +3878,12 @@ export function projectGameForPlayer(
     currentReactionResponderId === viewerId &&
     state.reactionWindow?.kind === "function" &&
     activeFunctionAction &&
+    state.activeFunctionStack.at(-1)?.kind === "function" &&
     !activeFunctionAction.separationUsed &&
     (activeFunctionAction.kind === "publicText" ||
-      activeFunctionAction.kind === "dangerousIntelligence")
+      activeFunctionAction.kind === "dangerousIntelligence" ||
+      activeFunctionAction.kind === "probeIdentity" ||
+      activeFunctionAction.kind === "probeDrawDiscard")
       ? viewer.hand
           .filter((cardId) => cardById(cardId).name === "离间")
           .flatMap((cardId) =>
@@ -3702,7 +3891,9 @@ export function projectGameForPlayer(
               .filter(
                 (targetId) =>
                   state.players[targetId].alive &&
-                  state.players[targetId].hand.length > 0 &&
+                  ((activeFunctionAction.kind !== "publicText" &&
+                    activeFunctionAction.kind !== "dangerousIntelligence") ||
+                    state.players[targetId].hand.length > 0) &&
                   targetId !== activeFunctionAction.sourcePlayerId &&
                   targetId !== activeFunctionAction.originalTargetPlayerId &&
                   targetId !== activeFunctionAction.targetPlayerId,
