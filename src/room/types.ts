@@ -39,6 +39,13 @@ export interface PublicAuditEvent {
   source: "room" | "game";
 }
 
+export interface ChatMessageSnapshot {
+  sequence: number;
+  playerId: string;
+  text: string;
+  sentAt: number;
+}
+
 export interface RoomSnapshot {
   code: string;
   capacity: RoomCapacity;
@@ -52,6 +59,7 @@ export interface RoomSnapshot {
   gamePausedForDisconnect: boolean;
   publicAuditLog: string[];
   publicAuditEvents: PublicAuditEvent[];
+  chatMessages: ChatMessageSnapshot[];
 }
 
 export interface PlayerCredentials {

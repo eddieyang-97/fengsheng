@@ -41,6 +41,7 @@ export interface LobbySocketClient {
   removeBot(input: { targetPlayerId: string }): Promise<void>;
   setBotTakeover(input: { targetPlayerId: string; enabled: boolean }): Promise<void>;
   setReactionTimeout(input: { seconds: number | null }): Promise<void>;
+  sendChatMessage(input: { text: string }): Promise<void>;
   markDisconnectedPlayerDead(input: { targetPlayerId: string }): Promise<void>;
   startRoom(input: { seatMode: StartSeatMode }): Promise<StartRoomResult>;
   returnToLobby(): Promise<void>;
@@ -91,6 +92,7 @@ export function createLobbySocketClient(socket: Socket = io()): LobbySocketClien
     removeBot: (input) => emitAck(socket, "room:bot:remove", input),
     setBotTakeover: (input) => emitAck(socket, "room:bot:takeover", input),
     setReactionTimeout: (input) => emitAck(socket, "room:timeout", input),
+    sendChatMessage: (input) => emitAck(socket, "room:chat", input),
     markDisconnectedPlayerDead: (input) => emitAck(socket, "room:mark-dead", input),
     startRoom: (input) => emitAck(socket, "room:start", input),
     returnToLobby: () => emitAck(socket, "room:new-game", {}),

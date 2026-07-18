@@ -76,7 +76,8 @@ to run without binding production resources or real time.
 - reconnect tokens and pending seat-swap requests;
 - room-authoritative reaction timeout settings;
 - disconnect pause state and mirrored player life;
-- interleaved room/game public audit events.
+- interleaved room/game public audit events;
+- the latest 200 player chat messages for the current match.
 
 Room codes are normalized six-letter uppercase identifiers. Player and
 spectator display names are Unicode-normalized and unique within the room.
@@ -123,7 +124,7 @@ events. Commands use acknowledgement envelopes:
 - failure: `{ ok: false, error: { code, message } }`.
 
 Room events cover creation, join, spectating, reconnect, leave, seats, host
-actions, bots, settings, game start, and new game. Gameplay uses one
+actions, bots, settings, game start, new game, and player chat. Gameplay uses one
 `game:command` event carrying the `GameCommand` union.
 
 Server pushes include:
@@ -249,6 +250,13 @@ names for rendering and filtering.
 Private card notices remain in player projections and never enter the room
 public audit stream.
 
+Chat is a separate room-owned stream rather than an audit source. Connected
+seated players and spectators may send and receive the same retained history
+through their room snapshot. Returning to the lobby clears the match history.
+Browser clients render newly received player messages beside the sender for
+five seconds without storing that transient bubble state on the server;
+spectator messages remain in the chat panel and do not create table bubbles.
+
 ## Browser rendering
 
 `App` is the top-level client state coordinator. It owns the current invite,
@@ -271,6 +279,12 @@ the latest projection. Selection is cleared when its rule context changes. The
 dragged response-panel offset is local component state and is not reset by a new
 response window. Logs and inferred-identity markers are presentation state and
 do not affect the engine.
+
+The desktop sidebar is a fixed two-row layout: public audit history above and
+match chat below, each receiving approximately half of the available viewport
+height. On narrow screens they become bounded stacked sections beneath the
+table. Chat is intentionally not draggable because it is persistent navigation
+rather than a temporary interaction prompt.
 
 ## Failure and consistency model
 

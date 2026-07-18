@@ -12,6 +12,7 @@ import {
   type RoomRandom,
   type RoomSnapshot,
   type PublicAuditEvent,
+  type ChatMessageSnapshot,
   type RoomSpectatorSnapshot,
   type SeatSwapRequestSnapshot,
   type StartRoomResult,
@@ -21,6 +22,8 @@ import {
 const ROOM_CODE_LENGTH = 6;
 const ROOM_CODE_PATTERN = /^[A-Z]{6}$/;
 const MAX_CODE_ATTEMPTS = 1_000;
+export const MAX_CHAT_MESSAGE_LENGTH = 200;
+export const MAX_CHAT_HISTORY = 200;
 
 interface RoomPlayer extends RoomPlayerSnapshot {
   reconnectToken?: string;
@@ -46,6 +49,8 @@ interface RoomRecord {
   publicAuditEvents: PublicAuditEvent[];
   nextAuditSequence: number;
   gameAuditCursor: number;
+  chatMessages: ChatMessageSnapshot[];
+  nextChatSequence: number;
   nextJoinedSequence: number;
 }
 
@@ -124,6 +129,8 @@ export class RoomService {
       publicAuditEvents: [],
       nextAuditSequence: 1,
       gameAuditCursor: 0,
+      chatMessages: [],
+      nextChatSequence: 1,
       nextJoinedSequence: 1,
     };
     appendAudit(room, `${creator.displayName} 创建了房间`, "room", this.now());
@@ -488,6 +495,8 @@ export class RoomService {
     room.phase = "started";
     room.pendingSeatSwaps.clear();
     room.gameAuditCursor = 0;
+    room.chatMessages = [];
+    room.nextChatSequence = 1;
     appendAudit(room,
       seatMode === "random" ? "房间以随机座位开始游戏" : "房间以当前座位开始游戏",
       "room",
@@ -511,6 +520,8 @@ export class RoomService {
     for (const player of room.players.values()) player.alive = true;
     room.publicAuditEvents = room.publicAuditEvents.filter((event) => event.source === "room");
     room.gameAuditCursor = 0;
+    room.chatMessages = [];
+    room.nextChatSequence = 1;
     appendAudit(room, "房主发起新游戏，所有玩家返回大厅", "room", this.now());
     return this.snapshot(room);
   }
@@ -534,6 +545,36 @@ export class RoomService {
   /** Timer owners should capture this value when opening a new optional prompt. */
   reactionTimeoutForNextPrompt(roomCode: string): ReactionTimeoutSeconds {
     return this.requireRoom(roomCode).reactionTimeoutSeconds;
+  }
+
+  sendChatMessage(
+    roomCode: string,
+    playerId: string,
+    text: string,
+  ): RoomSnapshot {
+    const room = this.requireRoom(roomCode);
+    if (room.phase !== "started") {
+      throw new RoomError("CHAT_NOT_AVAILABLE", "游戏开始后才能发送聊天消息");
+    }
+    const sender = room.players.get(playerId) ?? room.spectators.get(playerId);
+    if (!sender) {
+      throw new RoomError("PLAYER_NOT_FOUND", "聊天发送者不在房间中");
+    }
+    if (!sender.connected) {
+      throw new RoomError("PLAYER_DISCONNECTED", "断线用户不能发送聊天消息");
+    }
+    const normalized = normalizeChatMessage(text);
+    room.chatMessages.push({
+      sequence: room.nextChatSequence,
+      playerId,
+      text: normalized,
+      sentAt: this.now(),
+    });
+    room.nextChatSequence += 1;
+    if (room.chatMessages.length > MAX_CHAT_HISTORY) {
+      room.chatMessages.splice(0, room.chatMessages.length - MAX_CHAT_HISTORY);
+    }
+    return this.snapshot(room);
   }
 
   /** Adds newly produced authoritative game entries to the shared public order. */
@@ -700,6 +741,7 @@ export class RoomService {
         ),
       publicAuditLog: [...room.publicAuditLog],
       publicAuditEvents: room.publicAuditEvents.map((event) => ({ ...event })),
+      chatMessages: room.chatMessages.map((message) => ({ ...message })),
     };
   }
 }
@@ -723,6 +765,21 @@ function normalizeDisplayName(value: string): string {
   const length = Array.from(normalized).length;
   if (length < 1 || length > 16) {
     throw new RoomError("INVALID_DISPLAY_NAME", "名字须为 1 至 16 个字符");
+  }
+  return normalized;
+}
+
+function normalizeChatMessage(value: string): string {
+  if (typeof value !== "string") {
+    throw new RoomError("INVALID_CHAT_MESSAGE", "聊天消息格式无效");
+  }
+  const normalized = value.trim().normalize("NFC");
+  const length = Array.from(normalized).length;
+  if (length < 1 || length > MAX_CHAT_MESSAGE_LENGTH) {
+    throw new RoomError(
+      "INVALID_CHAT_MESSAGE",
+      `聊天消息须为 1 至 ${MAX_CHAT_MESSAGE_LENGTH} 个字符`,
+    );
   }
   return normalized;
 }

@@ -2,7 +2,8 @@ import { useState } from "react";
 
 import type { PhysicalCard } from "../game/cards";
 import type { SpectatorProjection } from "../game/engine";
-import type { PublicAuditEvent } from "../room";
+import type { ChatMessageSnapshot, PublicAuditEvent } from "../room";
+import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { formatAuditEntries, mergeAuditLogs, publicCardSummary } from "./GameTable";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import "./game-table.css";
@@ -12,8 +13,10 @@ export interface SpectatorTableProps {
   playerDisplayNames: Readonly<Record<string, string>>;
   spectators: readonly { id: string; displayName: string; connected: boolean }[];
   publicAuditEvents: readonly PublicAuditEvent[];
+  chatMessages: readonly ChatMessageSnapshot[];
   connected: boolean;
   onLeave: () => void;
+  onSendChat: (text: string) => void;
 }
 
 function cardTone(card: PhysicalCard): string {
@@ -39,14 +42,17 @@ export function SpectatorTable({
   playerDisplayNames,
   spectators,
   publicAuditEvents,
+  chatMessages,
   connected,
   onLeave,
+  onSendChat,
 }: SpectatorTableProps) {
   const auditEntries = formatAuditEntries(
     mergeAuditLogs(projection.auditLog, publicAuditEvents),
     playerDisplayNames,
   );
   const [discardPileOpen, setDiscardPileOpen] = useState(false);
+  const chatBubbles = usePlayerChatBubbles(chatMessages);
   return (
     <main className="game-shell game-shell--spectator">
       <header className="game-topbar">
@@ -70,6 +76,7 @@ export function SpectatorTable({
                   key={id}
                   style={{ "--player-index": index, "--player-count": projection.seatOrder.length } as React.CSSProperties}
                 >
+                  <PlayerChatBubble message={chatBubbles[id]} />
                   <button disabled type="button">
                     <strong>{playerDisplayNames[id] ?? id}</strong>
                     <span>{player.alive ? `${player.handCount} 张手牌` : "已死亡"}</span>
@@ -98,9 +105,17 @@ export function SpectatorTable({
             <div><p>旁观模式</p><h2>你可以看到所有公开信息，但不能查看手牌或参与操作</h2></div>
           </section>
         </div>
-        <aside className="audit-panel">
-          <h2>公开记录</h2>
-          <ol>{auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
+        <aside className="game-sidebar">
+          <section className="audit-panel">
+            <h2>公开记录</h2>
+            <ol>{auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
+          </section>
+          <ChatPanel
+            connected={connected}
+            messages={chatMessages}
+            onSend={onSendChat}
+            playerDisplayNames={playerDisplayNames}
+          />
         </aside>
       </section>
       {discardPileOpen && (

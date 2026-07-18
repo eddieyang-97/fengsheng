@@ -623,6 +623,17 @@ A client must not receive:
 - Each player still controls whether their own client uses auto-pass and whether burn is ignored when determining eligibility.
 - Mandatory decisions are never auto-passed by this setting.
 
+### In-game chat
+
+- Chat is available after the match starts and is not shown in the lobby.
+- Seated human players, including dead players, and connected spectators may send chat messages. Bots do not send chat.
+- Messages are trimmed, Unicode-normalized, and limited to 1–200 characters.
+- The room retains the latest 200 messages for the current in-memory match, so reconnecting players and spectators recover chat history.
+- Returning the room to the lobby clears the previous match's chat history.
+- Chat is separate from the public game/room audit log and is not included in saved public replays.
+- On receipt, the latest player message appears in a small bubble beside its sender for five seconds while remaining permanently visible in the match chat panel. Spectator messages remain panel-only and never create a table bubble.
+- On desktop, the fixed right sidebar is divided approximately equally between the public match log and chat. Chat is not draggable and must not cover the table.
+
 ---
 
 ### Persistence

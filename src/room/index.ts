@@ -3,6 +3,8 @@ export {
   RoomService,
   buildRoomInviteUrl,
   isRoomCapacity,
+  MAX_CHAT_HISTORY,
+  MAX_CHAT_MESSAGE_LENGTH,
   normalizeRoomCode,
   type RoomServiceOptions,
 } from "./room-service";
@@ -18,6 +20,7 @@ export {
   type RoomPlayerSnapshot,
   type RoomRandom,
   type RoomSnapshot,
+  type ChatMessageSnapshot,
   type PublicAuditEvent,
   type SeatSwapRequestSnapshot,
   type StartRoomResult,

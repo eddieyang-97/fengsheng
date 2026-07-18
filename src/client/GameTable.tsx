@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Faction, PhysicalCard, PhysicalCardId } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
-import type { PublicAuditEvent } from "../room";
+import type { ChatMessageSnapshot, PublicAuditEvent } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
+import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import {
   AUTO_PASS_DELAY_OPTIONS_MS,
@@ -30,6 +31,7 @@ export interface GameTableProps {
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
   autoPassDelayMs: AutoPassDelayMs;
   publicAuditEvents?: readonly PublicAuditEvent[];
+  chatMessages?: readonly ChatMessageSnapshot[];
   spectators?: readonly { id: string; displayName: string; connected: boolean }[];
   disconnectedLivingPlayers?: readonly {
     id: string;
@@ -41,6 +43,7 @@ export interface GameTableProps {
   onMarkDisconnectedPlayerDead: (playerId: string) => void;
   onSetBotTakeover: (playerId: string, enabled: boolean) => void;
   onNewGame: () => void;
+  onSendChat: (text: string) => void;
   onCommand: (command: GameCommand) => void;
 }
 
@@ -691,6 +694,7 @@ export function GameTable({
   reactionTimeoutSeconds,
   autoPassDelayMs,
   publicAuditEvents = [],
+  chatMessages = [],
   spectators = [],
   disconnectedLivingPlayers = [],
   onReactionTimeoutChange,
@@ -698,6 +702,7 @@ export function GameTable({
   onMarkDisconnectedPlayerDead,
   onSetBotTakeover,
   onNewGame,
+  onSendChat,
   onCommand,
 }: GameTableProps) {
   const [selectedCardId, setSelectedCardId] = useState<string>();
@@ -714,6 +719,7 @@ export function GameTable({
   const [identityMarkers, setIdentityMarkers] = useState<Record<string, Faction>>({});
   const auditLogRef = useRef<HTMLOListElement>(null);
   const auditLogFollowsLatest = useRef(true);
+  const chatBubbles = usePlayerChatBubbles(chatMessages);
   const actions = projection.legalActions;
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
   const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
@@ -957,6 +963,7 @@ export function GameTable({
                   key={id}
                   style={{ "--player-index": index, "--player-count": displaySeatOrder.length } as React.CSSProperties}
                 >
+                  <PlayerChatBubble message={chatBubbles[id]} />
                   <button disabled={!isTarget || busy} onClick={() => chooseTarget(id)} type="button">
                   <strong>{playerDisplayNames[id] ?? id}{isOwn ? "（你）" : ""}</strong>
                     <span>{player.alive ? `${player.handCount} 张手牌` : "已死亡"}</span>
@@ -1162,39 +1169,48 @@ export function GameTable({
           </section>
         </div>
 
-        <aside className="audit-panel">
-          <header>
-            <h2>公开记录</h2>
-            <label>
-              <select
-                aria-label="按玩家筛选公开记录"
-                onChange={(event) => setAuditPlayerFilter(event.target.value)}
-                value={auditPlayerFilter}
-              >
-                <option value="">全部玩家</option>
-                {projection.players.map((player) => (
-                  <option key={player.id} value={player.id}>
-                    {playerDisplayNames[player.id] ?? player.id}{player.id === projection.own.id ? "（你）" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </header>
-          <ol
-            onScroll={(event) => {
-              const log = event.currentTarget;
-              auditLogFollowsLatest.current = isNearScrollBottom(
-                log.scrollTop,
-                log.clientHeight,
-                log.scrollHeight,
-              );
-            }}
-            ref={auditLogRef}
-          >
-            {auditEntries.map((entry) => (
-              <li key={`${entry.text}-${entry.index}`} value={entry.index + 1}>{entry.text}</li>
-            ))}
-          </ol>
+        <aside className="game-sidebar">
+          <section className="audit-panel">
+            <header>
+              <h2>公开记录</h2>
+              <label>
+                <select
+                  aria-label="按玩家筛选公开记录"
+                  onChange={(event) => setAuditPlayerFilter(event.target.value)}
+                  value={auditPlayerFilter}
+                >
+                  <option value="">全部玩家</option>
+                  {projection.players.map((player) => (
+                    <option key={player.id} value={player.id}>
+                      {playerDisplayNames[player.id] ?? player.id}{player.id === projection.own.id ? "（你）" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </header>
+            <ol
+              onScroll={(event) => {
+                const log = event.currentTarget;
+                auditLogFollowsLatest.current = isNearScrollBottom(
+                  log.scrollTop,
+                  log.clientHeight,
+                  log.scrollHeight,
+                );
+              }}
+              ref={auditLogRef}
+            >
+              {auditEntries.map((entry) => (
+                <li key={`${entry.text}-${entry.index}`} value={entry.index + 1}>{entry.text}</li>
+              ))}
+            </ol>
+          </section>
+          <ChatPanel
+            busy={busy}
+            connected={connected}
+            messages={chatMessages}
+            onSend={onSendChat}
+            playerDisplayNames={playerDisplayNames}
+          />
         </aside>
       </section>
       {discardPileOpen && (

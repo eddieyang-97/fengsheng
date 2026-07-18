@@ -101,6 +101,114 @@ describe("game server sessions", () => {
     expect(await emitRawAck(spectator, "game:command", {
       command: { type: "PASS_REACTION" },
     })).toMatchObject({ ok: false, error: { code: "NOT_A_GAME_PLAYER" } });
+
+    const spectatorRoom = onceEvent(spectator, "room:snapshot");
+    expect(await emitRawAck(host, "room:chat", { text: "欢迎旁观" })).toMatchObject({
+      ok: true,
+    });
+    expect((await spectatorRoom).chatMessages.at(-1)).toMatchObject({
+      playerId: created.playerId,
+      text: "欢迎旁观",
+    });
+    const hostReceivesSpectatorChat = onceEvent(host, "room:snapshot");
+    expect(await emitRawAck(spectator, "room:chat", { text: "观众发言" })).toMatchObject({
+      ok: true,
+    });
+    expect((await hostReceivesSpectatorChat).chatMessages.at(-1)).toMatchObject({
+      playerId: watching.playerId,
+      text: "观众发言",
+    });
+  });
+
+  it("accepts a two-card active player's burn and the opponent's counter in a duel", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 42, botDelayMs: 60_000 });
+    await server.listen(0, "127.0.0.1");
+    const port = (server.httpServer.address() as AddressInfo).port;
+    const host = connect(port);
+    const guest = connect(port);
+    sockets.push(host, guest);
+    await Promise.all([connected(host), connected(guest)]);
+
+    const created = await emitAck<SafeRoomEntryResult>(host, "room:create", {
+      capacity: 2,
+      displayName: "Eddie",
+    });
+    const joined = await emitAck<SafeRoomEntryResult>(guest, "room:join", {
+      roomCode: created.room.code,
+      displayName: "e2",
+    });
+    await emitAck<SafeStartRoomResult>(host, "room:start", { seatMode: "as-is" });
+
+    const state = server.gameSessionService.getState(created.room.code);
+    const socketsByPlayer = new Map([
+      [created.playerId, host],
+      [joined.playerId, guest],
+    ]);
+    const activeId = state.activePlayerId;
+    const opponentId = state.seatOrder.find((id) => id !== activeId)!;
+    const burn = PHYSICAL_DECK.find((card) => card.name === "烧毁")!;
+    const counter = PHYSICAL_DECK.find((card) => card.name === "识破")!;
+    const remaining = PHYSICAL_DECK.find((card) =>
+      card.id !== burn.id && card.id !== counter.id && card.name === "转移"
+    )!;
+    const excludedIntelligenceIds: readonly string[] = [
+      burn.id,
+      counter.id,
+      remaining.id,
+    ];
+    const intelligence = PHYSICAL_DECK.find((card) =>
+      card.color === "黑" && !card.unburnable &&
+      !excludedIntelligenceIds.includes(card.id)
+    )!;
+
+    for (const player of Object.values(state.players)) {
+      state.drawPile.push(...player.hand);
+      player.hand = [];
+    }
+    for (const card of [burn, counter, remaining, intelligence]) detachCard(state, card.id);
+    state.players[activeId].hand.push(
+      burn.id as PhysicalCardId,
+      remaining.id as PhysicalCardId,
+    );
+    state.players[activeId].intelligence.push(intelligence.id as PhysicalCardId);
+    state.players[opponentId].hand.push(counter.id as PhysicalCardId);
+
+    const burnResult = await emitRawAck(socketsByPlayer.get(activeId)!, "game:command", {
+      command: {
+        type: "PLAY_BURN",
+        cardId: burn.id as PhysicalCardId,
+        targetPlayerId: activeId,
+        targetIntelligenceCardId: intelligence.id as PhysicalCardId,
+      },
+    });
+    expect(burnResult).toMatchObject({ ok: true });
+    expect(state.players[activeId].hand).toEqual([remaining.id]);
+    expect(state.reactionWindow).toMatchObject({
+      kind: "burn",
+      affectedPlayerId: activeId,
+    });
+
+    const burnFrame = state.burnContexts.at(-1)!.frames.at(-1)!;
+    const counterResult = await emitRawAck(socketsByPlayer.get(opponentId)!, "game:command", {
+      command: {
+        type: "PLAY_COUNTER",
+        cardId: counter.id as PhysicalCardId,
+        targetInteractionId: burnFrame.id,
+      },
+    });
+    expect(counterResult).toMatchObject({ ok: true });
+    expect(state.burnContexts.at(-1)?.countered).toBe(true);
+
+    while (state.reactionWindow?.kind === "burn") {
+      const responderId = state.reactionWindow.responderOrder[
+        state.reactionWindow.nextResponderIndex
+      ];
+      expect(await emitRawAck(socketsByPlayer.get(responderId)!, "game:command", {
+        command: { type: "PASS_REACTION" },
+      })).toMatchObject({ ok: true });
+    }
+    expect(state.players[activeId].intelligence).toContain(intelligence.id);
+    expect(state.auditLog.at(-1)).toBe("烧毁被识破，目标情报保持不变");
   });
 
   it("starts an authoritative game and emits only viewer projections", async () => {

@@ -98,6 +98,10 @@ export interface ClientToServerEvents {
     request: { seconds: ReactionTimeoutSeconds },
     acknowledge: Acknowledge,
   ) => void;
+  "room:chat": (
+    request: { text: string },
+    acknowledge: Acknowledge,
+  ) => void;
   "room:start": (
     request: { seatMode: StartSeatMode },
     acknowledge: Acknowledge<SafeStartRoomResult>,
@@ -152,6 +156,7 @@ export function projectRoomForPlayer(
       )
       .map((request) => ({ ...request })),
     publicAuditLog: [...room.publicAuditLog],
+    chatMessages: room.chatMessages.map((message) => ({ ...message })),
     viewerPlayerId: playerId,
     viewerIsHost: room.hostPlayerId === playerId,
     viewerIsSpectator: room.spectators.some((spectator) => spectator.id === playerId),

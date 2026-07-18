@@ -234,6 +234,7 @@ export function App() {
   if (credentials.isSpectator && spectatorGame) {
     return (
       <SpectatorTable
+        chatMessages={room.chatMessages}
         connected={connected}
         onLeave={() => void runAction("leave", async () => {
           await client.leaveRoom();
@@ -243,7 +244,14 @@ export function App() {
           setSpectatorGame(undefined);
           goHome();
         })}
-        playerDisplayNames={Object.fromEntries(room.players.map((player) => [player.id, player.displayName]))}
+        onSendChat={(text) => void runAction(
+          "chat",
+          () => client.sendChatMessage({ text }),
+        )}
+        playerDisplayNames={Object.fromEntries([
+          ...room.players.map((player) => [player.id, player.displayName] as const),
+          ...room.spectators.map((spectator) => [spectator.id, spectator.displayName] as const),
+        ])}
         projection={spectatorGame}
         publicAuditEvents={room.publicAuditEvents}
         spectators={room.spectators}
@@ -270,17 +278,19 @@ export function App() {
           setGame(updated);
         })}
         projection={game}
-        playerDisplayNames={Object.fromEntries(
-          room.players.map((player) => [
+        playerDisplayNames={Object.fromEntries([
+          ...room.players.map((player) => [
             player.id,
             player.botControlled && !player.isBot
               ? `${player.displayName}（机器人接管）`
               : player.displayName,
-          ]),
-        )}
+          ] as const),
+          ...room.spectators.map((spectator) => [spectator.id, spectator.displayName] as const),
+        ])}
         reactionTimer={reactionTimer}
         reactionTimeoutSeconds={(room.reactionTimeoutSeconds ?? 0) as ReactionTimeoutSeconds}
         autoPassDelayMs={autoPassDelayMs}
+        chatMessages={room.chatMessages}
         publicAuditEvents={room.publicAuditEvents}
         spectators={room.spectators}
         onReactionTimeoutChange={(seconds) => void runAction("timeout", () => client.setReactionTimeout({
@@ -296,6 +306,10 @@ export function App() {
           () => client.setBotTakeover({ targetPlayerId, enabled }),
         )}
         onNewGame={() => void runAction("new-game", () => client.returnToLobby())}
+        onSendChat={(text) => void runAction(
+          "chat",
+          () => client.sendChatMessage({ text }),
+        )}
       />
     );
   }

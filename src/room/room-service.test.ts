@@ -591,6 +591,71 @@ describe("反应时限", () => {
   });
 });
 
+describe("局内聊天", () => {
+  it("仅在游戏中保留玩家消息，并在重连时恢复历史", () => {
+    const service = createService();
+    const room = fillDuel(service);
+    expectRoomError(
+      () => service.sendChatMessage(room.code, room.hostId, "你好"),
+      "CHAT_NOT_AVAILABLE",
+    );
+
+    service.startRoom(room.code, room.hostId, "as-is");
+    const auditLength = service.getRoom(room.code).publicAuditLog.length;
+    const sent = service.sendChatMessage(room.code, room.guestId, "  你好，房主  ");
+    expect(sent.chatMessages).toEqual([
+      expect.objectContaining({
+        sequence: 1,
+        playerId: room.guestId,
+        text: "你好，房主",
+      }),
+    ]);
+    expect(sent.publicAuditLog).toHaveLength(auditLength);
+
+    service.disconnect(room.code, room.guestId);
+    const reconnected = service.reconnect(room.code, room.guestToken);
+    expect(reconnected.room.chatMessages).toEqual(sent.chatMessages);
+  });
+
+  it("接受旁观者消息，并拒绝空白、过长和断线发送者", () => {
+    const service = createService();
+    const room = fillDuel(service);
+    service.startRoom(room.code, room.hostId, "as-is");
+    const spectator = service.spectateRoom(room.code, "观众");
+
+    expectRoomError(
+      () => service.sendChatMessage(room.code, room.hostId, "   "),
+      "INVALID_CHAT_MESSAGE",
+    );
+    expectRoomError(
+      () => service.sendChatMessage(room.code, room.hostId, "字".repeat(201)),
+      "INVALID_CHAT_MESSAGE",
+    );
+    expect(service.sendChatMessage(room.code, spectator.playerId, "旁观者消息").chatMessages.at(-1))
+      .toMatchObject({ playerId: spectator.playerId, text: "旁观者消息" });
+    service.disconnect(room.code, spectator.playerId);
+    expectRoomError(
+      () => service.sendChatMessage(room.code, spectator.playerId, "断线消息"),
+      "PLAYER_DISCONNECTED",
+    );
+  });
+
+  it("仅保留当前对局最近二百条消息，并在返回大厅时清空", () => {
+    const service = createService();
+    const room = fillDuel(service);
+    service.startRoom(room.code, room.hostId, "as-is");
+    for (let index = 1; index <= 205; index += 1) {
+      service.sendChatMessage(room.code, room.hostId, `消息 ${index}`);
+    }
+
+    const snapshot = service.getRoom(room.code);
+    expect(snapshot.chatMessages).toHaveLength(200);
+    expect(snapshot.chatMessages[0]).toMatchObject({ sequence: 6, text: "消息 6" });
+    expect(snapshot.chatMessages.at(-1)).toMatchObject({ sequence: 205, text: "消息 205" });
+    expect(service.returnToLobby(room.code, room.hostId).chatMessages).toEqual([]);
+  });
+});
+
 describe("断线暂停和房主判死", () => {
   it("游戏未开始不能推进；开始后仅存活玩家断线会暂停", () => {
     const service = createService();
