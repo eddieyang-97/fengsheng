@@ -7,6 +7,7 @@ import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reactions";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
+import { FinalHandsPanel } from "./FinalHandsPanel";
 import { PlayerReactionLayer, PlayerReactionMenu } from "./PlayerReactionLayer";
 import {
   AUTO_PASS_DELAY_OPTIONS_MS,
@@ -32,6 +33,7 @@ export interface GameTableProps {
   isHost?: boolean;
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
   autoPassDelayMs: AutoPassDelayMs;
+  soundEnabled: boolean;
   publicAuditEvents?: readonly PublicAuditEvent[];
   chatMessages?: readonly ChatMessageSnapshot[];
   playerReactions?: readonly PlayerReactionEvent[];
@@ -43,6 +45,7 @@ export interface GameTableProps {
   }[];
   onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
   onAutoPassDelayChange: (milliseconds: AutoPassDelayMs) => void;
+  onSoundEnabledChange: (enabled: boolean) => void;
   onMarkDisconnectedPlayerDead: (playerId: string) => void;
   onSetBotTakeover: (playerId: string, enabled: boolean) => void;
   onNewGame: () => void;
@@ -697,6 +700,7 @@ export function GameTable({
   isHost = false,
   reactionTimeoutSeconds,
   autoPassDelayMs,
+  soundEnabled,
   publicAuditEvents = [],
   chatMessages = [],
   playerReactions = [],
@@ -704,6 +708,7 @@ export function GameTable({
   disconnectedLivingPlayers = [],
   onReactionTimeoutChange,
   onAutoPassDelayChange,
+  onSoundEnabledChange,
   onMarkDisconnectedPlayerDead,
   onSetBotTakeover,
   onNewGame,
@@ -883,6 +888,15 @@ export function GameTable({
         <div className="game-status">
           <span>牌堆 {projection.drawPileCount}</span>
           <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
+          <button
+            aria-pressed={soundEnabled}
+            className="sound-toggle"
+            onClick={() => onSoundEnabledChange(!soundEnabled)}
+            title={soundEnabled ? "关闭游戏音效" : "开启游戏音效"}
+            type="button"
+          >
+            {soundEnabled ? "🔊 音效" : "🔇 静音"}
+          </button>
           <span>旁观：{spectators.filter((spectator) => spectator.connected).map((spectator) => spectator.displayName).join("、") || "无"}</span>
           <span className={connected ? "online-dot" : "offline-dot"}>{connected ? "已连接" : "连接中断，游戏暂停"}</span>
           <label className="auto-pass-control">
@@ -1156,6 +1170,13 @@ export function GameTable({
               ))}
             </div>
           </section>
+
+          {projection.winner && (
+            <FinalHandsPanel
+              playerDisplayNames={playerDisplayNames}
+              players={projection.players}
+            />
+          )}
 
           {projection.privateNotices.length > 0 && (
             <section className={`private-notices${privateNoticesCollapsed ? " private-notices--collapsed" : ""}`} aria-label="私人通知">

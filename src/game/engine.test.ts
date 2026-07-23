@@ -171,6 +171,26 @@ describe("玩家私有投影", () => {
     expect(projection.players.every((player) => !("faction" in player))).toBe(true);
   });
 
+  it("游戏结束后向玩家和旁观者公开所有剩余手牌", () => {
+    const state = initializeGame(["甲", "乙"], 42);
+    state.phase = "gameOver";
+    state.winner = { kind: "faction", faction: state.players["甲"].faction };
+
+    const playerProjection = projectGameForPlayer(state, "甲");
+    const spectatorProjection = projectGameForSpectator(state);
+
+    for (const playerId of state.seatOrder) {
+      expect(playerProjection.players.find((player) => player.id === playerId)?.hand)
+        .toEqual(state.players[playerId].hand.map((cardId) =>
+          expect.objectContaining({ id: cardId })
+        ));
+      expect(spectatorProjection.players.find((player) => player.id === playerId)?.hand)
+        .toEqual(state.players[playerId].hand.map((cardId) =>
+          expect.objectContaining({ id: cardId })
+        ));
+    }
+  });
+
   it("不公开抽牌堆中的稳定实体牌ID", () => {
     const state = initializeGame(["甲", "乙", "丙", "丁", "戊"], 7);
     const projection = projectGameForPlayer(state, "甲");

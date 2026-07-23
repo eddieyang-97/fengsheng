@@ -4234,7 +4234,12 @@ export function projectGameForSpectator(state: GameState): SpectatorProjection {
   return {
     ...publicView,
     spectator: true,
-    players: base.players.map(({ hand: _hand, ...player }) => ({ ...player })),
+    players: base.players.map(({ hand, ...player }) => ({
+      ...player,
+      ...(state.phase === "gameOver" && hand
+        ? { hand: hand.map((card) => ({ ...card })) }
+        : {}),
+    })),
     transmission: base.transmission
       ? {
           ...base.transmission,

@@ -7,6 +7,7 @@ import type { PlayerReactionEvent } from "../social-reactions";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { formatAuditEntries, mergeAuditLogs, publicCardSummary } from "./GameTable";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
+import { FinalHandsPanel } from "./FinalHandsPanel";
 import { PlayerReactionLayer } from "./PlayerReactionLayer";
 import "./game-table.css";
 
@@ -18,8 +19,10 @@ export interface SpectatorTableProps {
   chatMessages: readonly ChatMessageSnapshot[];
   playerReactions: readonly PlayerReactionEvent[];
   connected: boolean;
+  soundEnabled: boolean;
   onLeave: () => void;
   onSendChat: (text: string) => void;
+  onSoundEnabledChange: (enabled: boolean) => void;
 }
 
 function cardTone(card: PhysicalCard): string {
@@ -48,8 +51,10 @@ export function SpectatorTable({
   chatMessages,
   playerReactions,
   connected,
+  soundEnabled,
   onLeave,
   onSendChat,
+  onSoundEnabledChange,
 }: SpectatorTableProps) {
   const auditEntries = formatAuditEntries(
     mergeAuditLogs(projection.auditLog, publicAuditEvents),
@@ -64,6 +69,15 @@ export function SpectatorTable({
         <div className="game-status">
           <span>牌堆 {projection.drawPileCount}</span>
           <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
+          <button
+            aria-pressed={soundEnabled}
+            className="sound-toggle"
+            onClick={() => onSoundEnabledChange(!soundEnabled)}
+            title={soundEnabled ? "关闭游戏音效" : "开启游戏音效"}
+            type="button"
+          >
+            {soundEnabled ? "🔊 音效" : "🔇 静音"}
+          </button>
           <span className={connected ? "online-dot" : "offline-dot"}>{connected ? "已连接" : "连接中断"}</span>
           <span>旁观者：{spectators.filter((item) => item.connected).map((item) => item.displayName).join("、") || "无"}</span>
           <button className="spectator-leave-button" onClick={onLeave} type="button">离开旁观</button>
@@ -115,8 +129,19 @@ export function SpectatorTable({
             </section>
           </div>
           <section className="prompt-panel spectator-banner">
-            <div><p>旁观模式</p><h2>你可以看到所有公开信息，但不能查看手牌或参与操作</h2></div>
+            <div>
+              <p>旁观模式</p>
+              <h2>{projection.winner
+                ? "游戏结束，所有玩家的剩余手牌已经公开"
+                : "你可以看到所有公开信息，但不能查看手牌或参与操作"}</h2>
+            </div>
           </section>
+          {projection.winner && (
+            <FinalHandsPanel
+              playerDisplayNames={playerDisplayNames}
+              players={projection.players}
+            />
+          )}
         </div>
         <aside className="game-sidebar">
           <section className="audit-panel">

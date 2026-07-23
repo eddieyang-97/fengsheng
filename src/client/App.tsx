@@ -1,10 +1,25 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { PlayerProjection, SpectatorProjection } from "../game/engine";
 import type { RoomEntryResult, RoomSnapshot } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reactions";
 import { GameTable } from "./GameTable";
+import {
+  loadSoundEnabledPreference,
+  playGameSound,
+  saveSoundEnabledPreference,
+  soundCueForAuditEntries,
+  unlockGameSounds,
+  winnerSoundCue,
+} from "./game-sounds";
 import { LandingPage } from "./LandingPage";
 import {
   DEFAULT_AUTO_PASS_DELAY_MS,
@@ -100,6 +115,15 @@ export function App() {
   const [reactionTimer, setReactionTimer] = useState<ReactionTimerSnapshot | null>(null);
   const [autoPassDelayMs, setAutoPassDelayMs] = useState(loadAutoPassDelayPreference);
   const [playerReactions, setPlayerReactions] = useState<PlayerReactionEvent[]>([]);
+  const [soundEnabled, setSoundEnabled] = useState(loadSoundEnabledPreference);
+  const previousSoundState = useRef<{
+      source: "player" | "spectator";
+      auditLength: number;
+      promptKey?: string;
+      winner: boolean;
+    } | undefined>(undefined);
+  const reactionSoundTrackingStarted = useRef(false);
+  const lastReactionSoundId = useRef<string | undefined>(undefined);
   const showingGameTable = Boolean(game || spectatorGame);
 
   useLayoutEffect(() => {
@@ -107,9 +131,85 @@ export function App() {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [showingGameTable]);
 
+  useEffect(() => {
+    if (!soundEnabled) return;
+    const unlock = () => unlockGameSounds();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    const projection = game ?? spectatorGame;
+    if (!projection) {
+      previousSoundState.current = undefined;
+      return;
+    }
+    const source: "player" | "spectator" = game ? "player" : "spectator";
+    let promptKey: string | undefined;
+    if (game && game.reactionWindow?.currentResponderId === game.own.id) {
+      promptKey = `${game.reactionWindow.kind}:${game.auditLog.length}`;
+    } else if (
+      game?.transmission?.receiptStage === "lockOffer" &&
+      game.transmission.senderId === game.own.id
+    ) {
+      promptKey =
+        `lock:${game.transmission.intendedRecipientId}:${game.auditLog.length}`;
+    }
+    const current = {
+      source,
+      auditLength: projection.auditLog.length,
+      promptKey,
+      winner: Boolean(projection.winner),
+    };
+    const previous = previousSoundState.current;
+    previousSoundState.current = current;
+    if (!soundEnabled) return;
+    if (!previous || previous.source !== source) {
+      playGameSound("gameStart");
+      return;
+    }
+    if (!previous.winner && projection.winner) {
+      playGameSound(
+        game
+          ? winnerSoundCue(projection.winner, game.own)
+          : "victory",
+      );
+      return;
+    }
+    if (promptKey && promptKey !== previous.promptKey) {
+      playGameSound("prompt");
+      return;
+    }
+    const cue = soundCueForAuditEntries(
+      projection.auditLog.slice(previous.auditLength),
+    );
+    if (cue) playGameSound(cue);
+  }, [game, soundEnabled, spectatorGame]);
+
+  useEffect(() => {
+    const latest = playerReactions.at(-1);
+    if (!reactionSoundTrackingStarted.current) {
+      reactionSoundTrackingStarted.current = true;
+      lastReactionSoundId.current = latest?.id;
+      return;
+    }
+    if (!latest || latest.id === lastReactionSoundId.current) return;
+    lastReactionSoundId.current = latest.id;
+    if (soundEnabled) playGameSound(latest.kind);
+  }, [playerReactions, soundEnabled]);
+
   const updateAutoPassDelay = useCallback((milliseconds: AutoPassDelayMs) => {
     setAutoPassDelayMs(milliseconds);
     saveAutoPassDelayPreference(milliseconds);
+  }, []);
+
+  const updateSoundEnabled = useCallback((enabled: boolean) => {
+    setSoundEnabled(enabled);
+    saveSoundEnabledPreference(enabled);
+    if (enabled) {
+      unlockGameSounds();
+      playGameSound("prompt");
+    }
   }, []);
 
   const enterRoom = useCallback((entry: RoomEntryResult) => {
@@ -267,6 +367,8 @@ export function App() {
         projection={spectatorGame}
         publicAuditEvents={room.publicAuditEvents}
         playerReactions={playerReactions}
+        soundEnabled={soundEnabled}
+        onSoundEnabledChange={updateSoundEnabled}
         spectators={room.spectators}
       />
     );
@@ -304,6 +406,7 @@ export function App() {
         reactionTimer={reactionTimer}
         reactionTimeoutSeconds={(room.reactionTimeoutSeconds ?? 0) as ReactionTimeoutSeconds}
         autoPassDelayMs={autoPassDelayMs}
+        soundEnabled={soundEnabled}
         chatMessages={room.chatMessages}
         publicAuditEvents={room.publicAuditEvents}
         spectators={room.spectators}
@@ -311,6 +414,7 @@ export function App() {
           seconds: seconds === 0 ? null : seconds,
         }))}
         onAutoPassDelayChange={updateAutoPassDelay}
+        onSoundEnabledChange={updateSoundEnabled}
         onMarkDisconnectedPlayerDead={(targetPlayerId) => void runAction(
           "mark-dead",
           () => client.markDisconnectedPlayerDead({ targetPlayerId }),
