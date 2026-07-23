@@ -132,15 +132,15 @@ export function SpectatorTable({
                 </article>
               );
             })}
-            <section aria-label="局势焦点" className="table-focus-panel table-center">
+            <section aria-label={projection.transmission ? "情报传递" : "当前回合"} className="table-focus-panel table-center">
               {projection.transmission ? (
                 <>
-                  <p className="table-center__eyebrow">局势焦点 · 情报传递</p>
+                  <p className="table-center__eyebrow">情报传递</p>
                   <strong>{playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId} → {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}</strong>
                   {projection.transmission.card && <PublicCard card={projection.transmission.card} />}
                 </>
               ) : (
-                <><p className="table-center__eyebrow">局势焦点 · 当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
+                <><p className="table-center__eyebrow">当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
               )}
             </section>
           </div>

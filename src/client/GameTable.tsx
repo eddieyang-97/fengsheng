@@ -270,7 +270,7 @@ function ResponsePanel({
   return (
     <section
       className="table-focus-panel table-focus-panel--response response-panel"
-      aria-label="局势焦点"
+      aria-label="当前响应"
       ref={panelRef}
       style={{ "--response-offset-x": `${offset.x}px`, "--response-offset-y": `${offset.y}px` } as React.CSSProperties}
     >
@@ -283,12 +283,12 @@ function ResponsePanel({
         onPointerUp={stopDrag}
         title="拖动调整位置；双击复位"
       >
-        <span>局势焦点 <i aria-hidden="true">⠿</i></span>
+        <span>当前响应 <i aria-hidden="true">⠿</i></span>
         <span className="response-panel__controls">
           {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
           {(offset.x !== 0 || offset.y !== 0) && (
             <button
-              aria-label="复位局势焦点位置"
+              aria-label="复位当前响应位置"
               onClick={() => onOffsetChange({ x: 0, y: 0 })}
               onDoubleClick={(event) => event.stopPropagation()}
               onPointerDown={(event) => event.stopPropagation()}
@@ -1305,8 +1305,8 @@ export function GameTable({
                 reactionTimer={reactionTimer}
               />
             ) : shouldShowIdleFocusPanel(projection) ? (
-              <section aria-label="局势焦点" className="table-focus-panel table-center">
-                <p className="table-center__eyebrow">局势焦点 · 当前回合</p>
+              <section aria-label="当前回合" className="table-focus-panel table-center">
+                <p className="table-center__eyebrow">当前回合</p>
                 <strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong>
               </section>
             ) : null}
