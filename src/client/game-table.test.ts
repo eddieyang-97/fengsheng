@@ -23,10 +23,26 @@ import {
   reactionWindowLabel,
   receiptStageLabel,
   responseActionText,
+  responseFocusActionText,
+  responseFocusContextText,
   seatOrderAnchoredAtPlayer,
+  shouldShowIdleFocusPanel,
   transmissionDirectionForSelection,
   updateIdentityMarkers,
 } from "./GameTable";
+
+describe("table focus visibility", () => {
+  it("gives the transmitted card the center stage outside reaction windows", () => {
+    expect(shouldShowIdleFocusPanel({
+      reactionWindow: undefined,
+      transmission: {} as PlayerProjection["transmission"],
+    })).toBe(false);
+    expect(shouldShowIdleFocusPanel({
+      reactionWindow: undefined,
+      transmission: undefined,
+    })).toBe(true);
+  });
+});
 
 const identityProbe = {
   id: "p1-02",
@@ -308,6 +324,49 @@ describe("current response wording", () => {
       targetPlayerId: "乙",
       cardName: "危险情报",
     }, { 甲: "小甲" })).toBe("【小甲】使用 危险情报");
+  });
+
+  it("shows an intelligence route once in the unified focus panel", () => {
+    const item = {
+      id: "intelligence-1",
+      kind: "intelligence" as const,
+      sourcePlayerId: "甲",
+      targetPlayerId: "乙",
+    };
+    const transmission = {
+      senderId: "甲",
+      intendedRecipientId: "乙",
+      method: "文本",
+    } as NonNullable<PlayerProjection["transmission"]>;
+
+    expect(responseFocusContextText(item, { 甲: "小甲", 乙: "小乙" }, transmission, "甲"))
+      .toBe("情报传递 · 文本");
+    expect(responseFocusActionText(item, { 甲: "小甲", 乙: "小乙" }, transmission))
+      .toBe("小甲 → 小乙");
+  });
+
+  it("keeps interrupted card actions distinct from their intelligence route", () => {
+    const item = {
+      id: "card-1",
+      kind: "card" as const,
+      sourcePlayerId: "丙",
+      targetPlayerId: "乙",
+      cardName: "掉包" as const,
+    };
+    const transmission = {
+      senderId: "甲",
+      intendedRecipientId: "乙",
+      method: "密电",
+    } as NonNullable<PlayerProjection["transmission"]>;
+
+    expect(responseFocusContextText(
+      item,
+      { 甲: "小甲", 乙: "小乙", 丙: "小丙" },
+      transmission,
+      "甲",
+    )).toBe("情报路线 · 小甲 → 小乙 · 密电");
+    expect(responseFocusActionText(item, { 丙: "小丙" }, transmission))
+      .toBe("【小丙】使用 掉包");
   });
 });
 

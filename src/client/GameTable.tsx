@@ -159,6 +159,36 @@ export function responseActionText(
     : responseActionLabel(item);
 }
 
+export function responseFocusContextText(
+  item: PlayerProjection["responseStack"][number],
+  playerDisplayNames: Readonly<Record<string, string>>,
+  transmission: PlayerProjection["transmission"],
+  activePlayerId: string,
+): string {
+  if (item.kind === "intelligence" && transmission) {
+    return `情报传递 · ${transmission.method}`;
+  }
+  if (transmission) {
+    const sender = playerDisplayNames[transmission.senderId] ?? transmission.senderId;
+    const recipient = playerDisplayNames[transmission.intendedRecipientId] ?? transmission.intendedRecipientId;
+    return `情报路线 · ${sender} → ${recipient} · ${transmission.method}`;
+  }
+  return `当前回合 · ${playerDisplayNames[activePlayerId] ?? activePlayerId}`;
+}
+
+export function responseFocusActionText(
+  item: PlayerProjection["responseStack"][number],
+  playerDisplayNames: Readonly<Record<string, string>>,
+  transmission: PlayerProjection["transmission"],
+): string {
+  if (item.kind === "intelligence" && transmission) {
+    const sender = playerDisplayNames[transmission.senderId] ?? transmission.senderId;
+    const recipient = playerDisplayNames[transmission.intendedRecipientId] ?? transmission.intendedRecipientId;
+    return `${sender} → ${recipient}`;
+  }
+  return responseActionText(item, playerDisplayNames, transmission?.method);
+}
+
 function ResponsePanel({
   projection,
   playerDisplayNames,
@@ -188,11 +218,18 @@ function ResponsePanel({
   const current = stack.at(-1);
   if (!projection.reactionWindow || !current) return null;
   const currentResponder = projection.reactionWindow.currentResponderId;
-  const focusContext = projection.transmission
-    ? `${playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}`
-      + ` → ${playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}`
-      + ` · ${projection.transmission.method}`
-    : `当前回合 · ${playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}`;
+  const focusContext = responseFocusContextText(
+    current,
+    playerDisplayNames,
+    projection.transmission,
+    projection.activePlayerId,
+  );
+  const focusAction = responseFocusActionText(
+    current,
+    playerDisplayNames,
+    projection.transmission,
+  );
+  const showSeparateTarget = current.kind !== "intelligence" || !projection.transmission;
 
   const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !panelRef.current) return;
@@ -250,12 +287,12 @@ function ResponsePanel({
         {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
       </div>
       <p className="response-panel__context">{focusContext}</p>
-      <strong className="response-panel__action">
-        {responseActionText(current, playerDisplayNames, projection.transmission?.method)}
-      </strong>
-      <span className="response-panel__target">
-        目标：【{playerDisplayNames[current.targetPlayerId] ?? current.targetPlayerId}】
-      </span>
+      <strong className="response-panel__action">{focusAction}</strong>
+      {showSeparateTarget && (
+        <span className="response-panel__target">
+          目标：【{playerDisplayNames[current.targetPlayerId] ?? current.targetPlayerId}】
+        </span>
+      )}
       {stack.length > 1 && (
         <ol className="response-stack">
           {stack.map((item, index) => (
@@ -1161,6 +1198,19 @@ export function GameTable({
                   "--player-count": displaySeatOrder.length,
                 } as React.CSSProperties}
               >
+                {!projection.reactionWindow && (
+                  <small className="transmission-route-summary">
+                    {playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}
+                    {" → "}
+                    {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}
+                    {" · "}
+                    {projection.transmission.method}
+                    {" · "}
+                    {projection.transmission.locked
+                      ? "已锁定"
+                      : receiptStageLabel(projection.transmission.receiptStage)}
+                  </small>
+                )}
                 {projection.transmission.card
                   ? <>
                       <CardView
@@ -1188,25 +1238,12 @@ export function GameTable({
                 projection={projection}
                 reactionTimer={reactionTimer}
               />
-            ) : (
-            <section className={`table-focus-panel table-center${projection.transmission ? " table-center--transmission" : ""}`} aria-label="局势焦点">
-              {projection.transmission ? (
-                <>
-                  <p className="table-center__eyebrow">局势焦点 · 情报传递</p>
-                  <strong>
-                    {playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}
-                    {" → "}
-                    {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}
-                  </strong>
-                  <span className="table-center__status">{projection.transmission.locked
-                    ? "已锁定"
-                    : receiptStageLabel(projection.transmission.receiptStage)}</span>
-                </>
-              ) : (
-                <><p className="table-center__eyebrow">局势焦点 · 当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
-              )}
-            </section>
-            )}
+            ) : shouldShowIdleFocusPanel(projection) ? (
+              <section aria-label="局势焦点" className="table-focus-panel table-center">
+                <p className="table-center__eyebrow">局势焦点 · 当前回合</p>
+                <strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong>
+              </section>
+            ) : null}
           </div>
 
           <section className="prompt-panel">
@@ -1378,4 +1415,10 @@ export function GameTable({
       <PlayerReactionLayer events={playerReactions} playerDisplayNames={playerDisplayNames} />
     </main>
   );
+}
+
+export function shouldShowIdleFocusPanel(
+  projection: Pick<PlayerProjection, "reactionWindow" | "transmission">,
+): boolean {
+  return !projection.reactionWindow && !projection.transmission;
 }
