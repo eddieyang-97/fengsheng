@@ -357,6 +357,28 @@ function cardTone(card: PhysicalCard): string {
   return card.color === "红" ? "red" : card.color === "蓝" ? "blue" : card.color === "红蓝" ? "dual" : "black";
 }
 
+const CARD_ART_SLUGS: Record<PhysicalCard["name"], string> = {
+  公开文本: "public-text",
+  试探: "probe",
+  破译: "decrypt",
+  烧毁: "burn",
+  锁定: "lock",
+  截获: "intercept",
+  掉包: "swap",
+  离间: "separation",
+  秘密下达: "secret-order",
+  调虎离山: "lure",
+  危险情报: "dangerous-intelligence",
+  识破: "counter",
+  转移: "transfer",
+  增援: "reinforcement",
+  机密文件: "confidential-file",
+};
+
+export function cardArtPath(cardName: PhysicalCard["name"]): string {
+  return `/card-art/${CARD_ART_SLUGS[cardName]}.png`;
+}
+
 export function factionBackgroundClass(faction: Faction): string {
   if (faction === "军情") return "game-shell--faction-intelligence";
   if (faction === "潜伏") return "game-shell--faction-undercover";
@@ -574,6 +596,11 @@ function CardView({
       title={`${publicCardSummary(card)}${card.unburnable ? " · 不可烧毁" : ""}`}
       type="button"
     >
+      <span
+        aria-hidden="true"
+        className="game-card__art"
+        style={{ backgroundImage: `url("${cardArtPath(card.name)}")` }}
+      />
       <strong>{card.name}</strong>
       <span className="game-card__meta">{card.color} · {card.transmission}</span>
       {displayedVariantText && <small>{displayedVariantText}</small>}

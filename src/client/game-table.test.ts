@@ -8,6 +8,7 @@ import {
   automaticPassDelayMs,
   automaticPassCommand,
   cardVariantText,
+  cardArtPath,
   factionBackgroundClass,
   formatAuditEntries,
   inspectedHandForProjection,
@@ -43,6 +44,14 @@ describe("table focus visibility", () => {
       reactionWindow: undefined,
       transmission: undefined,
     })).toBe(true);
+  });
+});
+
+describe("card artwork", () => {
+  it("maps physical card names to stable project assets", () => {
+    expect(cardArtPath("公开文本")).toBe("/card-art/public-text.png");
+    expect(cardArtPath("烧毁")).toBe("/card-art/burn.png");
+    expect(cardArtPath("秘密下达")).toBe("/card-art/secret-order.png");
   });
 });
 
