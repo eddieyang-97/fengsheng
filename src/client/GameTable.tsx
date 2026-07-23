@@ -1447,6 +1447,7 @@ export function GameTable({
           <section className="own-area">
             <div><h2>你的手牌</h2><span>阵营：{projection.own.faction}</span></div>
             <div className="hand-row">
+              {projection.own.hand.length === 0 && <p className="empty-hand">暂无手牌</p>}
               {projection.own.hand.map((card) => (
                 <CardView
                   card={card}
