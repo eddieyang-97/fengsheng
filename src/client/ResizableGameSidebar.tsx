@@ -3,6 +3,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -65,15 +66,24 @@ function saveSidebarRatio(ratio: number): void {
 export interface ResizableGameSidebarProps {
   auditPanel: ReactNode;
   chatPanel: ReactNode;
+  auditCount?: number;
+  chatCount?: number;
 }
 
 export function ResizableGameSidebar({
   auditPanel,
   chatPanel,
+  auditCount,
+  chatCount,
 }: ResizableGameSidebarProps) {
   const [auditRatio, setAuditRatio] = useState(loadSavedSidebarRatio);
+  const [mobilePanel, setMobilePanel] = useState<"audit" | "chat">("audit");
   const sidebarRef = useRef<HTMLElement>(null);
   const draggingPointerId = useRef<number | undefined>(undefined);
+  const auditPanelId = useId();
+  const chatPanelId = useId();
+  const auditTabId = `${auditPanelId}-tab`;
+  const chatTabId = `${chatPanelId}-tab`;
 
   const ratioFromPointer = (clientY: number): number | undefined => {
     const bounds = sidebarRef.current?.getBoundingClientRect();
@@ -134,7 +144,38 @@ export function ResizableGameSidebar({
 
   return (
     <aside className="game-sidebar" ref={sidebarRef} style={sidebarStyle}>
-      {auditPanel}
+      <div aria-label="侧栏内容" className="game-sidebar__tabs" role="tablist">
+        <button
+          aria-controls={auditPanelId}
+          aria-selected={mobilePanel === "audit"}
+          id={auditTabId}
+          onClick={() => setMobilePanel("audit")}
+          role="tab"
+          type="button"
+        >
+          公开记录
+          {auditCount !== undefined && <small>{auditCount}</small>}
+        </button>
+        <button
+          aria-controls={chatPanelId}
+          aria-selected={mobilePanel === "chat"}
+          id={chatTabId}
+          onClick={() => setMobilePanel("chat")}
+          role="tab"
+          type="button"
+        >
+          聊天
+          {chatCount !== undefined && <small>{chatCount}</small>}
+        </button>
+      </div>
+      <div
+        aria-labelledby={auditTabId}
+        className={`game-sidebar__panel game-sidebar__panel--audit${mobilePanel === "audit" ? " game-sidebar__panel--active" : ""}`}
+        id={auditPanelId}
+        role="tabpanel"
+      >
+        {auditPanel}
+      </div>
       <div
         aria-label="调整公开记录与聊天的高度"
         aria-orientation="horizontal"
@@ -168,7 +209,14 @@ export function ResizableGameSidebar({
         tabIndex={0}
         title="拖动调整高度，双击恢复一半"
       />
-      {chatPanel}
+      <div
+        className={`game-sidebar__panel game-sidebar__panel--chat${mobilePanel === "chat" ? " game-sidebar__panel--active" : ""}`}
+        id={chatPanelId}
+        aria-labelledby={chatTabId}
+        role="tabpanel"
+      >
+        {chatPanel}
+      </div>
     </aside>
   );
 }

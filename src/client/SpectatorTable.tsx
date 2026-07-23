@@ -118,7 +118,7 @@ export function SpectatorTable({
                   >
                     👤
                   </span>
-                  <button disabled type="button">
+                  <button className="player-card" disabled type="button">
                     <strong data-reaction-target-player-id={id}>
                       {playerDisplayNames[id] ?? id}
                     </strong>
@@ -132,15 +132,15 @@ export function SpectatorTable({
                 </article>
               );
             })}
-            <section className="table-center">
+            <section aria-label="局势焦点" className="table-focus-panel table-center">
               {projection.transmission ? (
                 <>
-                  <p className="table-center__eyebrow">待传递情报 · {projection.transmission.method}</p>
+                  <p className="table-center__eyebrow">局势焦点 · 情报传递</p>
                   <strong>{playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId} → {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}</strong>
                   {projection.transmission.card && <PublicCard card={projection.transmission.card} />}
                 </>
               ) : (
-                <><p className="table-center__eyebrow">当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
+                <><p className="table-center__eyebrow">局势焦点 · 当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
               )}
             </section>
           </div>
@@ -160,6 +160,7 @@ export function SpectatorTable({
           )}
         </div>
         <ResizableGameSidebar
+          auditCount={auditEntries.length}
           auditPanel={<section className="audit-panel">
             <h2>公开记录</h2>
             <ol>{auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
@@ -170,6 +171,7 @@ export function SpectatorTable({
             onSend={onSendChat}
             playerDisplayNames={playerDisplayNames}
           />}
+          chatCount={chatMessages.length}
         />
       </section>
       {discardPileOpen && (

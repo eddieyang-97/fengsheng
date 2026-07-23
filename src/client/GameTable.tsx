@@ -188,6 +188,11 @@ function ResponsePanel({
   const current = stack.at(-1);
   if (!projection.reactionWindow || !current) return null;
   const currentResponder = projection.reactionWindow.currentResponderId;
+  const focusContext = projection.transmission
+    ? `${playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}`
+      + ` → ${playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}`
+      + ` · ${projection.transmission.method}`
+    : `当前回合 · ${playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}`;
 
   const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !panelRef.current) return;
@@ -227,8 +232,8 @@ function ResponsePanel({
 
   return (
     <section
-      className="response-panel"
-      aria-label="当前响应"
+      className="table-focus-panel table-focus-panel--response response-panel"
+      aria-label="局势焦点"
       ref={panelRef}
       style={{ "--response-offset-x": `${offset.x}px`, "--response-offset-y": `${offset.y}px` } as React.CSSProperties}
     >
@@ -241,9 +246,10 @@ function ResponsePanel({
         onPointerUp={stopDrag}
         title="拖动调整位置；双击复位"
       >
-        <span>当前响应 <i aria-hidden="true">⠿</i></span>
+        <span>局势焦点 <i aria-hidden="true">⠿</i></span>
         {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
       </div>
+      <p className="response-panel__context">{focusContext}</p>
       <strong className="response-panel__action">
         {responseActionText(current, playerDisplayNames, projection.transmission?.method)}
       </strong>
@@ -255,7 +261,7 @@ function ResponsePanel({
           {stack.map((item, index) => (
             <li className={index === stack.length - 1 ? "response-stack__current" : ""} key={item.id}>
               <span>{item.sourcePlayerId ? `【${playerDisplayNames[item.sourcePlayerId] ?? item.sourcePlayerId}】` : ""}{responseActionLabel(item)}</span>
-              {index === stack.length - 1 && <em>← 当前响应</em>}
+              {index === stack.length - 1 && <em>← 当前动作</em>}
             </li>
           ))}
         </ol>
@@ -505,9 +511,10 @@ function CardView({
   reverseProbeMapping?: boolean;
   onClick?: () => void;
 }) {
-  const displayedVariantText = noticeSummary
-    ? privateNoticeVariantText(card, reverseProbeMapping)
-    : cardVariantText(card);
+  const displayedVariantText = privateNoticeVariantText(
+    card,
+    noticeSummary && reverseProbeMapping,
+  );
   return (
     <button
       className={`game-card game-card--${cardTone(card)}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}${inspectable ? " game-card--inspectable" : ""}`}
@@ -1092,7 +1099,7 @@ export function GameTable({
                       targetName={playerDisplayNames[id] ?? id}
                     />
                   )}
-                  <button disabled={!isTarget || busy || !connected} onClick={() => chooseTarget(id)} type="button">
+                  <button className="player-card" disabled={!isTarget || busy || !connected} onClick={() => chooseTarget(id)} type="button">
                   <strong data-reaction-target-player-id={id}>
                     {playerDisplayNames[id] ?? id}{isOwn ? "（你）" : ""}
                   </strong>
@@ -1182,10 +1189,10 @@ export function GameTable({
                 reactionTimer={reactionTimer}
               />
             ) : (
-            <section className={`table-center${projection.transmission ? " table-center--transmission" : ""}`}>
+            <section className={`table-focus-panel table-center${projection.transmission ? " table-center--transmission" : ""}`} aria-label="局势焦点">
               {projection.transmission ? (
                 <>
-                  <p className="table-center__eyebrow">待传递情报 · {projection.transmission.method}</p>
+                  <p className="table-center__eyebrow">局势焦点 · 情报传递</p>
                   <strong>
                     {playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}
                     {" → "}
@@ -1196,7 +1203,7 @@ export function GameTable({
                     : receiptStageLabel(projection.transmission.receiptStage)}</span>
                 </>
               ) : (
-                <><p className="table-center__eyebrow">当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
+                <><p className="table-center__eyebrow">局势焦点 · 当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
               )}
             </section>
             )}
@@ -1319,6 +1326,7 @@ export function GameTable({
         </div>
 
         <ResizableGameSidebar
+          auditCount={auditEntries.length}
           auditPanel={<section className="audit-panel">
             <header>
               <h2>公开记录</h2>
@@ -1360,6 +1368,7 @@ export function GameTable({
             onSend={onSendChat}
             playerDisplayNames={playerDisplayNames}
           />}
+          chatCount={chatMessages.length}
         />
       </section>
       {discardPileOpen && (

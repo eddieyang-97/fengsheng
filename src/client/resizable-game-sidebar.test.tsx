@@ -27,7 +27,9 @@ describe("公开记录与聊天高度调整", () => {
   it("提供可访问的水平分隔条和默认比例", () => {
     const markup = renderToStaticMarkup(
       <ResizableGameSidebar
+        auditCount={12}
         auditPanel={<section>公开记录内容</section>}
+        chatCount={3}
         chatPanel={<section>聊天内容</section>}
       />,
     );
@@ -36,5 +38,11 @@ describe("公开记录与聊天高度调整", () => {
     expect(markup).toContain('aria-label="调整公开记录与聊天的高度"');
     expect(markup).toContain('aria-valuenow="50"');
     expect(markup).toContain("拖动调整高度，双击恢复一半");
+    expect(markup).toContain('role="tablist"');
+    expect(markup).toContain('role="tab"');
+    expect(markup).toContain("公开记录");
+    expect(markup).toContain(">12</small>");
+    expect(markup).toContain("聊天");
+    expect(markup).toContain(">3</small>");
   });
 });
