@@ -11,17 +11,19 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v3`, the promoted candidate-v5 configuration. Historical
-and candidate policies remain available for explicit evaluation and rollback.
-`candidate-v8` is the current focused experiment: it scores 调虎离山 by the
-change from the current recipient to the forced next recipient, instead of
-playing it for a fixed value regardless of who benefits. `candidate-v7` remains
+production to `tactical-v4`. It scores 调虎离山 by the change from the current
+recipient to the forced next recipient, and first checks whether the current
+recipient is likely to accept; if they would reject voluntarily, the bot saves
+the card. Historical and candidate policies remain available for explicit
+evaluation and rollback. `candidate-v8` is the earlier incremental 调虎离山
+experiment without the voluntary-rejection check. `candidate-v7` remains
 available as the earlier incremental 转移 experiment.
 
 Initial five-player paired run (100 pairs, seeds 1-100): candidate-v8 37.2%
 versus tactical-v3 35.4%, paired difference +1.8 percentage points with a 95%
-confidence interval of [-3.2, +6.8]. The result is inconclusive; keep
-`tactical-v3` live pending a larger campaign.
+confidence interval of [-3.2, +6.8]. The result was inconclusive and did not
+justify promoting candidate-v8 by itself; tactical-v4 adds the deterministic
+voluntary-rejection safeguard.
 
 For a large five-player comparison, save an atomic checkpoint after each chunk:
 

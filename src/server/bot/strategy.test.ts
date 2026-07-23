@@ -12,6 +12,7 @@ import {
   receiptUtility,
   TACTICAL_V2,
   TACTICAL_V3,
+  TACTICAL_V4,
 } from "./strategy";
 import { CANDIDATE_V5, CANDIDATE_V6, CANDIDATE_V7, CANDIDATE_V8 } from "../../ai-lab/policies";
 
@@ -25,6 +26,7 @@ const transferCard = cardWhere((card) => card.name === "转移");
 const separationCard = cardWhere((card) => card.name === "离间");
 const lureCard = cardWhere((card) => card.name === "调虎离山");
 const blueMailCard = cardWhere((card) => card.color === "蓝" && card.transmission === "密电");
+const redMailCard = cardWhere((card) => card.color === "红" && card.transmission === "密电");
 const secretOrderCard = cardWhere((card) => card.variant?.kind === "secretOrder");
 const redSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "红");
 const blueSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "蓝");
@@ -36,9 +38,13 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes the candidate-v5 configuration as tactical-v3 while retaining tactical-v2", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V3);
+  it("promotes acceptance-aware lure scoring as tactical-v4 while retaining prior policies", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V4);
     expect({ ...CANDIDATE_V5, id: TACTICAL_V3.id }).toEqual(TACTICAL_V3);
+    expect(TACTICAL_V4).toMatchObject({
+      incrementalLure: true,
+      lureRequiresLikelyAcceptance: true,
+    });
     expect(TACTICAL_V2.id).toBe("tactical-v2");
   });
 
@@ -502,6 +508,47 @@ describe("bot strategy", () => {
     expect(chooseLure("军情", "潜伏")).toBe("PASS_REACTION");
     expect(chooseLure("潜伏", "军情")).toBe("PLAY_LURE");
     expect(chooseLure("军情", "潜伏", TACTICAL_V3)).toBe("PLAY_LURE");
+  });
+
+  it("live policy saves lure when the current recipient would reject voluntarily", () => {
+    const chooseLure = (
+      card: PhysicalCard,
+      currentFaction: Faction,
+      nextFaction: Faction,
+      currentIntelligence: PhysicalCard[] = [],
+    ) => {
+      const projection = makeProjection({
+        phase: "transmitting",
+        own: { id: "bot", faction: "军情", hand: [lureCard] },
+        players: makeProjection().players.map((player) =>
+          player.id === "b"
+            ? { ...player, faction: currentFaction, intelligence: currentIntelligence }
+            : player.id === "c"
+              ? { ...player, faction: nextFaction }
+              : player
+        ),
+        transmission: {
+          ...transmission(card),
+          intendedRecipientId: "b",
+          direction: "clockwise",
+        },
+        legalActions: [
+          { type: "PASS_REACTION" },
+          { type: "PLAY_LURE", cardId: lureCard.id as PhysicalCardId },
+        ],
+      });
+      return chooseBotCommand(projection, createBotMemory(projection))?.type;
+    };
+
+    expect(chooseLure(blueMailCard, "潜伏", "军情")).toBe("PASS_REACTION");
+    expect(chooseLure(blueMailCard, "军情", "潜伏")).toBe("PASS_REACTION");
+    expect(chooseLure(redMailCard, "潜伏", "军情")).toBe("PLAY_LURE");
+    expect(chooseLure(
+      blackCard,
+      "潜伏",
+      "军情",
+      [blackCard, { ...blackCard, id: "second-black" }],
+    )).toBe("PASS_REACTION");
   });
 
   it("does not order a known opponent to transmit their game-winning color", () => {

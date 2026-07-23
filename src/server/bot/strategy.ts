@@ -17,6 +17,8 @@ export interface BotPolicy {
   readonly incrementalTransfer: boolean;
   /** Score 调虎离山 by the receipt change caused by forcing the current recipient to decline. */
   readonly incrementalLure: boolean;
+  /** Avoid 调虎离山 when the current recipient is already likely to decline voluntarily. */
+  readonly lureRequiresLikelyAcceptance: boolean;
 }
 export const BASELINE_V1: BotPolicy = {
   id: "baseline-v1",
@@ -26,6 +28,7 @@ export const BASELINE_V1: BotPolicy = {
   reactionConservation: 0,
   incrementalTransfer: false,
   incrementalLure: false,
+  lureRequiresLikelyAcceptance: false,
 };
 export const TACTICAL_V2: BotPolicy = {
   id: "tactical-v2",
@@ -35,6 +38,7 @@ export const TACTICAL_V2: BotPolicy = {
   reactionConservation: 0,
   incrementalTransfer: false,
   incrementalLure: false,
+  lureRequiresLikelyAcceptance: false,
 };
 export const TACTICAL_V3: BotPolicy = {
   id: "tactical-v3",
@@ -44,8 +48,15 @@ export const TACTICAL_V3: BotPolicy = {
   reactionConservation: 1.5,
   incrementalTransfer: false,
   incrementalLure: false,
+  lureRequiresLikelyAcceptance: false,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V3;
+export const TACTICAL_V4: BotPolicy = {
+  ...TACTICAL_V3,
+  id: "tactical-v4",
+  incrementalLure: true,
+  lureRequiresLikelyAcceptance: true,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V4;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -575,6 +586,19 @@ function scoreAction(
     case "PLAY_LURE": {
       if (!policy.incrementalLure) return decision(command, 11, "deny current recipient");
       const currentTargetId = projection.transmission?.intendedRecipientId;
+      const currentRecipientUtility = currentTransmissionRecipientUtility(
+        currentTargetId,
+        projection,
+        beliefs,
+        transmissionInference,
+      );
+      if (policy.lureRequiresLikelyAcceptance && currentRecipientUtility <= 0) {
+        return decision(
+          command,
+          PASS_REACTION_SCORE - 1,
+          "save lure because the current recipient is already likely to decline",
+        );
+      }
       const nextTargetId = nextRecipientAfterDecline(projection);
       const improvement = currentTransmissionReceiptUtility(
         nextTargetId,
@@ -825,6 +849,56 @@ function currentTransmissionReceiptUtility(
   return blackProbability * receiptColorUtility("黑", recipientId, projection, beliefs)
     + otherColorProbability * receiptColorUtility("红", recipientId, projection, beliefs)
     + otherColorProbability * receiptColorUtility("蓝", recipientId, projection, beliefs);
+}
+
+function recipientColorUtility(
+  color: PhysicalCard["color"],
+  recipientId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const recipient = projection.players.find((player) => player.id === recipientId);
+  if (!recipient) return 0;
+  const before = countIntelligence(recipient.intelligence);
+  const after = {
+    red: before.red + (color === "红" || color === "红蓝" ? 1 : 0),
+    blue: before.blue + (color === "蓝" || color === "红蓝" ? 1 : 0),
+    black: before.black + (color === "黑" ? 1 : 0),
+    physical: before.physical + 1,
+  };
+  const probabilities = recipientId === projection.own.id
+    ? oneHot(projection.own.faction)
+    : beliefs[recipientId] ?? { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
+  return FACTIONS.reduce((total, faction) => total + probabilities[faction] * (
+    playerBoardUtility(after, faction, recipientId, recipientId, faction)
+    - playerBoardUtility(before, faction, recipientId, recipientId, faction)
+  ), 0);
+}
+
+function currentTransmissionRecipientUtility(
+  recipientId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  inference?: BotMemory["transmissionInference"],
+): number {
+  if (!recipientId) return 0;
+  const card = projection.transmission?.card;
+  if (card) return recipientColorUtility(card.color, recipientId, projection, beliefs);
+  if (inference?.forcedColor) {
+    const possibleColors: readonly PhysicalCard["color"][] = inference.forcedColor === "黑"
+      ? ["黑"]
+      : [inference.forcedColor, "红蓝"];
+    return possibleColors.reduce(
+      (total, color) => total + recipientColorUtility(color, recipientId, projection, beliefs),
+      0,
+    ) / possibleColors.length;
+  }
+  if (inference?.blackProbability === undefined) return 0;
+  const blackProbability = Math.max(0, Math.min(1, inference.blackProbability));
+  const otherColorProbability = (1 - blackProbability) / 2;
+  return blackProbability * recipientColorUtility("黑", recipientId, projection, beliefs)
+    + otherColorProbability * recipientColorUtility("红", recipientId, projection, beliefs)
+    + otherColorProbability * recipientColorUtility("蓝", recipientId, projection, beliefs);
 }
 
 function secretOrderImprovement(

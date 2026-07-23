@@ -1,4 +1,4 @@
-import { TACTICAL_V2, TACTICAL_V3, type BotPolicy } from "../server/bot/strategy";
+import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, type BotPolicy } from "../server/bot/strategy";
 
 export const CANDIDATE_V3: BotPolicy = {
   id: "candidate-v3",
@@ -8,6 +8,7 @@ export const CANDIDATE_V3: BotPolicy = {
   reactionConservation: 0,
   incrementalTransfer: false,
   incrementalLure: false,
+  lureRequiresLikelyAcceptance: false,
 };
 
 export const CANDIDATE_V4: BotPolicy = {
@@ -42,6 +43,7 @@ export const CANDIDATE_V8: BotPolicy = {
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
+  TACTICAL_V4,
   CANDIDATE_V3,
   CANDIDATE_V4,
   CANDIDATE_V5,

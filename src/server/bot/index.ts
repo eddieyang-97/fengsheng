@@ -14,6 +14,7 @@ export {
   observeBotProjection,
   TACTICAL_V2,
   TACTICAL_V3,
+  TACTICAL_V4,
   type BotPolicy,
   type BotDecision,
   type BotMemory,
