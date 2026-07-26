@@ -275,6 +275,78 @@ describe("行动阶段功能牌框架", () => {
     ).toThrow("同一原始卡牌行动最多只能成功结算一次离间");
   });
 
+  it("反识破后保留功能牌离间并恢复其精确响应位置", () => {
+    const state = game(121);
+    const publicText = cardId("公开文本");
+    const separation = cardId("离间", [publicText]);
+    const firstCounter = cardId("识破", [publicText, separation]);
+    const secondCounter = cardId("识破", [
+      publicText,
+      separation,
+      firstCounter,
+    ]);
+    putInHand(state, "甲", publicText);
+    putInHand(state, "丙", separation);
+    putInHand(state, "戊", firstCounter);
+    putInHand(state, "丁", secondCounter);
+
+    playPublicText(state, "甲", publicText, "乙");
+    playSeparationOnFunction(state, "丙", separation, "丁");
+    const separationWindow = structuredClone(currentReactionWindow(state)!);
+    expect(separationWindow).toMatchObject({
+      kind: "function",
+      affectedPlayerId: "丁",
+      responderOrder: ["戊", "甲", "乙", "丁"],
+      nextResponderIndex: 0,
+    });
+
+    playCounter(state, "戊", firstCounter, topResponseFrame(state)!.id);
+    playCounter(state, "丁", secondCounter, topResponseFrame(state)!.id);
+    const secondCounterWindow = currentReactionWindow(state)!;
+    while (currentReactionWindow(state) === secondCounterWindow) {
+      passReaction(
+        state,
+        secondCounterWindow.responderOrder[
+          secondCounterWindow.nextResponderIndex
+        ],
+      );
+    }
+
+    expect(currentReactionWindow(state)).toEqual(separationWindow);
+    expect(topResponseFrame(state)).toMatchObject({
+      kind: "separation",
+      sourceCardId: separation,
+      targetPlayerId: "丁",
+    });
+    expect(state.activeFunctionAction).toMatchObject({
+      targetPlayerId: "乙",
+      separationUsed: false,
+    });
+    expect(state.publicDiscard).toEqual(
+      expect.arrayContaining([firstCounter, secondCounter]),
+    );
+
+    const restoredSeparationWindow = currentReactionWindow(state)!;
+    while (currentReactionWindow(state) === restoredSeparationWindow) {
+      passReaction(
+        state,
+        restoredSeparationWindow.responderOrder[
+          restoredSeparationWindow.nextResponderIndex
+        ],
+      );
+    }
+    expect(state.activeFunctionAction).toMatchObject({
+      targetPlayerId: "丁",
+      separationUsed: true,
+    });
+    expect(currentReactionWindow(state)).toMatchObject({
+      kind: "function",
+      affectedPlayerId: "丁",
+      responderOrder: ["戊", "乙", "丙", "丁"],
+      nextResponderIndex: 0,
+    });
+  });
+
   it("试探生成离间合法动作，且空手的新目标仍可成为试探目标", () => {
     const state = game(14);
     const probe = PHYSICAL_DECK.find(

@@ -12,8 +12,13 @@ import {
   passLockOpportunity,
   passReaction,
   playBurn,
+  playDecrypt,
+  playLock,
+  playLure,
   playPublicText,
   playSecretOrder,
+  playSwap,
+  playTransfer,
   projectGameForPlayer,
   projectGameForSpectator,
   startTransmission,
@@ -94,6 +99,27 @@ function transmissionOptions(
       ? { direction: "clockwise" as const }
       : {}),
   };
+}
+
+function advanceReactionTo(state: GameState, actorId: string): void {
+  while (currentResponderId(state) !== actorId) {
+    const responderId = currentResponderId(state);
+    if (!responderId) throw new Error("目标玩家获得响应优先级前窗口已结束");
+    passReaction(state, responderId);
+  }
+}
+
+function directIntelligence(
+  excluded: readonly PhysicalCardId[] = [],
+): PhysicalCardId {
+  return cardId(
+    (card) =>
+      card.transmission === "直达" &&
+      !["锁定", "转移", "掉包", "调虎离山", "破译", "烧毁"].includes(
+        card.name,
+      ),
+    excluded,
+  );
 }
 
 describe("统一解析状态读取器", () => {
@@ -212,5 +238,121 @@ describe("统一解析状态读取器", () => {
     passReaction(state, firstResponder);
     expect(currentResponderId(state)).not.toBe(firstResponder);
     expect(currentPromptFingerprint(state)).not.toBe(firstFingerprint);
+  });
+
+  it("通过真实行动为每一种响应窗口生成独立提示指纹", () => {
+    const fingerprints = new Map<string, string>();
+    const record = (state: GameState, expectedKind: string) => {
+      expect(currentReactionWindow(state)?.kind).toBe(expectedKind);
+      const fingerprint = currentPromptFingerprint(state);
+      expect(fingerprint).toMatch(
+        new RegExp(`^reaction:${expectedKind}:`),
+      );
+      fingerprints.set(expectedKind, fingerprint!);
+    };
+
+    const secretOrderState = game(910);
+    enterTransmissionPhase(secretOrderState, "甲");
+    record(secretOrderState, "secretOrder");
+
+    const functionState = game(911);
+    const publicText = cardId((card) => card.name === "公开文本");
+    putInHand(functionState, "甲", publicText);
+    playPublicText(functionState, "甲", publicText, "乙");
+    record(functionState, "function");
+
+    const burnState = game(912);
+    const burn = cardId((card) => card.name === "烧毁");
+    const blackIntelligence = cardId(
+      (card) => card.color === "黑" && !card.unburnable && card.name !== "烧毁",
+      [burn],
+    );
+    putInHand(burnState, "甲", burn);
+    moveToIntelligence(burnState, "乙", blackIntelligence);
+    playBurn(burnState, "甲", burn, "乙", blackIntelligence);
+    record(burnState, "burn");
+
+    const intelligenceState = game(913);
+    const ordinaryIntelligence = directIntelligence();
+    putInHand(intelligenceState, "甲", ordinaryIntelligence);
+    startTransmission(intelligenceState, "甲", ordinaryIntelligence, {
+      targetId: "乙",
+    });
+    passLockOpportunity(intelligenceState, "甲");
+    record(intelligenceState, "intelligence");
+
+    const lockState = game(914);
+    const lockIntelligence = directIntelligence();
+    const lock = cardId((card) => card.name === "锁定", [lockIntelligence]);
+    putInHand(lockState, "甲", lockIntelligence, 0);
+    putInHand(lockState, "甲", lock, 1);
+    startTransmission(lockState, "甲", lockIntelligence, { targetId: "乙" });
+    playLock(lockState, "甲", lock);
+    record(lockState, "lock");
+
+    const swapState = game(915);
+    const swapIntelligence = directIntelligence();
+    const swap = cardId((card) => card.name === "掉包", [swapIntelligence]);
+    putInHand(swapState, "甲", swapIntelligence);
+    putInHand(swapState, "丙", swap);
+    startTransmission(swapState, "甲", swapIntelligence, { targetId: "乙" });
+    passLockOpportunity(swapState, "甲");
+    playSwap(swapState, "丙", swap);
+    record(swapState, "swap");
+
+    const lureState = game(916);
+    const lureIntelligence = directIntelligence();
+    const lure = cardId((card) => card.name === "调虎离山", [lureIntelligence]);
+    putInHand(lureState, "甲", lureIntelligence);
+    putInHand(lureState, "丙", lure);
+    startTransmission(lureState, "甲", lureIntelligence, { targetId: "乙" });
+    passLockOpportunity(lureState, "甲");
+    playLure(lureState, "丙", lure);
+    record(lureState, "lure");
+
+    const transferState = game(917);
+    const transferIntelligence = directIntelligence();
+    const transfer = cardId(
+      (card) => card.name === "转移",
+      [transferIntelligence],
+    );
+    putInHand(transferState, "甲", transferIntelligence);
+    putInHand(transferState, "乙", transfer);
+    startTransmission(transferState, "甲", transferIntelligence, {
+      targetId: "乙",
+    });
+    passLockOpportunity(transferState, "甲");
+    advanceReactionTo(transferState, "乙");
+    playTransfer(transferState, "乙", transfer, "丁");
+    record(transferState, "transfer");
+
+    const decryptState = game(918);
+    const decryptIntelligence = directIntelligence();
+    const decrypt = cardId(
+      (card) => card.name === "破译",
+      [decryptIntelligence],
+    );
+    putInHand(decryptState, "甲", decryptIntelligence);
+    putInHand(decryptState, "乙", decrypt);
+    startTransmission(decryptState, "甲", decryptIntelligence, {
+      targetId: "乙",
+    });
+    passLockOpportunity(decryptState, "甲");
+    advanceReactionTo(decryptState, "乙");
+    playDecrypt(decryptState, "乙", decrypt);
+    record(decryptState, "decrypt");
+
+    expect([...fingerprints.keys()].sort()).toEqual([
+      "burn",
+      "decrypt",
+      "function",
+      "intelligence",
+      "lock",
+      "lure",
+      "secretOrder",
+      "swap",
+      "transfer",
+    ]);
+    expect(new Set(fingerprints.values()).size).toBe(fingerprints.size);
   });
 });

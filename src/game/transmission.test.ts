@@ -997,6 +997,75 @@ describe("发送者锁定与目标最后响应", () => {
       }),
     );
   });
+
+  it("反识破后保留锁定离间并恢复其精确响应位置", () => {
+    const state = initializedWithActive(players, 733);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const lock = cardIdWhere((card) => card.name === "锁定", [intelligence]);
+    const separation = cardIdWhere((card) => card.name === "离间", [
+      intelligence,
+      lock,
+    ]);
+    const firstCounter = cardIdWhere((card) => card.name === "识破", [
+      intelligence,
+      lock,
+      separation,
+    ]);
+    const secondCounter = cardIdWhere((card) => card.name === "识破", [
+      intelligence,
+      lock,
+      separation,
+      firstCounter,
+    ]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "甲", lock, 1);
+    putCardInHand(state, "丙", separation, 0);
+    putCardInHand(state, "戊", firstCounter, 0);
+    putCardInHand(state, "丁", secondCounter, 0);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    playLock(state, "甲", lock);
+    playSeparationOnTransfer(state, "丙", separation, "丁");
+    const separationWindow = structuredClone(currentReactionWindow(state)!);
+    expect(separationWindow).toMatchObject({
+      kind: "lock",
+      affectedPlayerId: "丁",
+      responderOrder: ["戊", "甲", "乙", "丁"],
+      nextResponderIndex: 0,
+    });
+
+    playCounter(state, "戊", firstCounter, topResponseFrame(state)!.id);
+    playCounter(state, "丁", secondCounter, topResponseFrame(state)!.id);
+    finishCurrentReactionWindow(state);
+
+    expect(currentReactionWindow(state)).toEqual(separationWindow);
+    expect(topResponseFrame(state)).toMatchObject({
+      kind: "separation",
+      sourceCardId: separation,
+      targetPlayerId: "丁",
+    });
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "乙",
+      locked: false,
+      pendingLock: expect.objectContaining({ targetId: "乙" }),
+    });
+    expect(state.publicDiscard).toEqual(
+      expect.arrayContaining([firstCounter, secondCounter]),
+    );
+
+    finishCurrentReactionWindow(state);
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "乙",
+      locked: false,
+      pendingLock: expect.objectContaining({ targetId: "丁" }),
+    });
+    expect(currentReactionWindow(state)).toMatchObject({
+      kind: "lock",
+      affectedPlayerId: "丁",
+      responderOrder: ["戊", "乙", "丙", "丁"],
+      nextResponderIndex: 0,
+    });
+  });
 });
 
 describe("截获、掉包、调虎离山与转移接收", () => {
