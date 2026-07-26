@@ -36,6 +36,14 @@ export interface TransmissionState {
     sourceCardId: PhysicalCardId;
     targetId: PlayerId;
   };
+  pendingLock?: {
+    sourceCardId: PhysicalCardId;
+    targetId: PlayerId;
+  };
+  pendingIntercept?: {
+    sourceCardId: PhysicalCardId;
+    playerId: PlayerId;
+  };
   pendingSwap?: {
     sourceCardId: PhysicalCardId;
   };
@@ -68,6 +76,12 @@ export interface ReactionWindow {
   affectedPlayerId: PlayerId;
   responderOrder: PlayerId[];
   nextResponderIndex: number;
+  /**
+   * Present only while players are responding to a declared, unresolved card
+   * action. The source of this frame is excluded from the responder order.
+   * Windows without an actionFrameId describe an established game state.
+   */
+  actionFrameId?: string;
 }
 
 export type ActiveFunctionKind =
@@ -84,18 +98,13 @@ export interface ActiveFunctionAction {
   sourceCardId: PhysicalCardId;
   originalTargetPlayerId: PlayerId;
   targetPlayerId: PlayerId;
+  /** Set only after a 离间 successfully resolves against this action. */
   separationUsed: boolean;
-  countered: boolean;
   stage:
     | "reactions"
     | "awaitingDiscard"
     | "awaitingProbeChoice"
     | "awaitingProbeDiscard";
-}
-
-export interface ActiveFunctionSnapshot {
-  targetPlayerId: PlayerId;
-  countered: boolean;
 }
 
 export interface ActiveFunctionFrame {
@@ -106,7 +115,6 @@ export interface ActiveFunctionFrame {
   sourceCardId: PhysicalCardId;
   targetPlayerId: PlayerId;
   targetInteractionId?: string;
-  snapshot: ActiveFunctionSnapshot;
   resumeReactionWindow?: ReactionWindow;
   resumeReactionCompleted?: boolean;
 }
@@ -121,34 +129,6 @@ export type CardActionKind =
   | "lure"
   | "decrypt";
 
-export interface ReversibleInteractionSnapshot {
-  intendedRecipientId: PlayerId;
-  returnedToSender: boolean;
-  interceptorCommitted: boolean;
-  transferredRecipientCommitted: boolean;
-  receiptStage: ReceiptStage;
-  locked: boolean;
-  lockedRecipientId?: PlayerId;
-  receiptCycle: number;
-  lockOfferUsed: boolean;
-  pendingSwap?: {
-    sourceCardId: PhysicalCardId;
-  };
-  pendingLure?: {
-    sourceCardId: PhysicalCardId;
-    targetId: PlayerId;
-  };
-  pendingDecrypt?: {
-    sourceCardId: PhysicalCardId;
-    playerId: PlayerId;
-  };
-  decryptedById?: PlayerId;
-  pendingTransfer?: {
-    sourceCardId: PhysicalCardId;
-    targetId: PlayerId;
-  };
-}
-
 export interface CardActionFrame {
   id: string;
   sequence: number;
@@ -157,7 +137,6 @@ export interface CardActionFrame {
   sourceCardId: PhysicalCardId;
   targetPlayerId: PlayerId;
   targetInteractionId?: string;
-  snapshot: ReversibleInteractionSnapshot;
   resumeReactionWindow?: ReactionWindow;
   resumeReactionCompleted?: boolean;
   separationUsed: boolean;
@@ -198,7 +177,8 @@ export interface SecretOrderFrame {
   sourceCardId: PhysicalCardId;
   targetPlayerId: PlayerId;
   targetInteractionId?: string;
-  snapshot: { countered: boolean };
+  resumeReactionWindow?: ReactionWindow;
+  resumeReactionCompleted?: boolean;
 }
 
 export interface BurnFrame {
@@ -209,7 +189,8 @@ export interface BurnFrame {
   sourceCardId: PhysicalCardId;
   targetPlayerId: PlayerId;
   targetInteractionId?: string;
-  snapshot: { countered: boolean };
+  resumeReactionWindow?: ReactionWindow;
+  resumeReactionCompleted?: boolean;
 }
 
 export interface BurnContext {
@@ -321,10 +302,7 @@ export function currentPromptFingerprint(state: GameState): string | undefined {
   if (window) {
     const actorId = currentResponderId(state);
     if (!actorId) return undefined;
-    const topInteractionId =
-      window.kind === "function"
-        ? latestResolutionContext(state, "function")?.frames.at(-1)?.id
-        : latestResolutionContext(state, "receipt")?.frames.at(-1)?.id;
+    const topInteractionId = currentResponseFrames(state).at(-1)?.id;
     return [
       "reaction",
       window.kind,
@@ -1029,20 +1007,16 @@ export function assertGameStateInvariants(state: GameState): void {
     if (responders.some((id) => !state.players[id]?.alive)) {
       throw new Error("响应窗口只能包含存活玩家");
     }
-    const expectedOrder = reactionOrderAfterTarget(
-      state,
-      reactionWindow.affectedPlayerId,
-    ).filter((playerId) =>
-      reactionWindow.kind === "secretOrder" &&
-      state.pendingSecretOrder?.stage === "offering"
-        ? playerId !== reactionWindow.affectedPlayerId
-        : true,
-    );
+    const actionFrame = actionFrameForWindow(state, reactionWindow);
+    if (reactionWindow.actionFrameId && !actionFrame) {
+      throw new Error("行动响应窗口缺少对应互动帧");
+    }
+    const expectedOrder = reactionOrderForWindow(state, reactionWindow);
     if (
       responders.length !== expectedOrder.length ||
       responders.some((id, index) => id !== expectedOrder[index])
     ) {
-      throw new Error("响应顺序必须从目标的下一名存活玩家开始，并让目标最后响应");
+      throw new Error("响应顺序必须从目标的下一名存活玩家开始，并按窗口规则排除行动使用者");
     }
     if (
       !Number.isInteger(reactionWindow.nextResponderIndex) ||
@@ -1082,12 +1056,11 @@ export function assertGameStateInvariants(state: GameState): void {
       const transferFrame = [...receiptFrames(state)]
         .reverse()
         .find((frame) => frame.kind === "transfer");
-      // An odd counter chain restores the snapshot from before the transfer,
-      // so the transfer window remains open while pendingTransfer is absent.
       if (
         !transferFrame ||
-        (state.transmission?.pendingTransfer &&
-          transferFrame.sourcePlayerId !== state.transmission.intendedRecipientId)
+        !state.transmission?.pendingTransfer ||
+        transferFrame.sourcePlayerId !== state.transmission.intendedRecipientId ||
+        transferFrame.targetPlayerId !== state.transmission.pendingTransfer.targetId
       ) {
         throw new Error("转移互动与响应窗口关联不一致");
       }
@@ -1115,10 +1088,7 @@ export function assertGameStateInvariants(state: GameState): void {
       cardById(frame.sourceCardId).name !== expectedCardNameByAction[frame.kind] ||
       !resolvingCardIds.includes(frame.sourceCardId) ||
       !state.players[frame.sourcePlayerId] ||
-      !state.players[frame.targetPlayerId] ||
-      !state.players[frame.snapshot.intendedRecipientId] ||
-      frame.snapshot.returnedToSender !==
-        (frame.snapshot.intendedRecipientId === state.transmission?.senderId)
+      !state.players[frame.targetPlayerId]
     ) {
       throw new Error("卡牌互动栈包含无效帧");
     }
@@ -1444,17 +1414,50 @@ function reactionOrderAfterTarget(
   return ordered;
 }
 
+function actionFrameForWindow(
+  state: GameState,
+  window: ReactionWindow,
+): ResponseFrame | undefined {
+  if (!window.actionFrameId) return undefined;
+  for (const context of state.resolutionStack) {
+    const frame = (context.frames as readonly ResponseFrame[]).find(
+      (candidate) => candidate.id === window.actionFrameId,
+    );
+    if (frame) return frame;
+  }
+  return undefined;
+}
+
+function reactionOrderForWindow(
+  state: GameState,
+  window: ReactionWindow,
+): PlayerId[] {
+  const actionFrame = actionFrameForWindow(state, window);
+  return reactionOrderAfterTarget(state, window.affectedPlayerId).filter(
+    (playerId) => {
+      if (actionFrame) return playerId !== actionFrame.sourcePlayerId;
+      return !(
+        window.kind === "secretOrder" &&
+        state.pendingSecretOrder?.stage === "offering" &&
+        playerId === window.affectedPlayerId
+      );
+    },
+  );
+}
+
 function buildReactionWindow(
   state: GameState,
   kind: ReactionWindow["kind"],
   affectedPlayerId: PlayerId,
   responderOrder = reactionOrderAfterTarget(state, affectedPlayerId),
+  actionFrameId?: string,
 ): ReactionWindow {
   return {
     kind,
     affectedPlayerId,
     responderOrder: [...responderOrder],
     nextResponderIndex: 0,
+    actionFrameId,
   };
 }
 
@@ -1463,15 +1466,38 @@ function openReactionWindow(
   kind: ReactionWindow["kind"],
   affectedPlayerId: PlayerId,
   responderOrder?: readonly PlayerId[],
+  actionFrameId?: string,
 ): ReactionWindow {
   const window = buildReactionWindow(
     state,
     kind,
     affectedPlayerId,
     responderOrder ? [...responderOrder] : undefined,
+    actionFrameId,
   );
   installReactionWindow(state, window);
   return window;
+}
+
+function openActionResponseWindow(
+  state: GameState,
+  kind: ReactionWindow["kind"],
+  affectedPlayerId: PlayerId,
+  frame: ResponseFrame,
+): ReactionWindow {
+  const responders = reactionOrderAfterTarget(state, affectedPlayerId).filter(
+    (playerId) => playerId !== frame.sourcePlayerId,
+  );
+  if (responders.length === 0) {
+    throw new Error("行动响应窗口必须至少包含一名其他存活玩家");
+  }
+  return openReactionWindow(
+    state,
+    kind,
+    affectedPlayerId,
+    responders,
+    frame.id,
+  );
 }
 
 function installReactionWindow(
@@ -1563,63 +1589,6 @@ function openIntelligenceReactionWindow(
   openReactionWindow(state, "intelligence", affectedPlayerId);
 }
 
-function captureInteractionSnapshot(
-  transmission: TransmissionState,
-): ReversibleInteractionSnapshot {
-  return {
-    intendedRecipientId: transmission.intendedRecipientId,
-    returnedToSender: transmission.returnedToSender,
-    interceptorCommitted: transmission.interceptorCommitted,
-    transferredRecipientCommitted: transmission.transferredRecipientCommitted,
-    receiptStage: transmission.receiptStage,
-    locked: transmission.locked,
-    lockedRecipientId: transmission.lockedRecipientId,
-    receiptCycle: transmission.receiptCycle,
-    lockOfferUsed: transmission.lockOfferUsed,
-    pendingTransfer: transmission.pendingTransfer
-      ? { ...transmission.pendingTransfer }
-      : undefined,
-    pendingSwap: transmission.pendingSwap
-      ? { ...transmission.pendingSwap }
-      : undefined,
-    pendingLure: transmission.pendingLure
-      ? { ...transmission.pendingLure }
-      : undefined,
-    pendingDecrypt: transmission.pendingDecrypt
-      ? { ...transmission.pendingDecrypt }
-      : undefined,
-    decryptedById: transmission.decryptedById,
-  };
-}
-
-function restoreInteractionSnapshot(
-  transmission: TransmissionState,
-  snapshot: ReversibleInteractionSnapshot,
-): void {
-  transmission.intendedRecipientId = snapshot.intendedRecipientId;
-  transmission.returnedToSender = snapshot.returnedToSender;
-  transmission.interceptorCommitted = snapshot.interceptorCommitted;
-  transmission.transferredRecipientCommitted = snapshot.transferredRecipientCommitted;
-  transmission.receiptStage = snapshot.receiptStage;
-  transmission.locked = snapshot.locked;
-  transmission.lockedRecipientId = snapshot.lockedRecipientId;
-  transmission.receiptCycle = snapshot.receiptCycle;
-  transmission.lockOfferUsed = snapshot.lockOfferUsed;
-  transmission.pendingTransfer = snapshot.pendingTransfer
-    ? { ...snapshot.pendingTransfer }
-    : undefined;
-  transmission.pendingSwap = snapshot.pendingSwap
-      ? { ...snapshot.pendingSwap }
-      : undefined;
-  transmission.pendingLure = snapshot.pendingLure
-    ? { ...snapshot.pendingLure }
-    : undefined;
-  transmission.pendingDecrypt = snapshot.pendingDecrypt
-    ? { ...snapshot.pendingDecrypt }
-    : undefined;
-  transmission.decryptedById = snapshot.decryptedById;
-}
-
 function withInteractionIdentity<T extends object>(
   state: GameState,
   frame: T,
@@ -1666,6 +1635,8 @@ function beginNormalReceiptCycle(
   transmission.lockOfferUsed =
     returnedToSender || skipLockOffer || transmission.locked;
   transmission.pendingTransfer = undefined;
+  transmission.pendingLock = undefined;
+  transmission.pendingIntercept = undefined;
   transmission.pendingSwap = undefined;
   transmission.pendingLure = undefined;
   transmission.pendingDecrypt = undefined;
@@ -1774,7 +1745,7 @@ function rebuildReactionPriorityAfterDeath(
   if (!window) return;
   const passed = new Set(window.responderOrder.slice(0, window.nextResponderIndex));
   passed.delete(deadPlayerId);
-  const rebuilt = reactionOrderAfterTarget(state, window.affectedPlayerId);
+  const rebuilt = reactionOrderForWindow(state, window);
   let nextIndex = 0;
   while (nextIndex < rebuilt.length && passed.has(rebuilt[nextIndex])) {
     nextIndex += 1;
@@ -1792,7 +1763,7 @@ function prunePausedResolutionPrioritiesAfterDeath(
     const window = context.window;
     const passed = new Set(window.responderOrder.slice(0, window.nextResponderIndex));
     passed.delete(deadPlayerId);
-    window.responderOrder = reactionOrderAfterTarget(state, window.affectedPlayerId);
+    window.responderOrder = reactionOrderForWindow(state, window);
     let nextIndex = 0;
     while (nextIndex < window.responderOrder.length && passed.has(window.responderOrder[nextIndex])) {
       nextIndex += 1;
@@ -1821,10 +1792,7 @@ function pruneFrameResumePrioritiesAfterDeath(
       window.responderOrder.slice(0, window.nextResponderIndex),
     );
     passed.delete(deadPlayerId);
-    window.responderOrder = reactionOrderAfterTarget(
-      state,
-      window.affectedPlayerId,
-    );
+    window.responderOrder = reactionOrderForWindow(state, window);
     let nextIndex = 0;
     while (
       nextIndex < window.responderOrder.length &&
@@ -1917,6 +1885,7 @@ export function resolveHostImposedDeath(
       advanceToNextTurn(state);
     } else {
       const transmission = state.transmission;
+      settleReceiptResolution(state);
       const nextRecipientId =
         transmission.method === "直达"
           ? transmission.senderId
@@ -2066,14 +2035,20 @@ export function playSecretOrder(
   pending.word = word;
   pending.requiredColor = card.variant.mapping[word];
   pending.countered = false;
-  secretOrderFrames(state).splice(0, secretOrderFrames(state).length, withInteractionIdentity(state, {
-    kind: "secretOrder",
+  const frame = withInteractionIdentity(state, {
+    kind: "secretOrder" as const,
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: state.activePlayerId,
-    snapshot: { countered: true },
-  }));
-  openReactionWindow(state, "secretOrder", state.activePlayerId);
+    resumeReactionWindow: cloneReactionWindow(window),
+  });
+  secretOrderFrames(state).push(frame);
+  openActionResponseWindow(
+    state,
+    "secretOrder",
+    state.activePlayerId,
+    frame,
+  );
   state.auditLog.push(`${actorId}使用秘密下达并宣布：${word}`);
   assertGameStateInvariants(state);
 }
@@ -2159,19 +2134,17 @@ function beginActiveFunctionAction(
     originalTargetPlayerId: targetPlayerId,
     targetPlayerId,
     separationUsed: false,
-    countered: false,
     stage: "reactions",
   };
   openReactionWindow(state, "function", targetPlayerId);
-  functionFrames(state).push(
-    withInteractionIdentity(state, {
-      kind: "function",
-      sourcePlayerId: actorId,
-      sourceCardId: cardId,
-      targetPlayerId,
-      snapshot: { targetPlayerId, countered: true },
-    }),
-  );
+  const frame = withInteractionIdentity(state, {
+    kind: "function" as const,
+    sourcePlayerId: actorId,
+    sourceCardId: cardId,
+    targetPlayerId,
+  });
+  functionFrames(state).push(frame);
+  openActionResponseWindow(state, "function", targetPlayerId, frame);
 }
 
 export function playReinforcement(
@@ -2294,8 +2267,12 @@ export function playSeparationOnFunction(
   if (window.responderOrder[window.nextResponderIndex] !== actorId) {
     throw new Error("尚未轮到该玩家响应");
   }
-  if (action.separationUsed) throw new Error("同一原始卡牌行动最多使用一次离间");
-  if (functionFrames(state).at(-1)?.kind !== "function") {
+  if (action.separationUsed) throw new Error("同一原始卡牌行动最多只能成功结算一次离间");
+  const functionFrame = functionFrames(state).at(-1);
+  if (
+    functionFrame?.kind !== "function" ||
+    window.actionFrameId !== functionFrame.id
+  ) {
     throw new Error("离间只能改换当前栈顶原始功能牌行动的目标");
   }
   const actor = state.players[actorId];
@@ -2318,74 +2295,22 @@ export function playSeparationOnFunction(
   }
 
   actor.hand.splice(cardIndex, 1);
-  action.separationUsed = true;
-  functionFrames(state).push(withInteractionIdentity(state, {
-    kind: "separation",
+  const frame = withInteractionIdentity(state, {
+    kind: "separation" as const,
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: targetId,
-    snapshot: {
-      targetPlayerId: action.targetPlayerId,
-      countered: action.countered,
-    },
     resumeReactionWindow: cloneReactionWindow(window),
-  }));
-  action.targetPlayerId = targetId;
-  openReactionWindow(state, "function", targetId);
-  state.auditLog.push(`${actorId}使用离间，将功能牌目标改为${targetId}`);
+  });
+  functionFrames(state).push(frame);
+  openActionResponseWindow(state, "function", targetId, frame);
+  state.auditLog.push(`${actorId}使用离间，声明将功能牌目标改为${targetId}`);
   assertGameStateInvariants(state);
-}
-
-function settleFunctionSeparation(state: GameState): boolean {
-  const separationIndex = lastIndexMatching(
-    functionFrames(state),
-    (frame) => frame.kind === "separation",
-  );
-  if (separationIndex < 0) return false;
-  const action = state.activeFunctionAction;
-  const separationFrame = functionFrames(state)[separationIndex];
-  const functionFrame = functionFrames(state).find(
-    (frame) => frame.kind === "function",
-  );
-  if (!action || !separationFrame?.resumeReactionWindow || !functionFrame) {
-    throw new Error("离间缺少原功能牌响应位置");
-  }
-
-  const separationSurvived =
-    action.targetPlayerId === separationFrame.targetPlayerId;
-  settleFramesToPublicDiscard(
-    state,
-    functionFrames(state).slice(separationIndex),
-  );
-  functionFrames(state).splice(separationIndex);
-  if (separationSurvived) {
-    functionFrame.targetPlayerId = action.targetPlayerId;
-    openReactionWindow(state, "function", action.targetPlayerId);
-  } else {
-    restoreReactionWindow(
-      state,
-      separationFrame.resumeReactionWindow,
-    );
-    if (separationFrame.resumeReactionCompleted) {
-      finishPassedReactionWindow(state, currentReactionWindow(state)!);
-      return true;
-    }
-  }
-  assertGameStateInvariants(state);
-  return true;
 }
 
 function finishActiveFunctionAction(state: GameState): void {
   const action = state.activeFunctionAction;
   if (!action) throw new Error("当前没有待结算的功能牌行动");
-  if (settleFunctionSeparation(state)) return;
-  if (action.countered) {
-    settleFunctionResolution(state, action, false);
-    state.auditLog.push(`${cardById(action.sourceCardId).name}被识破，效果取消`);
-    state.activeFunctionAction = undefined;
-    assertGameStateInvariants(state);
-    return;
-  }
 
   const source = state.players[action.sourcePlayerId];
   const target = state.players[action.targetPlayerId];
@@ -2786,19 +2711,26 @@ export function playLock(
 
   actor.hand.splice(cardIndex, 1);
   openReactionWindow(state, "lock", transmission.intendedRecipientId);
-  pushCardActionFrame(state, {
+  const frame = pushCardActionFrame(state, {
     kind: "lock",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: transmission.intendedRecipientId,
-    snapshot: captureInteractionSnapshot(transmission),
   });
   transmission.lockOfferUsed = true;
-  transmission.locked = true;
-  transmission.lockedRecipientId = transmission.intendedRecipientId;
+  transmission.pendingLock = {
+    sourceCardId: cardId,
+    targetId: transmission.intendedRecipientId,
+  };
   transmission.receiptStage = "reactions";
+  openActionResponseWindow(
+    state,
+    "lock",
+    transmission.intendedRecipientId,
+    frame,
+  );
   state.auditLog.push(
-    `${actorId}对${transmission.intendedRecipientId}使用锁定`,
+    `${actorId}对${transmission.intendedRecipientId}使用锁定，等待响应`,
   );
   assertGameStateInvariants(state);
 }
@@ -2814,7 +2746,8 @@ export function playSwap(
     state.phase !== "transmitting" ||
     !transmission ||
     !window ||
-    (window.kind !== "intelligence" && window.kind !== "lock")
+    window.kind !== "intelligence" ||
+    window.actionFrameId
   ) {
     throw new Error("当前不能使用掉包");
   }
@@ -2829,16 +2762,21 @@ export function playSwap(
   }
 
   actor.hand.splice(cardIndex, 1);
-  pushCardActionFrame(state, {
+  const frame = pushCardActionFrame(state, {
     kind: "swap",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: transmission.intendedRecipientId,
-    snapshot: captureInteractionSnapshot(transmission),
+    resumeReactionWindow: cloneReactionWindow(window),
   });
   transmission.pendingSwap = { sourceCardId: cardId };
   transmission.receiptStage = "reactions";
-  openReactionWindow(state, "swap", transmission.intendedRecipientId);
+  openActionResponseWindow(
+    state,
+    "swap",
+    transmission.intendedRecipientId,
+    frame,
+  );
   state.auditLog.push(`${actorId}使用掉包，等待响应`);
   assertGameStateInvariants(state);
 }
@@ -2873,6 +2811,7 @@ export function playLure(
     !transmission ||
     !window ||
     window.kind !== "intelligence" ||
+    window.actionFrameId ||
     transmission.lockedRecipientId === transmission.intendedRecipientId ||
     transmission.interceptorCommitted ||
     transmission.transferredRecipientCommitted ||
@@ -2893,19 +2832,23 @@ export function playLure(
   }
 
   actor.hand.splice(cardIndex, 1);
-  pushCardActionFrame(state, {
+  const frame = pushCardActionFrame(state, {
     kind: "lure",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: transmission.intendedRecipientId,
-    snapshot: captureInteractionSnapshot(transmission),
     resumeReactionWindow: cloneReactionWindow(window),
   });
   transmission.pendingLure = {
     sourceCardId: cardId,
     targetId: transmission.intendedRecipientId,
   };
-  openReactionWindow(state, "lure", transmission.intendedRecipientId);
+  openActionResponseWindow(
+    state,
+    "lure",
+    transmission.intendedRecipientId,
+    frame,
+  );
   state.auditLog.push(
     `${actorId}对${transmission.intendedRecipientId}使用调虎离山`,
   );
@@ -3235,6 +3178,7 @@ export function playTransfer(
   const window = currentReactionWindow(state);
   if (
     window?.kind !== "intelligence" ||
+    window.actionFrameId ||
     window.responderOrder[window.nextResponderIndex] !== actorId
   ) {
     throw new Error("必须在自己的情报响应优先级中使用转移");
@@ -3251,15 +3195,15 @@ export function playTransfer(
   }
 
   actor.hand.splice(cardIndex, 1);
-  pushCardActionFrame(state, {
+  const frame = pushCardActionFrame(state, {
     kind: "transfer",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: targetId,
-    snapshot: captureInteractionSnapshot(transmission),
+    resumeReactionWindow: cloneReactionWindow(window),
   });
   transmission.pendingTransfer = { sourceCardId: cardId, targetId };
-  openReactionWindow(state, "transfer", targetId);
+  openActionResponseWindow(state, "transfer", targetId, frame);
   state.auditLog.push(`${actorId}使用转移，声明新的接收者：${targetId}`);
   assertGameStateInvariants(state);
 }
@@ -3301,88 +3245,311 @@ function advanceReactionWindow(
   }
 }
 
+function removeFramePair(
+  frames: ResponseFrame[],
+  target: ResponseFrame,
+  counter: ResponseFrame,
+): void {
+  const targetIndex = frames.indexOf(target);
+  if (
+    targetIndex < 0 ||
+    frames[targetIndex + 1] !== counter ||
+    counter.kind !== "counter" ||
+    counter.targetInteractionId !== target.id
+  ) {
+    throw new Error("识破结算必须指向当前栈顶的待响应行动");
+  }
+  frames.splice(targetIndex, 2);
+}
+
+function settleCounteredPair(
+  state: GameState,
+  context: ResolutionContextView,
+  target: ResponseFrame,
+  counter: ResponseFrame,
+): void {
+  if (context.kind === "secretOrder" && target.kind === "secretOrder") {
+    state.hiddenSecretOrders.push(target.sourceCardId);
+  } else {
+    state.publicDiscard.push(target.sourceCardId);
+  }
+  state.publicDiscard.push(counter.sourceCardId);
+  removeFramePair(context.frames as ResponseFrame[], target, counter);
+}
+
+function clearPendingReceiptAction(
+  transmission: TransmissionState,
+  kind: CardActionKind,
+): void {
+  if (kind === "transfer") transmission.pendingTransfer = undefined;
+  else if (kind === "lock") transmission.pendingLock = undefined;
+  else if (kind === "intercept") transmission.pendingIntercept = undefined;
+  else if (kind === "swap") transmission.pendingSwap = undefined;
+  else if (kind === "lure") transmission.pendingLure = undefined;
+  else if (kind === "decrypt") transmission.pendingDecrypt = undefined;
+}
+
+function finishRestoredWindow(
+  state: GameState,
+  frame: ResponseFrame,
+): void {
+  const restored = restoreReactionWindow(state, frame.resumeReactionWindow);
+  if (!restored) throw new Error("被取消行动缺少原响应位置");
+  if (frame.resumeReactionCompleted) {
+    finishPassedReactionWindow(state, restored);
+  } else {
+    assertGameStateInvariants(state);
+  }
+}
+
+function cancelBaseActionAfterCounter(
+  state: GameState,
+  context: ResolutionContextView,
+  target: ResponseFrame,
+): void {
+  const cardName = cardById(target.sourceCardId).name;
+  if (context.kind === "burn") {
+    state.auditLog.push("烧毁被识破，目标情报保持不变");
+    state.resolutionStack.pop();
+    const parent = state.resolutionStack.at(-1);
+    if (parent?.status === "readyToResolve") {
+      finishPassedReactionWindow(state, parent.window);
+    } else {
+      assertGameStateInvariants(state);
+    }
+    return;
+  }
+
+  if (context.kind === "secretOrder") {
+    const pending = state.pendingSecretOrder;
+    if (!pending) throw new Error("秘密下达窗口状态无效");
+    pending.stage = "offering";
+    pending.sourcePlayerId = undefined;
+    pending.sourceCardId = undefined;
+    pending.word = undefined;
+    pending.requiredColor = undefined;
+    pending.countered = false;
+    pending.verifiedNoMatch = false;
+    state.auditLog.push("秘密下达被识破，本次机会继续");
+    finishRestoredWindow(state, target);
+    return;
+  }
+
+  if (context.kind === "function") {
+    state.activeFunctionAction = undefined;
+    removeResolutionContext(state, "function");
+    state.auditLog.push(`${cardName}被识破，效果取消`);
+    assertGameStateInvariants(state);
+    return;
+  }
+
+  const transmission = state.transmission;
+  if (!transmission) throw new Error("情报行动取消时缺少待传情报");
+  clearPendingReceiptAction(transmission, target.kind as CardActionKind);
+  state.auditLog.push(`${cardName}被识破，效果取消`);
+  if (target.kind === "lock") {
+    removeResolutionContext(state, "receipt");
+    beginReceiptReactionStage(state);
+    assertGameStateInvariants(state);
+    return;
+  }
+  finishRestoredWindow(state, target);
+}
+
+function resolveSuccessfulCounter(
+  state: GameState,
+  context: ResolutionContextView,
+): void {
+  const counter = context.frames.at(-1);
+  if (!counter || counter.kind !== "counter") {
+    throw new Error("当前没有待结算的识破");
+  }
+  const target = context.frames.at(-2);
+  if (!target || counter.targetInteractionId !== target.id) {
+    throw new Error("识破缺少当前栈顶目标");
+  }
+  settleCounteredPair(state, context, target, counter);
+
+  if (target.kind === "counter" || target.kind === "separation") {
+    finishRestoredWindow(state, target);
+    return;
+  }
+  cancelBaseActionAfterCounter(state, context, target);
+}
+
+function resolveSuccessfulSeparation(
+  state: GameState,
+  context: Extract<ResolutionContextView, { kind: "receipt" | "function" }>,
+): void {
+  const separation = context.frames.at(-1);
+  const parent = context.frames.at(-2);
+  if (
+    !separation ||
+    separation.kind !== "separation" ||
+    !parent ||
+    parent.kind === "counter" ||
+    parent.kind === "separation"
+  ) {
+    throw new Error("离间缺少原始父行动");
+  }
+
+  context.frames.pop();
+  state.publicDiscard.push(separation.sourceCardId);
+  parent.targetPlayerId = separation.targetPlayerId;
+
+  if (context.kind === "function") {
+    const action = state.activeFunctionAction;
+    if (!action) throw new Error("离间结算缺少功能牌行动");
+    action.separationUsed = true;
+    action.targetPlayerId = separation.targetPlayerId;
+    state.auditLog.push(
+      `离间结算：功能牌目标改为${separation.targetPlayerId}`,
+    );
+    openActionResponseWindow(
+      state,
+      "function",
+      separation.targetPlayerId,
+      parent,
+    );
+  } else {
+    const receiptParent = parent as CardActionFrame;
+    receiptParent.separationUsed = true;
+    const transmission = state.transmission;
+    if (!transmission) throw new Error("离间结算缺少待传情报");
+    if (receiptParent.kind === "transfer" && transmission.pendingTransfer) {
+      transmission.pendingTransfer.targetId = separation.targetPlayerId;
+    } else if (receiptParent.kind === "lock" && transmission.pendingLock) {
+      transmission.pendingLock.targetId = separation.targetPlayerId;
+    } else {
+      throw new Error("离间只能结算到待处理的转移或锁定");
+    }
+    state.auditLog.push(
+      `离间结算：${receiptParent.kind === "transfer" ? "转移" : "锁定"}目标改为${separation.targetPlayerId}`,
+    );
+    openActionResponseWindow(
+      state,
+      receiptParent.kind,
+      separation.targetPlayerId,
+      receiptParent,
+    );
+  }
+  assertGameStateInvariants(state);
+}
+
+function resolveIntercept(state: GameState): void {
+  const transmission = state.transmission;
+  const pending = transmission?.pendingIntercept;
+  if (!transmission || !pending) throw new Error("当前没有待结算的截获");
+  const interceptorId = pending.playerId;
+  settleReceiptResolution(state);
+  transmission.pendingIntercept = undefined;
+  transmission.intendedRecipientId = interceptorId;
+  transmission.returnedToSender = false;
+  transmission.interceptorCommitted = true;
+  transmission.transferredRecipientCommitted = false;
+  transmission.receiptStage = "reactions";
+  transmission.locked = false;
+  transmission.lockedRecipientId = undefined;
+  openIntelligenceReactionWindow(state, interceptorId);
+  state.auditLog.push(`截获结算，当前接收者：${interceptorId}`);
+  assertGameStateInvariants(state);
+}
+
+function resolveSuccessfulReceiptAction(
+  state: GameState,
+  frame: CardActionFrame,
+): void {
+  const transmission = state.transmission;
+  if (!transmission) throw new Error("情报行动结算时缺少待传情报");
+  if (frame.kind === "lock") {
+    const pending = transmission.pendingLock;
+    if (!pending) throw new Error("当前没有待结算的锁定");
+    const targetId = pending.targetId;
+    settleReceiptResolution(state);
+    transmission.pendingLock = undefined;
+    transmission.locked = true;
+    transmission.lockedRecipientId = targetId;
+    transmission.receiptStage = "reactions";
+    state.auditLog.push(`锁定结算：锁定目标为${targetId}`);
+    beginReceiptReactionStage(state);
+    assertGameStateInvariants(state);
+  } else if (frame.kind === "transfer") {
+    resolveTransfer(state);
+  } else if (frame.kind === "intercept") {
+    resolveIntercept(state);
+  } else if (frame.kind === "swap") {
+    resolveSwap(state);
+  } else if (frame.kind === "lure") {
+    resolveLure(state);
+  } else if (frame.kind === "decrypt") {
+    const pending = transmission.pendingDecrypt;
+    if (!pending) throw new Error("破译响应缺少待传情报");
+    transmission.decryptedById = pending.playerId;
+    transmission.pendingDecrypt = undefined;
+    state.auditLog.push(`${transmission.decryptedById}完成破译`);
+    settleReceiptResolution(state);
+    transmission.receiptStage = "decision";
+    assertGameStateInvariants(state);
+  } else {
+    throw new Error("当前帧不是可直接结算的情报行动");
+  }
+}
+
 function finishPassedReactionWindow(state: GameState, window: ReactionWindow): void {
-    if (window.kind === "burn") {
+  const context = currentResolutionContext(state);
+  if (!context || context.window !== window) {
+    throw new Error("响应窗口不属于当前解析上下文");
+  }
+
+  if (window.actionFrameId) {
+    const frame = context.frames.at(-1);
+    if (!frame || frame.id !== window.actionFrameId) {
+      throw new Error("行动响应窗口缺少对应的栈顶行动");
+    }
+    if (frame.kind === "counter") {
+      resolveSuccessfulCounter(state, context);
+    } else if (frame.kind === "separation") {
+      if (context.kind !== "receipt" && context.kind !== "function") {
+        throw new Error("当前解析域不支持离间");
+      }
+      resolveSuccessfulSeparation(state, context);
+    } else if (context.kind === "burn") {
       resolveBurnContext(state);
-    } else if (window.kind === "secretOrder") {
+    } else if (context.kind === "secretOrder") {
       const pending = state.pendingSecretOrder;
       if (!pending) throw new Error("秘密下达窗口状态无效");
       pending.stage = "selection";
+      pending.countered = false;
       settleSecretOrderResolution(state);
-      if (pending.sourceCardId && pending.countered) {
-        state.auditLog.push("秘密下达被识破，颜色限制取消");
-      }
+      state.auditLog.push("秘密下达结算，颜色限制生效");
       assertGameStateInvariants(state);
-    } else if (window.kind === "function") {
+    } else if (context.kind === "function") {
       finishActiveFunctionAction(state);
-    } else if (window.kind === "decrypt") {
-      const transmission = state.transmission;
-      if (!transmission) throw new Error("破译响应缺少待传情报");
-      if (transmission.pendingDecrypt) {
-        transmission.decryptedById = transmission.pendingDecrypt.playerId;
-        transmission.pendingDecrypt = undefined;
-        state.auditLog.push(`${transmission.decryptedById}完成破译`);
-      }
-      settleReceiptResolution(state);
-      transmission.receiptStage = "decision";
-      assertGameStateInvariants(state);
-    } else if (window.kind === "transfer") {
-      if (settleTransmissionSeparation(state, window)) return;
-      if (state.transmission?.pendingTransfer) {
-        resolveTransfer(state);
-      } else {
-        settleReceiptResolution(state);
-        if (state.transmission) state.transmission.receiptStage = "decision";
-        assertGameStateInvariants(state);
-      }
-    } else if (window.kind === "swap") {
-      if (state.transmission?.pendingSwap) {
-        resolveSwap(state);
-      } else {
-        settleReceiptResolution(state);
-        beginReceiptReactionStage(state);
-        assertGameStateInvariants(state);
-      }
-    } else if (window.kind === "lure") {
-      if (state.transmission?.pendingLure) {
-        resolveLure(state);
-      } else {
-        const lureFrame = receiptFrames(state).find(
-          (frame) => frame.kind === "lure",
-        );
-        if (!lureFrame?.resumeReactionWindow) {
-          throw new Error("调虎离山缺少原情报响应位置");
-        }
-        settleReceiptResolution(state);
-        restoreReactionWindow(
-          state,
-          lureFrame.resumeReactionWindow,
-        );
-        if (lureFrame.resumeReactionCompleted) {
-          finishPassedReactionWindow(state, currentReactionWindow(state)!);
-          return;
-        }
-        assertGameStateInvariants(state);
-      }
-    } else if (window.kind === "lock") {
-      if (settleTransmissionSeparation(state, window)) return;
-      settleReceiptResolution(state);
-      if (state.transmission?.interceptorCommitted) {
-        state.transmission.receiptStage = "decision";
-        acceptIntelligence(state, state.transmission.intendedRecipientId);
-      } else {
-        beginReceiptReactionStage(state);
-        assertGameStateInvariants(state);
-      }
     } else {
-      settleReceiptResolution(state);
-      if (state.transmission) state.transmission.receiptStage = "decision";
-      if (state.transmission?.interceptorCommitted) {
-        acceptIntelligence(state, state.transmission.intendedRecipientId);
-      } else {
-        assertGameStateInvariants(state);
-      }
+      resolveSuccessfulReceiptAction(state, frame as CardActionFrame);
     }
+    return;
+  }
+
+  if (window.kind === "secretOrder") {
+    const pending = state.pendingSecretOrder;
+    if (!pending || pending.stage !== "offering") {
+      throw new Error("秘密下达机会窗口状态无效");
+    }
+    pending.stage = "selection";
+    settleSecretOrderResolution(state);
+    assertGameStateInvariants(state);
+  } else if (window.kind === "intelligence") {
+    settleReceiptResolution(state);
+    if (state.transmission) state.transmission.receiptStage = "decision";
+    if (state.transmission?.interceptorCommitted) {
+      acceptIntelligence(state, state.transmission.intendedRecipientId);
+    } else {
+      assertGameStateInvariants(state);
+    }
+  } else {
+    throw new Error("无行动帧的响应窗口类型无效");
+  }
 }
 
 function isBurnAtRiskFromPendingHandEffect(
@@ -3452,7 +3619,6 @@ export function playBurn(
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId,
-    snapshot: { countered: true },
   });
   const burn: BurnContext = {
     sourcePlayerId: actorId,
@@ -3461,7 +3627,15 @@ export function playBurn(
     targetIntelligenceCardId,
     countered: false,
   };
-  const window = buildReactionWindow(state, "burn", targetPlayerId);
+  const window = buildReactionWindow(
+    state,
+    "burn",
+    targetPlayerId,
+    reactionOrderAfterTarget(state, targetPlayerId).filter(
+      (playerId) => playerId !== actorId,
+    ),
+    frame.id,
+  );
   state.resolutionStack.push({
     kind: "burn",
     window,
@@ -3517,7 +3691,14 @@ function playCounterOnBurn(
   const context = resolution?.burn;
   const window = currentReactionWindow(state);
   const target = resolution?.frames.at(-1);
-  if (!resolution || !context || !window || window.kind !== "burn" || !target) {
+  if (
+    !resolution ||
+    !context ||
+    !window ||
+    window.kind !== "burn" ||
+    !target ||
+    window.actionFrameId !== target.id
+  ) {
     throw new Error("当前没有可被识破的烧毁行动");
   }
   if (window.responderOrder[window.nextResponderIndex] !== actorId) {
@@ -3536,18 +3717,17 @@ function playCounterOnBurn(
   }
   if (target.sourcePlayerId === actorId) throw new Error("不能识破自己的卡牌行动");
 
-  const before = { countered: context.countered };
   actor.hand.splice(cardIndex, 1);
-  context.countered = target.snapshot.countered;
-  resolution.frames.push(withInteractionIdentity(state, {
-    kind: "counter",
+  const frame = withInteractionIdentity(state, {
+    kind: "counter" as const,
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: target.sourcePlayerId,
     targetInteractionId: target.id,
-    snapshot: before,
-  }));
-  openReactionWindow(state, "burn", target.sourcePlayerId);
+    resumeReactionWindow: cloneReactionWindow(window),
+  });
+  resolution.frames.push(frame);
+  openActionResponseWindow(state, "burn", target.sourcePlayerId, frame);
   state.auditLog.push(
     `${actorId}使用识破，反制${target.sourcePlayerId}的${cardById(target.sourceCardId).name}`,
   );
@@ -3566,6 +3746,7 @@ export function playDecrypt(
     !transmission ||
     !window ||
     window.kind !== "intelligence" ||
+    window.actionFrameId ||
     window.responderOrder[window.nextResponderIndex] !== actorId ||
     transmission.intendedRecipientId !== actorId ||
     transmission.lockedRecipientId === transmission.intendedRecipientId ||
@@ -3578,15 +3759,15 @@ export function playDecrypt(
     throw new Error("必须使用自己手中的破译牌");
   }
   actor.hand.splice(index, 1);
-  pushCardActionFrame(state, {
+  const frame = pushCardActionFrame(state, {
     kind: "decrypt",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: actorId,
-    snapshot: captureInteractionSnapshot(transmission),
+    resumeReactionWindow: cloneReactionWindow(window),
   });
   transmission.pendingDecrypt = { sourceCardId: cardId, playerId: actorId };
-  openReactionWindow(state, "decrypt", actorId);
+  openActionResponseWindow(state, "decrypt", actorId, frame);
   state.auditLog.push(`${actorId}使用破译，等待响应`);
   assertGameStateInvariants(state);
 }
@@ -3602,7 +3783,8 @@ export function playIntercept(
     state.phase !== "transmitting" ||
     !transmission ||
     !window ||
-    (window.kind !== "intelligence" && window.kind !== "lock")
+    window.kind !== "intelligence" ||
+    window.actionFrameId
   ) {
     throw new Error("当前没有可截获的待传情报");
   }
@@ -3622,22 +3804,16 @@ export function playIntercept(
     throw new Error("必须使用自己手中的截获牌");
   }
   actor.hand.splice(cardIndex, 1);
-  pushCardActionFrame(state, {
+  const frame = pushCardActionFrame(state, {
     kind: "intercept",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: actorId,
-    snapshot: captureInteractionSnapshot(transmission),
+    resumeReactionWindow: cloneReactionWindow(window),
   });
-  transmission.intendedRecipientId = actorId;
-  transmission.returnedToSender = false;
-  transmission.interceptorCommitted = true;
-  transmission.transferredRecipientCommitted = false;
-  transmission.receiptStage = "reactions";
-  transmission.locked = false;
-  transmission.lockedRecipientId = undefined;
-  openIntelligenceReactionWindow(state, actorId);
-  state.auditLog.push(`${actorId}使用截获，成为当前接收者`);
+  transmission.pendingIntercept = { sourceCardId: cardId, playerId: actorId };
+  openActionResponseWindow(state, "intelligence", actorId, frame);
+  state.auditLog.push(`${actorId}使用截获，等待响应`);
   assertGameStateInvariants(state);
 }
 
@@ -3666,7 +3842,8 @@ export function playCounter(
     state.phase !== "transmitting" ||
     !transmission ||
     !window ||
-    !target
+    !target ||
+    window.actionFrameId !== target.id
   ) {
     throw new Error("当前没有可被识破的卡牌行动");
   }
@@ -3686,18 +3863,16 @@ export function playCounter(
     throw new Error("不能使用识破反制自己的卡牌行动");
   }
 
-  const beforeCounter = captureInteractionSnapshot(transmission);
   actor.hand.splice(cardIndex, 1);
-  restoreInteractionSnapshot(transmission, target.snapshot);
-  pushCardActionFrame(state, {
+  const frame = pushCardActionFrame(state, {
     kind: "counter",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: target.sourcePlayerId,
     targetInteractionId: target.id,
-    snapshot: beforeCounter,
+    resumeReactionWindow: cloneReactionWindow(window),
   });
-  openReactionWindow(state, window.kind, target.sourcePlayerId);
+  openActionResponseWindow(state, window.kind, target.sourcePlayerId, frame);
   state.auditLog.push(
     `${actorId}使用识破，反制${target.sourcePlayerId}的${cardById(target.sourceCardId).name}`,
   );
@@ -3719,6 +3894,7 @@ function playCounterOnSecretOrder(
     pending.stage !== "reactions" ||
     !window ||
     !target ||
+    window.actionFrameId !== target.id ||
     window.responderOrder[window.nextResponderIndex] !== actorId ||
     target.id !== targetInteractionId
   ) throw new Error("当前没有可被识破的秘密下达行动");
@@ -3731,18 +3907,22 @@ function playCounterOnSecretOrder(
   if (mustKeepFinalCardForTransmission(state, actorId, actor.hand.length)) {
     throw new Error("当前玩家必须至少保留一张手牌用于传递");
   }
-  const before = { countered: pending.countered };
   actor.hand.splice(index, 1);
-  pending.countered = target.snapshot.countered;
-  secretOrderFrames(state).push(withInteractionIdentity(state, {
-    kind: "counter",
+  const frame = withInteractionIdentity(state, {
+    kind: "counter" as const,
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: target.sourcePlayerId,
     targetInteractionId: target.id,
-    snapshot: before,
-  }));
-  openReactionWindow(state, "secretOrder", target.sourcePlayerId);
+    resumeReactionWindow: cloneReactionWindow(window),
+  });
+  secretOrderFrames(state).push(frame);
+  openActionResponseWindow(
+    state,
+    "secretOrder",
+    target.sourcePlayerId,
+    frame,
+  );
   state.auditLog.push(
     `${actorId}使用识破，反制${target.sourcePlayerId}的${cardById(target.sourceCardId).name}`,
   );
@@ -3758,7 +3938,13 @@ function playCounterOnFunction(
   const action = state.activeFunctionAction;
   const window = currentReactionWindow(state);
   const target = functionFrames(state).at(-1);
-  if (!action || !window || window.kind !== "function" || !target) {
+  if (
+    !action ||
+    !window ||
+    window.kind !== "function" ||
+    !target ||
+    window.actionFrameId !== target.id
+  ) {
     throw new Error("当前没有可被识破的功能牌行动");
   }
   if (window.responderOrder[window.nextResponderIndex] !== actorId) {
@@ -3779,22 +3965,17 @@ function playCounterOnFunction(
     throw new Error("不能使用识破反制自己的卡牌行动");
   }
 
-  const beforeCounter: ActiveFunctionSnapshot = {
-    targetPlayerId: action.targetPlayerId,
-    countered: action.countered,
-  };
   actor.hand.splice(cardIndex, 1);
-  action.targetPlayerId = target.snapshot.targetPlayerId;
-  action.countered = target.snapshot.countered;
-  functionFrames(state).push(withInteractionIdentity(state, {
-    kind: "counter",
+  const frame = withInteractionIdentity(state, {
+    kind: "counter" as const,
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: target.sourcePlayerId,
     targetInteractionId: target.id,
-    snapshot: beforeCounter,
-  }));
-  openReactionWindow(state, "function", target.sourcePlayerId);
+    resumeReactionWindow: cloneReactionWindow(window),
+  });
+  functionFrames(state).push(frame);
+  openActionResponseWindow(state, "function", target.sourcePlayerId, frame);
   state.auditLog.push(
     `${actorId}使用识破，反制${target.sourcePlayerId}的${cardById(target.sourceCardId).name}`,
   );
@@ -3802,58 +3983,6 @@ function playCounterOnFunction(
 }
 
 export const playCounterIntercept = playCounter;
-
-function settleTransmissionSeparation(
-  state: GameState,
-  window: ReactionWindow,
-): boolean {
-  if (window.kind !== "transfer" && window.kind !== "lock") return false;
-  const separationIndex = lastIndexMatching(
-    receiptFrames(state),
-    (frame) => frame.kind === "separation",
-  );
-  if (separationIndex < 0) return false;
-  const separationFrame = receiptFrames(state)[separationIndex];
-  const baseFrame = receiptFrames(state)
-    .slice(0, separationIndex)
-    .reverse()
-    .find((frame) => frame.kind === window.kind);
-  const transmission = state.transmission;
-  if (!separationFrame?.resumeReactionWindow || !baseFrame || !transmission) {
-    throw new Error("离间缺少原传递响应位置");
-  }
-
-  const currentTargetId =
-    window.kind === "transfer"
-      ? transmission.pendingTransfer?.targetId
-      : transmission.lockedRecipientId;
-  const separationSurvived =
-    currentTargetId === separationFrame.targetPlayerId;
-  settleFramesToPublicDiscard(
-    state,
-    receiptFrames(state).slice(separationIndex),
-  );
-  receiptFrames(state).splice(separationIndex);
-  if (separationSurvived) {
-    baseFrame.targetPlayerId = separationFrame.targetPlayerId;
-    openReactionWindow(
-      state,
-      window.kind,
-      separationFrame.targetPlayerId,
-    );
-  } else {
-    restoreReactionWindow(
-      state,
-      separationFrame.resumeReactionWindow,
-    );
-    if (separationFrame.resumeReactionCompleted) {
-      finishPassedReactionWindow(state, currentReactionWindow(state)!);
-      return true;
-    }
-  }
-  assertGameStateInvariants(state);
-  return true;
-}
 
 export function playSeparationOnTransmission(
   state: GameState,
@@ -3866,6 +3995,7 @@ export function playSeparationOnTransmission(
   const isTransfer = window?.kind === "transfer";
   const isLock = window?.kind === "lock";
   const pending = isTransfer ? transmission?.pendingTransfer : undefined;
+  const pendingLock = isLock ? transmission?.pendingLock : undefined;
   const baseFrame = [...receiptFrames(state)]
     .reverse()
     .find((frame) => frame.kind === window?.kind);
@@ -3875,7 +4005,7 @@ export function playSeparationOnTransmission(
     !baseFrame ||
     (!isTransfer && !isLock) ||
     (isTransfer && !pending) ||
-    (isLock && !transmission.lockedRecipientId)
+    (isLock && !pendingLock)
   ) {
     throw new Error("当前没有可被离间改换目标的卡牌行动");
   }
@@ -3889,14 +4019,17 @@ export function playSeparationOnTransmission(
     throw new Error("必须使用自己手中的离间牌");
   }
   if (baseFrame.separationUsed) {
-    throw new Error("同一个原始卡牌行动最多只能使用一次离间");
+    throw new Error("同一个原始卡牌行动最多只能成功结算一次离间");
   }
-  if (receiptFrames(state).at(-1) !== baseFrame) {
+  if (
+    receiptFrames(state).at(-1) !== baseFrame ||
+    window.actionFrameId !== baseFrame.id
+  ) {
     throw new Error("离间只能改换当前栈顶原始卡牌行动的目标");
   }
   const currentTargetId = isTransfer
     ? pending!.targetId
-    : transmission.lockedRecipientId!;
+    : pendingLock!.targetId;
   if (
     targetId === currentTargetId ||
     targetId === baseFrame.targetPlayerId ||
@@ -3906,23 +4039,16 @@ export function playSeparationOnTransmission(
   }
 
   actor.hand.splice(cardIndex, 1);
-  baseFrame.separationUsed = true;
-  pushCardActionFrame(state, {
+  const frame = pushCardActionFrame(state, {
     kind: "separation",
     sourcePlayerId: actorId,
     sourceCardId: cardId,
     targetPlayerId: targetId,
-    snapshot: captureInteractionSnapshot(transmission),
     resumeReactionWindow: cloneReactionWindow(window),
   });
-  if (isTransfer) {
-    pending!.targetId = targetId;
-  } else {
-    transmission.lockedRecipientId = targetId;
-  }
-  openReactionWindow(state, window.kind, targetId);
+  openActionResponseWindow(state, window.kind, targetId, frame);
   state.auditLog.push(
-    `${actorId}使用离间，将${isTransfer ? "转移" : "锁定"}目标改为：${targetId}`,
+    `${actorId}使用离间，声明将${isTransfer ? "转移" : "锁定"}目标改为：${targetId}`,
   );
   assertGameStateInvariants(state);
 }
@@ -3943,6 +4069,9 @@ export function projectGameForPlayer(
   const currentReactionResponderId = currentResponderId(state);
   const responseFrames = currentResponseFrames(state);
   const topInteraction = topResponseFrame(state);
+  const isActionResponseWindow = Boolean(reactionWindow?.actionFrameId);
+  const isIntelligenceStateWindow =
+    reactionWindow?.kind === "intelligence" && !isActionResponseWindow;
   const receiptFrames =
     resolutionContext?.kind === "receipt" ? resolutionContext.frames : [];
   const canSeePendingCard =
@@ -3974,7 +4103,7 @@ export function projectGameForPlayer(
     transmission.intendedRecipientId === viewerId &&
     transmission.lockedRecipientId !== transmission.intendedRecipientId &&
     !transmission.interceptorCommitted &&
-    reactionWindow?.kind === "intelligence" &&
+    isIntelligenceStateWindow &&
     currentReactionResponderId === viewerId
       ? viewer.hand
           .filter((cardId) => cardById(cardId).name === "转移")
@@ -4050,8 +4179,9 @@ export function projectGameForPlayer(
         )
     : [];
   const transmissionSeparationFrame =
-    reactionWindow?.kind === "transfer" ||
-    reactionWindow?.kind === "lock"
+    isActionResponseWindow &&
+    (reactionWindow?.kind === "transfer" ||
+      reactionWindow?.kind === "lock")
       ? [...receiptFrames]
           .reverse()
           .find((frame) => frame.kind === reactionWindow.kind)
@@ -4062,13 +4192,14 @@ export function projectGameForPlayer(
   const transmissionSeparationTargetId =
     reactionWindow?.kind === "transfer"
       ? transmission?.pendingTransfer?.targetId
-      : reactionWindow?.kind === "lock" && transmission?.locked
-        ? transmission.intendedRecipientId
+      : reactionWindow?.kind === "lock" && transmission?.pendingLock
+        ? transmission.pendingLock.targetId
         : undefined;
   const separationActions =
     currentReactionResponderId === viewerId &&
     transmissionSeparationFrame &&
     transmissionSeparationIsTop &&
+    reactionWindow?.actionFrameId === transmissionSeparationFrame.id &&
     !transmissionSeparationFrame.separationUsed &&
     transmissionSeparationTargetId
       ? viewer.hand
@@ -4089,8 +4220,7 @@ export function projectGameForPlayer(
       : [];
   const interceptActions =
     currentReactionResponderId === viewerId &&
-    (reactionWindow?.kind === "intelligence" ||
-      reactionWindow?.kind === "lock") &&
+    isIntelligenceStateWindow &&
     viewerId !== state.activePlayerId &&
     viewerId !== transmission?.intendedRecipientId &&
     transmission
@@ -4100,8 +4230,7 @@ export function projectGameForPlayer(
       : [];
   const swapActions =
     currentReactionResponderId === viewerId &&
-    (reactionWindow?.kind === "intelligence" ||
-      reactionWindow?.kind === "lock") &&
+    isIntelligenceStateWindow &&
     transmission
       ? viewer.hand
           .filter((cardId) => cardById(cardId).name === "掉包")
@@ -4109,7 +4238,7 @@ export function projectGameForPlayer(
       : [];
   const lureActions =
     currentReactionResponderId === viewerId &&
-    reactionWindow?.kind === "intelligence" &&
+    isIntelligenceStateWindow &&
     transmission &&
     viewerId !== transmission.intendedRecipientId &&
     transmission.intendedRecipientId !== transmission.senderId &&
@@ -4122,7 +4251,7 @@ export function projectGameForPlayer(
       : [];
   const decryptActions =
     currentReactionResponderId === viewerId &&
-    reactionWindow?.kind === "intelligence" &&
+    isIntelligenceStateWindow &&
     transmission?.intendedRecipientId === viewerId &&
     transmission.method !== "文本" &&
     transmission.lockedRecipientId !== transmission.intendedRecipientId &&
@@ -4138,6 +4267,7 @@ export function projectGameForPlayer(
   const counterActions =
     currentReactionResponderId === viewerId &&
     topInteraction &&
+    reactionWindow?.actionFrameId === topInteraction.id &&
     topInteraction.sourcePlayerId !== viewerId &&
     !viewerMustKeepFinalCardForTransmission
       ? viewer.hand
@@ -4152,6 +4282,7 @@ export function projectGameForPlayer(
     currentReactionResponderId === viewerId &&
     !viewerMustKeepFinalCardForTransmission &&
     reactionWindow?.kind === "function" &&
+    reactionWindow.actionFrameId === topInteraction?.id &&
     activeFunctionAction &&
     topInteraction?.kind === "function" &&
     !activeFunctionAction.separationUsed &&
@@ -4184,6 +4315,7 @@ export function projectGameForPlayer(
   const secretOrderActions: PlayerProjection["legalActions"] =
     currentReactionResponderId === viewerId &&
     reactionWindow?.kind === "secretOrder" &&
+    !reactionWindow.actionFrameId &&
     state.pendingSecretOrder?.stage === "offering" &&
     viewerId !== state.activePlayerId
       ? viewer.hand.flatMap((cardId) => {

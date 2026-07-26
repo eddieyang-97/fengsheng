@@ -215,6 +215,70 @@ describe("破译", () => {
 });
 
 describe("秘密下达", () => {
+  it("被识破的秘密下达不消耗机会，并从原响应位置允许再次使用", () => {
+    const state = game(317);
+    const firstOrder = card((candidate) => candidate.variant?.kind === "secretOrder");
+    const secondOrder = card(
+      (candidate) =>
+        candidate.variant?.kind === "secretOrder" && candidate.id !== firstOrder,
+    );
+    const counter = card(
+      (candidate) =>
+        candidate.name === "识破" &&
+        candidate.id !== firstOrder &&
+        candidate.id !== secondOrder,
+    );
+    putInHand(state, "乙", firstOrder, 0);
+    putInHand(state, "乙", secondOrder, 1);
+    putInHand(state, "丙", counter, 0);
+
+    enterTransmissionPhase(state, "甲");
+    playSecretOrder(state, "乙", firstOrder, "听风");
+    playCounter(state, "丙", counter, topResponseFrame(state)!.id);
+    const counterWindow = currentReactionWindow(state);
+    if (!counterWindow) throw new Error("缺少识破响应窗口");
+    while (currentReactionWindow(state) === counterWindow) {
+      passReaction(
+        state,
+        counterWindow.responderOrder[counterWindow.nextResponderIndex],
+      );
+    }
+
+    expect(state.hiddenSecretOrders).toContain(firstOrder);
+    expect(currentResponseFrames(state)).toHaveLength(0);
+    expect(currentReactionWindow(state)).toMatchObject({
+      kind: "secretOrder",
+      responderOrder: ["乙", "丙", "丁", "戊"],
+      nextResponderIndex: 0,
+    });
+    expect(projectGameForPlayer(state, "乙").legalActions).toContainEqual(
+      expect.objectContaining({
+        type: "PLAY_SECRET_ORDER",
+        cardId: secondOrder,
+      }),
+    );
+
+    playSecretOrder(state, "乙", secondOrder, "日落");
+    passAll(state);
+
+    const secondCard: PhysicalCard | undefined = PHYSICAL_DECK.find(
+      (candidate) => candidate.id === secondOrder,
+    );
+    if (secondCard?.variant?.kind !== "secretOrder") {
+      throw new Error("第二张秘密下达测试牌无效");
+    }
+    expect(state.hiddenSecretOrders).toEqual(
+      expect.arrayContaining([firstOrder, secondOrder]),
+    );
+    expect(state.pendingSecretOrder).toMatchObject({
+      stage: "selection",
+      sourcePlayerId: "乙",
+      sourceCardId: secondOrder,
+      requiredColor: secondCard.variant.mapping["日落"],
+    });
+    expect(currentReactionWindow(state)).toBeUndefined();
+  });
+
   it("识破另一张识破时公开记录准确指向栈顶识破", () => {
     const state = game(318);
     const orderId = card((candidate) => candidate.variant?.kind === "secretOrder");
@@ -233,9 +297,7 @@ describe("秘密下达", () => {
 
     enterTransmissionPhase(state, "甲");
     playSecretOrder(state, "乙", orderId, "听风");
-    passReaction(state, "乙");
     playCounter(state, "丙", counterOne, topResponseFrame(state)!.id);
-    passReaction(state, "丙");
     playCounter(state, "丁", counterTwo, topResponseFrame(state)!.id);
 
     expect(state.auditLog.at(-1)).toBe("丁使用识破，反制丙的识破");

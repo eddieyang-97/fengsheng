@@ -47,7 +47,7 @@ and command sequence, engine results are reproducible.
 | Game identity | `mode`, `seatOrder`, `activePlayerId` | Stable seat and mode information |
 | Physical zones | `drawPile`, player hands and intelligence, terminal piles, `transmission.cardId`, resolving frame source cards | Exactly one location for every physical card |
 | Turn/effect state | `phase`, `transmission`, `pendingPublicTextReceipt`, `pendingSecretOrder`, `activeFunctionAction` | Current rule-level operation |
-| Response state | `resolutionStack` | Window ownership, passing order, counter chains, snapshots, and nested effects |
+| Response state | `resolutionStack` | Window ownership, passing order, pending action frames, saved continuations, and nested effects |
 | Outputs and support | `winner`, `auditLog`, `privateNotices`, `randomState`, `nextInteractionSequence` | Results, player-visible history, and deterministic support |
 
 Player IDs, not display names, are stored in the engine. The room layer maps
@@ -128,15 +128,14 @@ while retaining at least one card for transmission.
 
 - function kind and source card/player;
 - original and current target;
-- whether `离间` has already been used;
-- whether the action is countered;
+- whether `离间` has successfully resolved against the action;
 - whether it is responding or awaiting a target/source choice.
 
 The function `ResolutionContext` stores the original function frame followed
-by any `离间` and `识破` frames. Each frame contains a snapshot sufficient to
-reverse the effect immediately when countered. After all responders pass,
-`finishActiveFunctionAction` either cancels the effect or performs the
-function-specific resolution.
+by any pending `离间` and `识破` frames. A declaration does not mutate the
+confirmed target or apply the function effect. After all responders pass, the
+top frame commits atomically; a successful counter instead removes its target
+and resumes the saved parent priority.
 
 Some functions then wait for a private follow-up command, such as choosing a
 `危险情报` discard or responding to a `试探`. During those stages the response
@@ -149,10 +148,12 @@ Entering transmission first creates `pendingSecretOrder` in `preTransmission`:
 
 1. Other living players are offered `秘密下达` in seat order.
 2. If one is played, its declared word and server-known color restriction are
-   recorded and a secret-order resolution context opens.
-3. After responses, the active player selects matching intelligence or asks
+   staged and a secret-order action-response window opens.
+3. A countered order is spent face down but does not consume the opportunity;
+   the original offering window resumes at the same responder.
+4. After one order successfully resolves, the active player selects matching intelligence or asks
    the server to verify that no matching card exists.
-4. The active player then starts transmission.
+5. The active player then starts transmission.
 
 The source and target receive appropriate private card information. A verified
 no-match claim records a persistent private hand snapshot for the source. The
@@ -191,19 +192,19 @@ flowchart LR
 Dedicated windows isolate whether the just-played action is countered. When an
 action resolves, a new full intelligence reaction round opens when required.
 For example, successful `转移` starts a new receipt cycle for its target; a
-countered `掉包` restores state and restarts the intelligence reaction round.
-A countered `调虎离山` instead restores the original intelligence window and
+countered `掉包` never changes the transmitted card and restores the parent
+intelligence priority. A countered `调虎离山` likewise restores the original intelligence window and
 the response position from which it was played, so players who had already
 passed are not prompted again.
 
 The receipt resolution context contains response frames for `截获`, `转移`,
-`离间`, `识破`, `锁定`, `掉包`, `调虎离山`, and `破译`. Frames contain a full
-`ReversibleInteractionSnapshot` of receipt-relevant transmission state.
-`调虎离山` also records the original reaction window so a successful counter
-can restore its exact response priority.
-Playing `识破` restores the target frame's snapshot immediately and pushes a
-new counter frame containing the state from before that restoration. This
-supports arbitrary counter depth without parity-specific code.
+`离间`, `识破`, `锁定`, `掉包`, `调虎离山`, and `破译`. Each pending frame owns
+the source card, proposed target, target-frame link when applicable, and its
+saved parent reaction position. Confirmed transmission fields change only when
+the frame survives its action-response window. A successful `识破` removes the
+counter and its target frame, spends both cards, and resumes the target's saved
+parent priority. This supports arbitrary counter depth without rollback or
+parity-specific code.
 
 ## Resolution stack and reaction windows
 
@@ -218,9 +219,13 @@ state. Its top context identifies:
 - the ordered response frames and whether a paused context is ready to resolve.
 
 Responder order begins with the next living player after the affected player
-and ends with the affected player. All eligible living players are prompted,
-even when the server knows their hand contains no usable response, preserving
-hidden-information timing.
+and normally ends with the affected player. Established-state windows include
+all eligible living players. Action-response windows carry an `actionFrameId`
+and exclude that frame's source player; they offer only direct responses to the
+top frame. All other eligible living players are still prompted even when the
+server knows their hand contains no usable response, preserving hidden-information
+timing. A player excluded from their own action window may re-enter a later
+child-counter window or the new state window created after resolution.
 
 Selectors such as `currentResolutionContext`, `currentReactionWindow`,
 `currentResponseFrames`, and `currentResponderId` expose the active top
@@ -230,7 +235,7 @@ context without duplicating it in `GameState`.
 `finishPassedReactionWindow` dispatches by window kind to resolve the pending
 action or advance the receipt/function/secret-order state machine. New windows
 and responder advancement now pass through shared internal primitives; restored
-snapshots retain their saved order and index.
+parent continuations retain their saved order and index.
 
 ## Burn nesting
 
@@ -277,7 +282,7 @@ transitions, and before projection. It validates, among other things:
 - phase/pending-state correspondence;
 - responder membership, order, and current index;
 - agreement between each window kind and its owning pending action/stack;
-- card name, player identity, target linkage, and snapshot validity for frames;
+- card name, player identity, target linkage, and saved-continuation validity for frames;
 - unique interaction/frame IDs and valid counter targets;
 - transmission commitments and pending response consistency;
 - death, winner, and game-over consistency;

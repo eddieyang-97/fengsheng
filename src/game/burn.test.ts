@@ -210,7 +210,12 @@ describe("烧毁", () => {
     playCounter(state, "甲", counter, burnFrame.id);
 
     expect(state.players["甲"].hand).toEqual([]);
-    expect(unresolvedBurns(state).at(-1)?.countered).toBe(true);
+    expect(unresolvedBurns(state).at(-1)?.countered).toBe(false);
+    expect(unresolvedBurns(state).at(-1)?.frames.at(-1)).toMatchObject({
+      kind: "counter",
+      sourcePlayerId: "甲",
+      targetInteractionId: burnFrame.id,
+    });
   });
 
   it("在行动阶段烧毁存活玩家可烧毁的已接收黑色情报", () => {
@@ -480,7 +485,7 @@ describe("烧毁", () => {
     acceptedBy(state, "丙", innerIntelligence);
     playBurn(state, "甲", burn1, "乙", outerIntelligence);
 
-    for (const responder of ["丙", "丁", "戊", "甲"] as const) {
+    for (const responder of ["丙", "丁", "戊"] as const) {
       expect(
         currentReactionWindow(state)?.responderOrder[currentReactionWindow(state)!.nextResponderIndex],
       ).toBe(responder);

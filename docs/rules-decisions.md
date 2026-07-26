@@ -132,12 +132,13 @@ Hand-limit timing:
 ### General reaction order
 
 - Reaction opportunities are offered to one living player at a time.
-- A new reaction window starts with the next living player clockwise after the pending action's target.
-- Priority continues clockwise through every living player, with the target receiving the final reaction opportunity before resolution.
+- An established-state or opportunity window starts with the next living player clockwise after its anchor and continues through every eligible living player, with the anchor receiving the final opportunity when eligible.
+- Declaring a card action suspends that state window and opens a separate action-response window. This window starts with the next living player clockwise after the pending action's target, but excludes the player who declared that pending action.
+- An action-response window offers only direct responses to its pending top action: `识破`, an applicable `离间`, `烧毁` when otherwise legal, and pass. Actions that operate on the resulting intelligence state, such as `掉包`, `截获`, `转移`, or `破译`, wait until the pending action has resolved.
 - Each priority prompt offers pass plus every card and non-card action currently legal for that player in the window; do not split these into separate card-specific prompts.
 - The server generates the legal-action set, and the UI presents the legal responses in the current response panel while highlighting playable cards in hand.
 - After a reaction is played, open a fresh window starting with the next living player clockwise after that new action's target.
-- When every living eligible-by-seat player passes consecutively, close the window and resolve the pending interaction.
+- When every eligible player passes, atomically resolve the pending interaction, then either restore its saved parent priority or open the new state window created by the result.
 - Dead players are skipped.
 - Prompt all living players in sequence even when the server knows they hold no applicable reaction card, so timing and prompt order do not leak hidden hand information.
 - When the target receives final priority, combine their legal card reactions and any required target decision in one prompt when possible.
@@ -153,10 +154,11 @@ Hand-limit timing:
 ### 截获
 
 - Played before intelligence is accepted.
-- The interceptor becomes the new pending receiver and is committed to accepting the intelligence if that 截获 remains the final successful intercept.
-- 截获 may itself be intercepted.
+- Declaring 截获 does not yet change the intended recipient, remove 锁定, or create an interceptor commitment. It first opens its own action-response window.
+- If 截获 survives that window, it atomically makes the interceptor the intended recipient, creates the mandatory-acceptance commitment, and removes any 锁定 attached to the previous intended recipient.
+- After that commit, open a new ordinary intelligence state window anchored on the interceptor. The interceptor is included at the end of this new window, and another player may now use 截获 or 掉包.
 - Each 截获 may be countered by 识破.
-- If countered, restore the previous pending-recipient state exactly.
+- If countered, cancel the uncommitted 截获 and resume the exact parent intelligence priority from which it was declared.
 - 截获 has priority over 锁定.
 - A successful 截获 removes any 锁定 attached to the previous intended recipient.
 - Do not offer the final interceptor an accept/decline decision, a new 锁定 opportunity, or a 破译 opportunity.
@@ -168,7 +170,7 @@ Hand-limit timing:
 
 Implementation note:
 
-> Use a reversible interaction stack. Do not overwrite only one recipient field.
+> Keep the declaration in a pending response frame and commit recipient state only after the action survives its response window.
 
 ---
 
@@ -178,7 +180,8 @@ Implementation note:
 - It may counter another 识破.
 - A player cannot use 识破 to counter their own card action.
 - Counter chains use the same clockwise reaction-priority system.
-- Countering an action restores the exact authoritative state from immediately before that action.
+- Countering an action cancels its pending frame before its effect is committed, then restores the exact saved parent response position.
+- If 识破 itself is countered, the targeted parent action remains pending and resumes its own action-response window from the saved position.
 - There is no rules-level chain-depth limit; practical server safeguards must not change legal outcomes.
 
 ---
@@ -286,10 +289,10 @@ May redirect the target of:
 - 危险情报
 
 The new target cannot be the original target.
-- At most one 离间 may be played against each original card action; the redirected action cannot be redirected again with another 离间.
+- At most one 离间 may successfully resolve against each original card action; the redirected action cannot be redirected again with another 离间.
 - Redirecting 锁定 changes only the lock target. It does not move the pending intelligence or change the current intended recipient. The original recipient completes the normal receipt response and may accept or decline. If the transmission later reaches the redirected lock target before ending, that player must accept.
 - After 离间 resolves, the original card action remains pending and resumes its own reaction timing with the final target.
-- 识破 may counter 离间 and restores the original target and the response position from which 离间 was played.
+- 识破 may counter 离间. The attempted 离间 card remains spent, but it does not consume the original action's one-success allowance; the original target and exact response position resume, and another 离间 may be attempted.
 
 ---
 
@@ -433,8 +436,8 @@ Draw handling:
 - If the target claims no matching card exists, the server verifies their hand.
 - The player who used 秘密下达 privately inspects the target's hand to verify the claim.
 - If the target truly has no matching card, the order's color restriction ends and the target transmits any otherwise legal card.
-- At most one 秘密下达 may apply to each transmission.
-- 识破 may counter 秘密下达 and restores the exact state before it was played.
+- At most one 秘密下达 may successfully apply to each transmission.
+- 识破 may counter 秘密下达. The countered order remains spent face down, but the opportunity window resumes at the exact player and response position from which it was played, so another 秘密下达 may be attempted.
 - 离间 cannot redirect 秘密下达.
 - Used face down.
 - Included in later reshuffles.

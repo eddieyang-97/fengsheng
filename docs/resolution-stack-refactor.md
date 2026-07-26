@@ -32,7 +32,7 @@ which response context is active.
 - One authoritative owner for the active response window and response frames.
 - Natural nesting: interrupting `烧毁` pushes a context and later pops it.
 - One generic responder-advance operation.
-- One shared counter-chain mechanism with typed domain snapshots.
+- One shared counter-chain mechanism with staged action frames and saved parent continuations.
 - One semantic resolving zone for unresolved physical cards.
 - Stable player/spectator projection and `GameCommand` contracts during the
   migration.
@@ -83,7 +83,7 @@ in place and are not cloned. A normal function, secret order, or receipt
 reaction is a root context. An interrupting burn is pushed above it; a nested
 burn pushes again.
 
-The context discriminant selects domain-specific payload and snapshot types,
+The context discriminant selects domain-specific pending payload and continuation types,
 while shared helpers handle responder validation, pass advancement, top-frame
 selection, interaction IDs, and common counter validation.
 
@@ -141,28 +141,28 @@ longer need a pending-`公开文本` filter.
 
 ## Counter model
 
-The current snapshot restoration approach is sound and should be retained.
+The final model stages effects until their action-response window passes.
 Each domain supplies:
 
-- how to capture its reversible snapshot;
-- how to restore a target frame's snapshot;
-- how to capture state before the counter;
-- the allowed counter card and actor restrictions.
+- the pending effect payload;
+- how to commit it atomically after responses;
+- how to cancel it without mutating confirmed state;
+- the allowed counter card and actor restrictions;
+- the exact parent reaction position to resume.
 
 A shared `playCounterInContext` performs common work:
 
 1. require the actor to be the current responder;
 2. require the requested target to be the top frame;
 3. reject self-countering and invalid hand/card use;
-4. capture the pre-counter snapshot;
-5. restore the target snapshot;
-6. move the counter card from hand into a new resolving frame;
-7. restart responses anchored on the counter's target/source as confirmed by
+4. move the counter card from hand into a new resolving frame;
+5. save the current target-action priority as the counter's continuation;
+6. restart responses anchored on the counter's target/source as confirmed by
    current rules;
-8. assert invariants.
+7. assert invariants.
 
-Domain adapters prevent one universal snapshot type from becoming an unsafe
-bag of optional fields.
+Domain commit/cancel adapters prevent one universal pending-payload type from
+becoming an unsafe bag of optional fields.
 
 ## Passing and continuation
 
@@ -234,7 +234,7 @@ No production state shape changes occur in this phase.
 
 ### Phase 3: migrate function and secret-order contexts
 
-These domains are bounded and prove typed payload/snapshot adapters without the
+These domains are bounded and prove typed payload/continuation adapters without the
 full transmission lifecycle.
 
 - Move response windows and frames into `resolutionStack` one domain at a time.
@@ -395,3 +395,16 @@ Phases 3 through 7 are complete:
 
 The implemented shape preserves command payloads, response order, public and
 private information, log wording, timeout behavior, and game rules.
+
+### 2026-07-26: staged action resolution completed
+
+- action-response windows are identified by their top frame and exclude that
+  frame's source player;
+- established-state windows remain distinct and expose state-changing receipt
+  actions only after the pending action commits;
+- `截获`, `锁定`, `转移`, `掉包`, `调虎离山`, and `破译` no longer mutate
+  confirmed transmission state on declaration;
+- counters cancel pending frames and resume saved continuations instead of
+  restoring domain snapshots;
+- only a successfully resolved `离间` or `秘密下达` consumes its per-parent
+  allowance or opportunity.

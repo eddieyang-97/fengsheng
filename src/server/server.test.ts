@@ -201,7 +201,12 @@ describe("game server sessions", () => {
     });
     expect(counterResult).toMatchObject({ ok: true });
     const burnContext = currentResolutionContext(state);
-    expect(burnContext?.kind === "burn" && burnContext.burn?.countered).toBe(true);
+    expect(burnContext?.kind === "burn" && burnContext.burn?.countered).toBe(false);
+    expect(topResponseFrame(state)).toMatchObject({
+      kind: "counter",
+      sourcePlayerId: opponentId,
+      targetInteractionId: burnFrame.id,
+    });
 
     while (currentReactionWindow(state)?.kind === "burn") {
       const responderId = currentReactionWindow(state)!.responderOrder[
@@ -679,8 +684,8 @@ describe("game server sessions", () => {
     })).toMatchObject({ ok: true });
     expect(state.transmission).toMatchObject({
       intendedRecipientId: recipientId,
-      locked: true,
-      lockedRecipientId: redirectedTargetId,
+      locked: false,
+      pendingLock: expect.objectContaining({ targetId: recipientId }),
     });
     expect(currentReactionWindow(state)).toMatchObject({
       kind: "lock",
@@ -763,9 +768,27 @@ describe("game server sessions", () => {
       affectedPlayerId: fixture.reactorId,
     });
     expect(fixture.state.transmission).toMatchObject({
+      intendedRecipientId: fixture.transferredTargetId,
+      interceptorCommitted: false,
+      transferredRecipientCommitted: true,
+      pendingIntercept: expect.objectContaining({ playerId: fixture.reactorId }),
+    });
+    const interceptWindow = currentReactionWindow(fixture.state);
+    if (!interceptWindow) throw new Error("Expected intercept response window");
+    while (currentReactionWindow(fixture.state) === interceptWindow) {
+      const responderId =
+        interceptWindow.responderOrder[interceptWindow.nextResponderIndex];
+      await emitAck<PlayerProjection>(
+        fixture.socketsByPlayer.get(responderId)!,
+        "game:command",
+        { command: { type: "PASS_REACTION" } },
+      );
+    }
+    expect(fixture.state.transmission).toMatchObject({
       intendedRecipientId: fixture.reactorId,
       interceptorCommitted: true,
       transferredRecipientCommitted: false,
+      pendingIntercept: undefined,
     });
   });
 
@@ -787,15 +810,19 @@ describe("game server sessions", () => {
       kind: "counter",
       sourcePlayerId: fixture.reactorId,
     });
-    expect(fixture.state.transmission?.pendingTransfer).toBeUndefined();
+    expect(fixture.state.transmission?.pendingTransfer).toBeDefined();
     expect(fixture.state.players[fixture.reactorId].hand).not.toContain(fixture.counterCardId);
 
     await passTransferWindowThroughServer(fixture);
 
-    expect(currentReactionWindow(fixture.state)).toBeUndefined();
+    expect(fixture.state.transmission?.pendingTransfer).toBeUndefined();
+    expect(currentReactionWindow(fixture.state)).toMatchObject({
+      kind: "intelligence",
+      affectedPlayerId: fixture.originalRecipientId,
+    });
     expect(fixture.state.transmission).toMatchObject({
       intendedRecipientId: fixture.originalRecipientId,
-      receiptStage: "decision",
+      receiptStage: "reactions",
       transferredRecipientCommitted: false,
     });
   });

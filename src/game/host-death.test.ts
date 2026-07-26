@@ -58,6 +58,17 @@ function passAll(state: GameState): void {
   }
 }
 
+function passCurrentWindow(state: GameState): void {
+  const window = currentReactionWindow(state);
+  if (!window) throw new Error("测试要求存在响应窗口");
+  while (currentReactionWindow(state) === window) {
+    passReaction(
+      state,
+      window.responderOrder[window.nextResponderIndex],
+    );
+  }
+}
+
 describe("房主判定断线玩家死亡", () => {
   it("最后一个敌对阵营玩家死亡时由仍有多名存活者的阵营获胜", () => {
     const state = game(400);
@@ -162,6 +173,7 @@ describe("房主判定断线玩家死亡", () => {
     putInHand(locked, "甲", lock, 1);
     startTransmission(locked, "甲", lockedDirect, { targetId: "乙" });
     playLock(locked, "甲", lock);
+    passCurrentWindow(locked);
     resolveHostImposedDeath(locked, "乙");
     expect(locked.publicDiscard).toContain(lockedDirect);
     const discarded = PHYSICAL_DECK.find((card) => card.id === lockedDirect)!;
@@ -182,6 +194,7 @@ describe("房主判定断线玩家死亡", () => {
     passLockOpportunity(state, "甲");
     expect(currentReactionWindow(state)?.responderOrder[0]).toBe("丙");
     playIntercept(state, "丙", intercept);
+    passCurrentWindow(state);
 
     resolveHostImposedDeath(state, "丙");
 

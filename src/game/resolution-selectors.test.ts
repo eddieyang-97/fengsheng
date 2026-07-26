@@ -13,6 +13,7 @@ import {
   passReaction,
   playBurn,
   playPublicText,
+  playSecretOrder,
   projectGameForPlayer,
   projectGameForSpectator,
   startTransmission,
@@ -149,6 +150,9 @@ describe("统一解析状态读取器", () => {
     expect(context?.kind === "burn" ? context.burn.sourceCardId : undefined)
       .toBe(burn);
     expect(topResponseFrame(state)).toBe(context?.frames.at(-1));
+    expect(currentPromptFingerprint(state)).toContain(
+      context!.frames.at(-1)!.id,
+    );
   });
 
   it("将秘密下达询问窗口映射为无帧的秘密下达上下文", () => {
@@ -161,6 +165,22 @@ describe("统一解析状态读取器", () => {
     expect(context?.frames).toEqual([]);
     expect(currentResponseFrames(state)).toEqual([]);
     expect(currentResponderId(state)).toBe("乙");
+  });
+
+  it("秘密下达行动窗口的提示指纹包含当前帧", () => {
+    const state = game(906);
+    const order = cardId((card) => card.name === "秘密下达");
+    putInHand(state, "乙", order);
+
+    enterTransmissionPhase(state, "甲");
+    playSecretOrder(state, "乙", order, "听风");
+
+    expect(currentResolutionContext(state)).toMatchObject({
+      kind: "secretOrder",
+    });
+    expect(currentPromptFingerprint(state)).toContain(
+      topResponseFrame(state)!.id,
+    );
   });
 
   it("保持锁定提示及随后情报响应的指纹兼容", () => {

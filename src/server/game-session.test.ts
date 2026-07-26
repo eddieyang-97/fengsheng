@@ -107,10 +107,17 @@ describe("GameSessionService", () => {
       targetId: redirectedTargetId,
     });
 
+    const separationWindow = currentReactionWindow(state);
+    if (!separationWindow) throw new Error("缺少离间响应窗口");
+    while (currentReactionWindow(state) === separationWindow) {
+      const responderId =
+        separationWindow.responderOrder[separationWindow.nextResponderIndex];
+      sessions.dispatch("ABCDEF", responderId, { type: "PASS_REACTION" });
+    }
     expect(state.transmission).toMatchObject({
       intendedRecipientId: recipientId,
-      locked: true,
-      lockedRecipientId: redirectedTargetId,
+      locked: false,
+      pendingLock: expect.objectContaining({ targetId: redirectedTargetId }),
     });
     expect(currentReactionWindow(state)).toMatchObject({
       kind: "lock",
@@ -170,6 +177,17 @@ describe("GameSessionService", () => {
       cardId: functionSeparation.id as PhysicalCardId,
       targetId: newFunctionTargetId,
     });
+    const functionSeparationWindow = currentReactionWindow(functionState);
+    if (!functionSeparationWindow) throw new Error("缺少功能牌离间响应窗口");
+    while (currentReactionWindow(functionState) === functionSeparationWindow) {
+      const responderId =
+        functionSeparationWindow.responderOrder[
+          functionSeparationWindow.nextResponderIndex
+        ];
+      functionSessions.dispatch("ABCDEF", responderId, {
+        type: "PASS_REACTION",
+      });
+    }
     expect(functionState.activeFunctionAction?.targetPlayerId).toBe(
       newFunctionTargetId,
     );
@@ -234,6 +252,17 @@ describe("GameSessionService", () => {
       cardId: transferSeparation.id as PhysicalCardId,
       targetId: senderId,
     });
+    const transferSeparationWindow = currentReactionWindow(transferState);
+    if (!transferSeparationWindow) throw new Error("缺少转移离间响应窗口");
+    while (currentReactionWindow(transferState) === transferSeparationWindow) {
+      const responderId =
+        transferSeparationWindow.responderOrder[
+          transferSeparationWindow.nextResponderIndex
+        ];
+      transferSessions.dispatch("GHIJKL", responderId, {
+        type: "PASS_REACTION",
+      });
+    }
     expect(transferState.transmission?.pendingTransfer?.targetId).toBe(senderId);
   });
 

@@ -159,10 +159,9 @@ describe("行动阶段功能牌框架", () => {
       "丙",
       "丁",
       "戊",
-      "甲",
       "乙",
     ]);
-    for (const responder of ["丙", "丁", "戊", "甲"] as const) {
+    for (const responder of ["丙", "丁", "戊"] as const) {
       passReaction(state, responder);
     }
     expect(state.activeFunctionAction?.kind).toBe("publicText");
@@ -224,7 +223,7 @@ describe("行动阶段功能牌框架", () => {
       .toContain(publicText);
   });
 
-  it("识破取消栈顶功能牌，且一次原始行动最多使用一次离间", () => {
+  it("识破取消栈顶功能牌，且一次原始行动最多成功结算一次离间", () => {
     const counterState = game(12);
     const reinforcement = cardId("增援");
     const counter = cardId("识破");
@@ -256,17 +255,24 @@ describe("行动阶段功能牌框架", () => {
       firstSeparation,
       "丁",
     );
+    const separationWindow = currentReactionWindow(separationState);
+    if (!separationWindow) throw new Error("缺少离间响应窗口");
+    while (currentReactionWindow(separationState) === separationWindow) {
+      passReaction(
+        separationState,
+        separationWindow.responderOrder[separationWindow.nextResponderIndex],
+      );
+    }
     expect(separationState.activeFunctionAction?.targetPlayerId).toBe("丁");
     expect(currentReactionWindow(separationState)?.responderOrder).toEqual([
       "戊",
-      "甲",
       "乙",
       "丙",
       "丁",
     ]);
     expect(() =>
       playSeparationOnFunction(separationState, "戊", secondSeparation, "乙"),
-    ).toThrow("同一原始卡牌行动最多使用一次离间");
+    ).toThrow("同一原始卡牌行动最多只能成功结算一次离间");
   });
 
   it("试探生成离间合法动作，且空手的新目标仍可成为试探目标", () => {
