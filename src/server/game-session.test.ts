@@ -96,6 +96,18 @@ describe("GameSessionService", () => {
       cardId: lock.id as PhysicalCardId,
     });
 
+    expect(sessions.project("ABCDEF", reactorId).legalActions).not.toContainEqual({
+      type: "PLAY_SEPARATION",
+      cardId: separation.id,
+      targetId: senderId,
+    });
+    expect(() =>
+      sessions.dispatch("ABCDEF", reactorId, {
+        type: "PLAY_SEPARATION",
+        cardId: separation.id as PhysicalCardId,
+        targetId: senderId,
+      }),
+    ).toThrow("离间必须选择另一个合法存活目标");
     expect(sessions.project("ABCDEF", reactorId).legalActions).toContainEqual({
       type: "PLAY_SEPARATION",
       cardId: separation.id,
@@ -241,6 +253,19 @@ describe("GameSessionService", () => {
       targetId: transferTargetId,
     });
 
+    expect(transferSessions.project("GHIJKL", transferReactorId).legalActions)
+      .not.toContainEqual({
+        type: "PLAY_SEPARATION",
+        cardId: transferSeparation.id,
+        targetId: recipientId,
+      });
+    expect(() =>
+      transferSessions.dispatch("GHIJKL", transferReactorId, {
+        type: "PLAY_SEPARATION",
+        cardId: transferSeparation.id as PhysicalCardId,
+        targetId: recipientId,
+      }),
+    ).toThrow("离间必须选择另一个合法存活目标");
     expect(transferSessions.project("GHIJKL", transferReactorId).legalActions)
       .toContainEqual({
         type: "PLAY_SEPARATION",

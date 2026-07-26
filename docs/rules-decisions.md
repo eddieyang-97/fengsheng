@@ -288,7 +288,7 @@ May redirect the target of:
 - 公开文本
 - 危险情报
 
-The new target cannot be the original target.
+- The new target cannot be either the original card action's user or its original target.
 - At most one 离间 may successfully resolve against each original card action; the redirected action cannot be redirected again with another 离间.
 - Redirecting 锁定 changes only the lock target. It does not move the pending intelligence or change the current intended recipient. The original recipient completes the normal receipt response and may accept or decline. If the transmission later reaches the redirected lock target before ending, that player must accept.
 - After 离间 resolves, the original card action remains pending and resumes its own reaction timing with the final target.

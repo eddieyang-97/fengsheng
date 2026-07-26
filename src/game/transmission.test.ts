@@ -649,7 +649,7 @@ describe("转移", () => {
     });
   });
 
-  it("离间可改换待结算转移的目标并从新目标重开顺时针窗口", () => {
+  it("离间不能改回转移使用者，但可改换到其他目标并重开顺时针窗口", () => {
     const state = initializedWithActive(players, 65);
     const directCard = cardIdWhere((card) => card.transmission === "直达");
     const transferCard = cardIdWhere((card) => card.name === "转移", [directCard]);
@@ -666,17 +666,25 @@ describe("转移", () => {
     playTransfer(state, "甲", transferCard, "丁");
 
     passUntilReactionTurn(state, "丁");
-    expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
+    expect(projectGameForPlayer(state, "丁").legalActions).not.toContainEqual({
       type: "PLAY_SEPARATION",
       cardId: separationCard,
       targetId: "甲",
     });
-    playSeparationOnTransfer(state, "丁", separationCard, "甲");
+    expect(() =>
+      playSeparationOnTransfer(state, "丁", separationCard, "甲"),
+    ).toThrow("离间必须选择另一个合法存活目标");
+    expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
+      type: "PLAY_SEPARATION",
+      cardId: separationCard,
+      targetId: "乙",
+    });
+    playSeparationOnTransfer(state, "丁", separationCard, "乙");
 
     expect(state.transmission?.pendingTransfer?.targetId).toBe("丁");
     expect(currentReactionWindow(state)).toMatchObject({
-      affectedPlayerId: "甲",
-      responderOrder: ["乙", "丙", "戊", "甲"],
+      affectedPlayerId: "乙",
+      responderOrder: ["丙", "戊", "甲", "乙"],
       nextResponderIndex: 0,
     });
     expect(
@@ -685,14 +693,14 @@ describe("转移", () => {
       ),
     ).toBeDefined();
     finishCurrentReactionWindow(state);
-    expect(state.transmission?.pendingTransfer?.targetId).toBe("甲");
+    expect(state.transmission?.pendingTransfer?.targetId).toBe("乙");
     expect(currentReactionWindow(state)).toMatchObject({
-      affectedPlayerId: "甲",
-      responderOrder: ["乙", "丙", "丁", "戊"],
+      affectedPlayerId: "乙",
+      responderOrder: ["丙", "丁", "戊", "乙"],
       nextResponderIndex: 0,
     });
     passAllReactions(state);
-    expect(state.transmission?.intendedRecipientId).toBe("甲");
+    expect(state.transmission?.intendedRecipientId).toBe("乙");
   });
 
   it("拒绝损坏的响应位置和转移目标关联", () => {

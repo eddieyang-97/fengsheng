@@ -2245,6 +2245,24 @@ export function playProbe(
   assertGameStateInvariants(state);
 }
 
+function isLegalSeparationTarget(
+  state: GameState,
+  targetId: PlayerId,
+  sourcePlayerId: PlayerId,
+  originalTargetPlayerId: PlayerId,
+  currentTargetPlayerId: PlayerId,
+  requireHand: boolean,
+): boolean {
+  const target = state.players[targetId];
+  return Boolean(
+    target?.alive &&
+      targetId !== sourcePlayerId &&
+      targetId !== originalTargetPlayerId &&
+      targetId !== currentTargetPlayerId &&
+      (!requireHand || target.hand.length > 0),
+  );
+}
+
 export function playSeparationOnFunction(
   state: GameState,
   actorId: PlayerId,
@@ -2283,14 +2301,14 @@ export function playSeparationOnFunction(
   if (mustKeepFinalCardForTransmission(state, actorId, actor.hand.length)) {
     throw new Error("当前玩家必须至少保留一张手牌用于传递");
   }
-  if (
-    targetId === action.targetPlayerId ||
-    targetId === action.originalTargetPlayerId ||
-    targetId === action.sourcePlayerId ||
-    !state.players[targetId]?.alive ||
-    ((action.kind === "publicText" || action.kind === "dangerousIntelligence") &&
-      state.players[targetId].hand.length === 0)
-  ) {
+  if (!isLegalSeparationTarget(
+    state,
+    targetId,
+    action.sourcePlayerId,
+    action.originalTargetPlayerId,
+    action.targetPlayerId,
+    action.kind === "publicText" || action.kind === "dangerousIntelligence",
+  )) {
     throw new Error("离间必须选择另一个合法存活目标");
   }
 
@@ -4030,11 +4048,14 @@ export function playSeparationOnTransmission(
   const currentTargetId = isTransfer
     ? pending!.targetId
     : pendingLock!.targetId;
-  if (
-    targetId === currentTargetId ||
-    targetId === baseFrame.targetPlayerId ||
-    !state.players[targetId]?.alive
-  ) {
+  if (!isLegalSeparationTarget(
+    state,
+    targetId,
+    baseFrame.sourcePlayerId,
+    baseFrame.targetPlayerId,
+    currentTargetId,
+    false,
+  )) {
     throw new Error("离间必须选择另一个合法存活目标");
   }
 
@@ -4208,8 +4229,14 @@ export function projectGameForPlayer(
             state.seatOrder
               .filter(
                 (targetId) =>
-                  state.players[targetId].alive &&
-                  targetId !== transmissionSeparationTargetId,
+                  isLegalSeparationTarget(
+                    state,
+                    targetId,
+                    transmissionSeparationFrame.sourcePlayerId,
+                    transmissionSeparationFrame.targetPlayerId,
+                    transmissionSeparationTargetId,
+                    false,
+                  ),
               )
               .map((targetId) => ({
                 type: "PLAY_SEPARATION" as const,
@@ -4296,13 +4323,15 @@ export function projectGameForPlayer(
             state.seatOrder
               .filter(
                 (targetId) =>
-                  state.players[targetId].alive &&
-                  ((activeFunctionAction.kind !== "publicText" &&
-                    activeFunctionAction.kind !== "dangerousIntelligence") ||
-                    state.players[targetId].hand.length > 0) &&
-                  targetId !== activeFunctionAction.sourcePlayerId &&
-                  targetId !== activeFunctionAction.originalTargetPlayerId &&
-                  targetId !== activeFunctionAction.targetPlayerId,
+                  isLegalSeparationTarget(
+                    state,
+                    targetId,
+                    activeFunctionAction.sourcePlayerId,
+                    activeFunctionAction.originalTargetPlayerId,
+                    activeFunctionAction.targetPlayerId,
+                    activeFunctionAction.kind === "publicText" ||
+                      activeFunctionAction.kind === "dangerousIntelligence",
+                  ),
               )
               .map((targetId) => ({
                 type: "PLAY_FUNCTION_SEPARATION" as const,
