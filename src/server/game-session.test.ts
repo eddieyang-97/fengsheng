@@ -62,6 +62,54 @@ describe("GameSessionService", () => {
     expect(sessions.project("ABCDEF", targetId).own.id).toBe(targetId);
   });
 
+  it("dispatches a receipt decision directly from the recipient's final reaction prompt", () => {
+    const sessions = new GameSessionService();
+    const state = sessions.create("ABCDEF", players, 239);
+    const senderId = state.activePlayerId;
+    const senderIndex = state.seatOrder.indexOf(senderId);
+    const recipientId = state.seatOrder[(senderIndex + 1) % state.seatOrder.length];
+    const intelligence = PHYSICAL_DECK.find(
+      (card) => card.transmission === "直达" && card.name !== "锁定",
+    )!;
+    detachCard(state, intelligence.id);
+    state.players[senderId].hand.push(intelligence.id as PhysicalCardId);
+
+    sessions.dispatch("ABCDEF", senderId, {
+      type: "START_TRANSMISSION",
+      cardId: intelligence.id as PhysicalCardId,
+      targetId: recipientId,
+    });
+    sessions.dispatch("ABCDEF", senderId, { type: "PASS_LOCK" });
+    expect(() =>
+      sessions.dispatch("ABCDEF", recipientId, {
+        type: "ACCEPT_INTELLIGENCE",
+      }),
+    ).toThrow("尚未进入接收决定阶段");
+
+    while (currentReactionWindow(state)?.responderOrder[
+      currentReactionWindow(state)!.nextResponderIndex
+    ] !== recipientId) {
+      const window = currentReactionWindow(state);
+      if (!window) throw new Error("接收者获得最终响应机会前窗口意外结束");
+      sessions.dispatch(
+        "ABCDEF",
+        window.responderOrder[window.nextResponderIndex],
+        { type: "PASS_REACTION" },
+      );
+    }
+
+    const actions = sessions.project("ABCDEF", recipientId).legalActions;
+    expect(actions).toContainEqual({ type: "ACCEPT_INTELLIGENCE" });
+    expect(actions).toContainEqual({ type: "DECLINE_INTELLIGENCE" });
+    expect(actions).not.toContainEqual({ type: "PASS_REACTION" });
+    expect(() =>
+      sessions.dispatch("ABCDEF", recipientId, {
+        type: "ACCEPT_INTELLIGENCE",
+      }),
+    ).not.toThrow();
+    expect(state.players[recipientId].intelligence).toContain(intelligence.id);
+  });
+
   it("dispatches 离间 against 锁定 using the server-generated legal target", () => {
     const sessions = new GameSessionService();
     const state = sessions.create("ABCDEF", players, 240);

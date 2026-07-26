@@ -303,6 +303,39 @@ describe("开始传递", () => {
 });
 
 describe("接收、死亡与胜利", () => {
+  it("最终接收者在同一提示中响应并选择接收或拒绝", () => {
+    const acceptingState = initializedWithActive(players, 201);
+    const acceptingCard = cardIdWhere((card) => card.transmission === "直达");
+    putCardInHand(acceptingState, "甲", acceptingCard, 0);
+    startTransmission(acceptingState, "甲", acceptingCard, { targetId: "乙" });
+    passLockOpportunity(acceptingState, "甲");
+
+    expect(() => acceptIntelligence(acceptingState, "乙")).toThrow(
+      "尚未进入接收决定阶段",
+    );
+    passUntilReactionTurn(acceptingState, "乙");
+    expect(acceptingState.transmission?.receiptStage).toBe("reactions");
+    const finalActions = projectGameForPlayer(acceptingState, "乙").legalActions;
+    expect(finalActions).toContainEqual({ type: "ACCEPT_INTELLIGENCE" });
+    expect(finalActions).toContainEqual({ type: "DECLINE_INTELLIGENCE" });
+    expect(finalActions).not.toContainEqual({ type: "PASS_REACTION" });
+    acceptIntelligence(acceptingState, "乙");
+    expect(acceptingState.players["乙"].intelligence).toContain(acceptingCard);
+
+    const decliningState = initializedWithActive(players, 202);
+    const decliningCard = cardIdWhere((card) => card.transmission === "直达");
+    putCardInHand(decliningState, "甲", decliningCard, 0);
+    startTransmission(decliningState, "甲", decliningCard, { targetId: "乙" });
+    passLockOpportunity(decliningState, "甲");
+    passUntilReactionTurn(decliningState, "乙");
+    declineIntelligence(decliningState, "乙");
+    expect(decliningState.transmission).toMatchObject({
+      intendedRecipientId: "甲",
+      receiptStage: "reactions",
+      returnedToSender: true,
+    });
+  });
+
   it("接收后将实体牌移入接收者情报区", () => {
     const state = initializedWithActive(players, 5);
     const cardId = cardIdWhere(
@@ -493,7 +526,8 @@ describe("转移", () => {
     passUntilReactionTurn(state, "甲");
 
     const actions = projectGameForPlayer(state, "甲").legalActions;
-    expect(actions).toContainEqual({ type: "PASS_REACTION" });
+    expect(actions).toContainEqual({ type: "ACCEPT_INTELLIGENCE" });
+    expect(actions).not.toContainEqual({ type: "PASS_REACTION" });
     expect(actions).toContainEqual({
       type: "PLAY_TRANSFER",
       cardId: transferCard,
@@ -1042,7 +1076,7 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     });
   });
 
-  it("最终截获者在响应结束后自动接收", () => {
+  it("最终截获者在最后响应机会中确认接收", () => {
     const state = initializedWithActive(players, 74);
     const intelligence = cardIdWhere((card) => card.transmission === "直达");
     const intercept = cardIdWhere((card) => card.name === "截获", [intelligence]);
@@ -1052,8 +1086,13 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     startTransmission(state, "甲", intelligence, { targetId: "乙" });
     passLockOpportunity(state, "甲");
     playIntercept(state, "丙", intercept);
-    passAllReactions(state);
+    passUntilReactionTurn(state, "丙");
 
+    expect(projectGameForPlayer(state, "丙").legalActions).toEqual([
+      { type: "ACCEPT_INTELLIGENCE" },
+    ]);
+    expect(state.transmission?.receiptStage).toBe("reactions");
+    acceptIntelligence(state, "丙");
     expect(state.transmission).toBeUndefined();
     expect(state.players["丙"].intelligence).toContain(intelligence);
   });
@@ -1108,7 +1147,11 @@ describe("截获、掉包、调虎离山与转移接收", () => {
       intendedRecipientId: "丙",
       interceptorCommitted: true,
     });
-    passAllReactions(state);
+    passUntilReactionTurn(state, "丙");
+    expect(projectGameForPlayer(state, "丙").legalActions).toContainEqual({
+      type: "ACCEPT_INTELLIGENCE",
+    });
+    acceptIntelligence(state, "丙");
     expect(state.transmission).toBeUndefined();
     expect(state.players["丙"].intelligence).toContain(swap);
     expect(state.publicDiscard).toContain(intelligence);

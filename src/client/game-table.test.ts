@@ -513,6 +513,20 @@ describe("action dock hierarchy", () => {
     })).toBe("可使用高亮手牌，或选择下方的可用操作。");
   });
 
+  it("labels the recipient's combined reaction and receipt decision", () => {
+    expect(promptTitle({
+      ...projection,
+      reactionWindow: {
+        kind: "intelligence",
+        currentResponderId: "甲",
+      },
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "DECLINE_INTELLIGENCE" },
+      ],
+    })).toBe("轮到你响应并决定是否接收情报");
+  });
+
   it("treats transmission card selection as an active decision", () => {
     expect(promptDescription({
       ...projection,

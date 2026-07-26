@@ -613,6 +613,12 @@ export function promptTitle(projection: PlayerProjection): string {
   if (actions.length === 0) return "等待其他玩家操作";
   if (actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT")) return "手牌超过 7 张，请先弃牌";
   if (actions.some((action) => action.type === "PASS_LOCK")) return "是否锁定这份情报？";
+  if (
+    projection.reactionWindow?.kind === "intelligence" &&
+    actions.some((action) => action.type === "ACCEPT_INTELLIGENCE")
+  ) {
+    return "轮到你响应并决定是否接收情报";
+  }
   if (actions.some((action) => action.type === "PASS_REACTION")) return "轮到你响应";
   if (actions.some((action) => action.type === "ACCEPT_INTELLIGENCE")) return "是否接收这份情报？";
   if (actions.some((action) => action.type === "CHOOSE_PUBLIC_TEXT_EFFECT")) return "选择公开文本效果";

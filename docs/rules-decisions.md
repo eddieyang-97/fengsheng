@@ -141,7 +141,8 @@ Hand-limit timing:
 - When every eligible player passes, atomically resolve the pending interaction, then either restore its saved parent priority or open the new state window created by the result.
 - Dead players are skipped.
 - Prompt all living players in sequence even when the server knows they hold no applicable reaction card, so timing and prompt order do not leak hidden hand information.
-- When the target receives final priority, combine their legal card reactions and any required target decision in one prompt when possible.
+- When the intended intelligence recipient receives final priority in an established intelligence window, combine their legal card reactions and receipt decision in one prompt. Replace pass with `接收情报` and, when refusal is legal, `拒绝情报`; choosing either ends that final reaction opportunity.
+- If that combined prompt times out, skip only the optional reaction opportunity and continue to the ordinary untimed receipt-decision stage. Never choose receipt or refusal for the player.
 - Priority anchors for current confirmed actions:
   - targeted function card: the declared target
   - 截获: the new pending recipient/interceptor

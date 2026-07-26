@@ -3021,6 +3021,33 @@ function beginPublicTextReceiptEffect(
   assertGameStateInvariants(state);
 }
 
+function isCombinedReceiptDecision(
+  state: GameState,
+  actorId: PlayerId,
+): boolean {
+  const transmission = state.transmission;
+  const window = currentReactionWindow(state);
+  return Boolean(
+    transmission?.receiptStage === "reactions" &&
+      transmission.intendedRecipientId === actorId &&
+      window?.kind === "intelligence" &&
+      !window.actionFrameId &&
+      window.responderOrder[window.nextResponderIndex] === actorId &&
+      window.nextResponderIndex === window.responderOrder.length - 1,
+  );
+}
+
+function enterCombinedReceiptDecision(
+  state: GameState,
+  actorId: PlayerId,
+): boolean {
+  if (!isCombinedReceiptDecision(state, actorId)) return false;
+  settleReceiptResolution(state);
+  if (!state.transmission) throw new Error("当前没有待回应的情报");
+  state.transmission.receiptStage = "decision";
+  return true;
+}
+
 export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
   const transmission = state.transmission;
   if (state.phase !== "transmitting" || !transmission) {
@@ -3029,12 +3056,16 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
   if (transmission.intendedRecipientId !== actorId) {
     throw new Error("只有当前接收者可以接收情报");
   }
-  if (transmission.receiptStage !== "decision") {
+  const combinedDecision = isCombinedReceiptDecision(state, actorId);
+  if (transmission.receiptStage !== "decision" && !combinedDecision) {
     throw new Error("尚未进入接收决定阶段");
   }
   const receiver = state.players[actorId];
   if (!receiver?.alive) throw new Error("死亡玩家不能接收情报");
-  if (currentReactionWindow(state)) throw new Error("情报响应窗口尚未结束");
+  if (!combinedDecision && currentReactionWindow(state)) {
+    throw new Error("情报响应窗口尚未结束");
+  }
+  enterCombinedReceiptDecision(state, actorId);
   const acceptedCard = cardById(transmission.cardId);
   receiver.intelligence.push(transmission.cardId);
   state.transmission = undefined;
@@ -3141,11 +3172,14 @@ export function declineIntelligence(state: GameState, actorId: PlayerId): void {
   if (transmission.intendedRecipientId !== actorId) {
     throw new Error("只有当前接收者可以拒绝情报");
   }
-  if (transmission.receiptStage !== "decision") {
+  const combinedDecision = isCombinedReceiptDecision(state, actorId);
+  if (transmission.receiptStage !== "decision" && !combinedDecision) {
     throw new Error("尚未进入接收决定阶段");
   }
   if (!state.players[actorId]?.alive) throw new Error("死亡玩家不能回应情报");
-  if (currentReactionWindow(state)) throw new Error("情报响应窗口尚未结束");
+  if (!combinedDecision && currentReactionWindow(state)) {
+    throw new Error("情报响应窗口尚未结束");
+  }
   if (actorId === transmission.senderId && transmission.returnedToSender) {
     throw new Error("返回发送者的情报必须接收或转移，不能再次拒绝");
   }
@@ -3159,6 +3193,7 @@ export function declineIntelligence(state: GameState, actorId: PlayerId): void {
     throw new Error("锁定要求当前接收者接收情报");
   }
 
+  enterCombinedReceiptDecision(state, actorId);
   const nextRecipientId =
     transmission.method === "直达"
       ? transmission.senderId
@@ -3560,11 +3595,7 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
   } else if (window.kind === "intelligence") {
     settleReceiptResolution(state);
     if (state.transmission) state.transmission.receiptStage = "decision";
-    if (state.transmission?.interceptorCommitted) {
-      acceptIntelligence(state, state.transmission.intendedRecipientId);
-    } else {
-      assertGameStateInvariants(state);
-    }
+    assertGameStateInvariants(state);
   } else {
     throw new Error("无行动帧的响应窗口类型无效");
   }
@@ -4291,6 +4322,22 @@ export function projectGameForPlayer(
     transmission?.interceptorCommitted === true ||
     transmission?.transferredRecipientCommitted === true ||
     transmission?.lockedRecipientId === transmission?.intendedRecipientId;
+  const isFinalRecipientReactionDecision =
+    currentReactionResponderId === viewerId &&
+    isCurrentRecipient &&
+    isIntelligenceStateWindow &&
+    reactionWindow!.nextResponderIndex === reactionWindow!.responderOrder.length - 1;
+  const combinedReceiptActions: PlayerProjection["legalActions"] =
+    isFinalRecipientReactionDecision
+      ? [
+          ...(canAccept ? [{ type: "ACCEPT_INTELLIGENCE" } as const] : []),
+          ...(!isReturnedForViewer &&
+          !recipientMustAccept &&
+          transmission?.lockedRecipientId !== transmission?.intendedRecipientId
+            ? [{ type: "DECLINE_INTELLIGENCE" as const }]
+            : []),
+        ]
+      : [];
   const counterActions =
     currentReactionResponderId === viewerId &&
     topInteraction &&
@@ -4522,7 +4569,9 @@ export function projectGameForPlayer(
         ? [{ type: "PASS_LOCK" }, ...lockActions]
       : currentReactionResponderId === viewerId
         ? [
-            { type: "PASS_REACTION" },
+            ...(isFinalRecipientReactionDecision
+              ? combinedReceiptActions
+              : [{ type: "PASS_REACTION" as const }]),
             ...separationActions,
             ...interceptActions,
             ...swapActions,
