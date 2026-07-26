@@ -603,6 +603,91 @@ describe("game server sessions", () => {
     );
   });
 
+  it("accepts 离间 against 锁定 through the server command socket", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 83, botDelayMs: 60_000 });
+    await server.listen(0, "127.0.0.1");
+    const port = (server.httpServer.address() as AddressInfo).port;
+    const clients = Array.from({ length: 5 }, () => connect(port));
+    sockets.push(...clients);
+    await Promise.all(clients.map(connected));
+    const created = await emitAck<SafeRoomEntryResult>(clients[0], "room:create", {
+      capacity: 5,
+      displayName: "玩家1",
+    });
+    const entries = [created];
+    for (let index = 1; index < clients.length; index += 1) {
+      entries.push(await emitAck<SafeRoomEntryResult>(clients[index], "room:join", {
+        roomCode: created.room.code,
+        displayName: `玩家${index + 1}`,
+      }));
+    }
+    await emitAck<SafeStartRoomResult>(clients[0], "room:start", { seatMode: "as-is" });
+
+    const socketsByPlayer = new Map(entries.map((entry, index) => [entry.playerId, clients[index]]));
+    const state = server.gameSessionService.getState(created.room.code);
+    const senderIndex = state.seatOrder.indexOf(state.activePlayerId);
+    const senderId = state.activePlayerId;
+    const recipientId = state.seatOrder[(senderIndex + 1) % state.seatOrder.length];
+    const reactorId = state.seatOrder[(senderIndex + 2) % state.seatOrder.length];
+    const redirectedTargetId = state.seatOrder[(senderIndex + 3) % state.seatOrder.length];
+    const intelligence = PHYSICAL_DECK.find(
+      (card) => card.transmission === "直达" && card.name !== "锁定",
+    )!;
+    const lock = PHYSICAL_DECK.find((card) => card.name === "锁定")!;
+    const separation = PHYSICAL_DECK.find((card) => card.name === "离间")!;
+    for (const card of [intelligence, lock, separation]) detachCard(state, card.id);
+    state.players[senderId].hand.push(
+      intelligence.id as PhysicalCardId,
+      lock.id as PhysicalCardId,
+    );
+    state.players[reactorId].hand.push(separation.id as PhysicalCardId);
+
+    enterTransmissionPhase(state, senderId);
+    while (currentReactionWindow(state)) {
+      passReaction(
+        state,
+        currentReactionWindow(state)!.responderOrder[
+          currentReactionWindow(state)!.nextResponderIndex
+        ],
+      );
+    }
+    await emitAck<PlayerProjection>(socketsByPlayer.get(senderId)!, "game:command", {
+      command: {
+        type: "START_TRANSMISSION",
+        cardId: intelligence.id as PhysicalCardId,
+        targetId: recipientId,
+      },
+    });
+    await emitAck<PlayerProjection>(socketsByPlayer.get(senderId)!, "game:command", {
+      command: { type: "PLAY_LOCK", cardId: lock.id as PhysicalCardId },
+    });
+
+    expect(server.gameSessionService.project(
+      created.room.code,
+      reactorId,
+    ).legalActions).toContainEqual({
+      type: "PLAY_SEPARATION",
+      cardId: separation.id,
+      targetId: redirectedTargetId,
+    });
+    expect(await emitRawAck(socketsByPlayer.get(reactorId)!, "game:command", {
+      command: {
+        type: "PLAY_SEPARATION",
+        cardId: separation.id as PhysicalCardId,
+        targetId: redirectedTargetId,
+      },
+    })).toMatchObject({ ok: true });
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: recipientId,
+      locked: true,
+      lockedRecipientId: redirectedTargetId,
+    });
+    expect(currentReactionWindow(state)).toMatchObject({
+      kind: "lock",
+      affectedPlayerId: redirectedTargetId,
+    });
+  });
+
   it("accepts 掉包 through the server after a transfer response window resolves", async () => {
     server = createGameServer({ gameSeedGenerator: () => 82, botDelayMs: 60_000 });
     const fixture = await createTransferBoundaryFixture(server, sockets);

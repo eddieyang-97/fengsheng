@@ -5,6 +5,7 @@ import type { PlayerProjection } from "../game/engine";
 import type { ChatMessageSnapshot, PublicAuditEvent } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reactions";
+import { CardArtwork, cardArtPath } from "./CardArtwork";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import { FinalHandsPanel } from "./FinalHandsPanel";
@@ -357,27 +358,7 @@ function cardTone(card: PhysicalCard): string {
   return card.color === "红" ? "red" : card.color === "蓝" ? "blue" : card.color === "红蓝" ? "dual" : "black";
 }
 
-const CARD_ART_SLUGS: Record<PhysicalCard["name"], string> = {
-  公开文本: "public-text",
-  试探: "probe",
-  破译: "decrypt",
-  烧毁: "burn",
-  锁定: "lock",
-  截获: "intercept",
-  掉包: "swap",
-  离间: "separation",
-  秘密下达: "secret-order",
-  调虎离山: "lure",
-  危险情报: "dangerous-intelligence",
-  识破: "counter",
-  转移: "transfer",
-  增援: "reinforcement",
-  机密文件: "confidential-file",
-};
-
-export function cardArtPath(cardName: PhysicalCard["name"]): string {
-  return `/card-art/${CARD_ART_SLUGS[cardName]}.png`;
-}
+export { cardArtPath };
 
 export function factionBackgroundClass(faction: Faction): string {
   if (faction === "军情") return "game-shell--faction-intelligence";
@@ -460,19 +441,7 @@ export function publicTextReceiptEffect(card: PhysicalCard): string | undefined 
 }
 
 function CardDetailDialog({ card, onClose }: { card: PhysicalCard; onClose: () => void }) {
-  const panelRef = useRef<HTMLElement>(null);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const drag = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-    minX: number;
-    maxX: number;
-    minY: number;
-    maxY: number;
-  } | undefined>(undefined);
+  const receiptEffect = publicTextReceiptEffect(card);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -482,78 +451,34 @@ function CardDetailDialog({ card, onClose }: { card: PhysicalCard; onClose: () =
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose]);
 
-  const stopDrag = (event: React.PointerEvent<HTMLElement>) => {
-    if (drag.current?.pointerId !== event.pointerId) return;
-    drag.current = undefined;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  };
-
   return (
     <div className="card-detail-backdrop" onPointerDown={onClose} role="presentation">
       <section
         aria-label={`${card.name}详情`}
         aria-modal="true"
-        className="card-detail-dialog"
+        className={`card-detail-dialog${receiptEffect ? " card-detail-dialog--with-note" : ""}`}
         onPointerDown={(event) => event.stopPropagation()}
-        ref={panelRef}
         role="dialog"
-        style={{ transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))` }}
       >
-        <header
-          onDoubleClick={() => setOffset({ x: 0, y: 0 })}
-          onPointerCancel={stopDrag}
-          onPointerDown={(event) => {
-            if (
-              event.button !== 0 ||
-              !panelRef.current ||
-              (event.target as HTMLElement).closest("button")
-            ) return;
-            const rect = panelRef.current.getBoundingClientRect();
-            const margin = 8;
-            drag.current = {
-              pointerId: event.pointerId,
-              startX: event.clientX,
-              startY: event.clientY,
-              originX: offset.x,
-              originY: offset.y,
-              minX: offset.x + margin - rect.left,
-              maxX: offset.x + window.innerWidth - margin - rect.right,
-              minY: offset.y + margin - rect.top,
-              maxY: offset.y + window.innerHeight - margin - rect.bottom,
-            };
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }}
-          onPointerMove={(event) => {
-            const active = drag.current;
-            if (!active || active.pointerId !== event.pointerId) return;
-            setOffset({
-              x: Math.min(active.maxX, Math.max(active.minX, active.originX + event.clientX - active.startX)),
-              y: Math.min(active.maxY, Math.max(active.minY, active.originY + event.clientY - active.startY)),
-            });
-          }}
-          onPointerUp={stopDrag}
-          title="拖动调整位置；双击复位"
+        <button
+          aria-label="关闭卡牌详情"
+          autoFocus
+          className="card-detail-close"
+          onClick={onClose}
+          type="button"
         >
-          <strong>卡牌详情 <i aria-hidden="true">⠿</i></strong>
-          <button aria-label="关闭卡牌详情" onClick={onClose} type="button">×</button>
-        </header>
-        <div className="card-detail-content">
+          ×
+        </button>
+        <div className="card-detail-card">
           <CardView card={card} />
-          <div>
-            <h2>{card.name}</h2>
-            <p>{card.color} · {card.transmission}{card.circle ? " · 可选方向" : ""}</p>
-            {card.color === "黑" && <p>{card.unburnable ? "不可烧毁" : "可烧毁"}</p>}
-            {publicTextReceiptEffect(card) && (
-              <section className="receipt-effect-detail">
-                <strong>作为情报收到后</strong>
-                <p>{publicTextReceiptEffect(card)}</p>
-                <small>先检查死亡；存活时再结算此效果。</small>
-              </section>
-            )}
-          </div>
         </div>
+        {receiptEffect && (
+          <section className="receipt-effect-detail">
+            <strong>作为情报收到后</strong>
+            <p>{receiptEffect}</p>
+            <small>先检查死亡；存活时再结算此效果。</small>
+          </section>
+        )}
       </section>
     </div>
   );
@@ -596,16 +521,11 @@ function CardView({
       title={`${publicCardSummary(card)}${card.unburnable ? " · 不可烧毁" : ""}`}
       type="button"
     >
-      <span
-        aria-hidden="true"
-        className="game-card__art"
-        style={{ backgroundImage: `url("${cardArtPath(card.name)}")` }}
-      />
+      <CardArtwork cardName={card.name} />
       <strong>{card.name}</strong>
       <span className="game-card__meta">{card.color} · {card.transmission}</span>
       {displayedVariantText && <small>{displayedVariantText}</small>}
       {card.circle && <small>可选方向</small>}
-      {inspectable && <small className="card-detail-hint">查看详情</small>}
       {card.color === "黑" && card.unburnable && (
         <small className="unburnable-badge">不可烧毁</small>
       )}
@@ -654,6 +574,13 @@ export function actionDetail(
       : undefined;
     return color ? `秘密下达：${color}` : "秘密下达";
   }
+  if (
+    action.type === "PLAY_LOCK" &&
+    requiresLockCardSelection(projection.legalActions, projection.own.hand)
+  ) {
+    const card = projection.own.hand.find((candidate) => candidate.id === action.cardId);
+    return card ? `使用锁定（${card.color} · ${card.transmission}）` : "使用锁定";
+  }
   if (action.type === "CHOOSE_PROBE_IDENTITY") {
     return action.choice === "announce" ? "公开身份代码" : "随机交出一张手牌";
   }
@@ -693,7 +620,10 @@ export function promptTitle(projection: PlayerProjection): string {
   return projection.activePlayerId === projection.own.id ? "你的行动阶段" : "请选择操作";
 }
 
-export function promptDescription(projection: PlayerProjection): string {
+export function promptDescription(
+  projection: PlayerProjection,
+  selectedCardId?: string,
+): string {
   const actions = projection.legalActions;
   if (
     projection.phase === "preTransmission" &&
@@ -704,6 +634,14 @@ export function promptDescription(projection: PlayerProjection): string {
     return "请选择一张高亮情报牌；选中后再确认传递方式和目标。";
   }
   if (actions.length === 0) return "当前无需操作，状态变化后会自动更新。";
+  if (requiresLockCardSelection(actions, projection.own.hand)) {
+    const selectedLock = actions.some(
+      (action) => action.type === "PLAY_LOCK" && action.cardId === selectedCardId,
+    );
+    return selectedLock
+      ? "已选择锁定牌；确认使用，或改选另一张高亮牌。"
+      : "请选择一张高亮的锁定牌，或选择不锁定。";
+  }
   if (projection.reactionWindow) return "可使用高亮手牌，或选择下方的可用操作。";
   if (actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT")) {
     return "请选择一张高亮手牌完成弃置。";
@@ -747,12 +685,42 @@ export function receiptStageLabel(stage: ProjectedReceiptStage): string {
 export function promptActions(
   actions: readonly ProjectedLegalAction[],
   selectedCardId?: string,
+  hand: readonly PhysicalCard[] = [],
 ): ProjectedLegalAction[] {
+  const lockActions = actions.filter(
+    (action): action is Extract<ProjectedLegalAction, { type: "PLAY_LOCK" }> =>
+      action.type === "PLAY_LOCK",
+  );
+  const selectedLock = lockActions.find((action) => action.cardId === selectedCardId);
+  const directLock = requiresLockCardSelection(actions, hand)
+    ? selectedLock
+    : (selectedLock ?? lockActions[0]);
+
   return actions.filter((action) => {
     const cardId = actionCardId(action);
-    if (!cardId || action.type === "PLAY_LOCK") return true;
+    if (!cardId) return true;
+    if (action.type === "PLAY_LOCK") return action === directLock;
     return cardId === selectedCardId && !actionTargetId(action);
   });
+}
+
+export function requiresLockCardSelection(
+  actions: readonly ProjectedLegalAction[],
+  hand: readonly PhysicalCard[] = [],
+): boolean {
+  const lockActions = actions.filter(
+    (action): action is Extract<ProjectedLegalAction, { type: "PLAY_LOCK" }> =>
+      action.type === "PLAY_LOCK",
+  );
+  if (lockActions.length <= 1) return false;
+
+  const choices = new Set(lockActions.map((action) => {
+    const card = hand.find((candidate) => candidate.id === action.cardId);
+    return card
+      ? `${card.color}|${card.transmission}|${card.circle}|${card.unburnable}`
+      : action.cardId;
+  }));
+  return choices.size > 1;
 }
 
 export function mergeAuditLogs(
@@ -875,7 +843,7 @@ export function GameTable({
   const actions = projection.legalActions;
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
   const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
-  const visiblePromptActions = promptActions(actions, selectedCardId);
+  const visiblePromptActions = promptActions(actions, selectedCardId, projection.own.hand);
   const primaryPromptActions = visiblePromptActions.filter((action) => !isSecondaryPromptAction(action));
   const secondaryPromptActions = visiblePromptActions.filter(isSecondaryPromptAction);
   const inspectedHand = inspectedHandForProjection(projection);
@@ -1353,7 +1321,7 @@ export function GameTable({
                 {!projection.reactionWindow && reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
               </p>
               <h2>{promptTitle(projection)}</h2>
-              <small>{promptDescription(projection)}</small>
+              <small>{promptDescription(projection, selectedCardId)}</small>
             </div>
             <div className="prompt-actions">
               {primaryPromptActions.length > 0 && (

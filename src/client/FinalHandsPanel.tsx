@@ -1,5 +1,6 @@
 import type { PhysicalCard } from "../game/cards";
 import type { PublicPlayerProjection } from "../game/engine";
+import { CardArtwork } from "./CardArtwork";
 
 export interface FinalHandsPanelProps {
   players: readonly PublicPlayerProjection[];
@@ -37,12 +38,13 @@ export function FinalHandsPanel({
               {player.hand?.map((card) => (
                 <div
                   aria-label={`${card.name} · ${card.color} · ${card.transmission}`}
-                  className={`final-hand-card final-hand-card--${cardTone(card)}`}
+                  className={`final-hand-card game-card game-card--${cardTone(card)}`}
                   key={card.id}
                   title={`${card.name} · ${card.color} · ${card.transmission}`}
                 >
+                  <CardArtwork cardName={card.name} />
                   <strong>{card.name}</strong>
-                  <span>{card.color} · {card.transmission}</span>
+                  <span className="game-card__meta">{card.color} · {card.transmission}</span>
                 </div>
               ))}
               {(player.hand?.length ?? 0) === 0 && <span className="final-hand-empty">无剩余手牌</span>}

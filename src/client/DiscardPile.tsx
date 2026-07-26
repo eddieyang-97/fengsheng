@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import type { PhysicalCard } from "../game/cards";
+import { CardArtwork } from "./CardArtwork";
 
 function cardTone(card: PhysicalCard): string {
   return card.color === "红"
@@ -78,8 +79,9 @@ export function DiscardPileDialog({
           <div className="discard-card-grid">
             {[...cards].reverse().map((card, index) => (
               <article className={`discard-card game-card game-card--${cardTone(card)}`} key={`${card.id}-${index}`}>
+                <CardArtwork cardName={card.name} />
                 <strong>{card.name}</strong>
-                <span>{card.color} · {card.transmission}</span>
+                <span className="game-card__meta">{card.color} · {card.transmission}</span>
                 {variantText(card) && <small>{variantText(card)}</small>}
                 {card.circle && <small>可选方向</small>}
                 {card.color === "黑" && card.unburnable && <small className="unburnable-badge">不可烧毁</small>}

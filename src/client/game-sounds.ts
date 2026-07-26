@@ -24,9 +24,16 @@ export function playerReactionSoundPhase(
 
 let audioContext: AudioContext | undefined;
 
+function audioIsRunning(audio: AudioContext): boolean {
+  return audio.state === "running";
+}
+
 function context(): AudioContext | undefined {
   if (typeof window === "undefined") return undefined;
-  const AudioContextConstructor = window.AudioContext;
+  const AudioContextConstructor =
+    window.AudioContext ??
+    (window as Window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
   if (!AudioContextConstructor) return undefined;
   audioContext ??= new AudioContextConstructor();
   return audioContext;
@@ -151,9 +158,21 @@ export function playGameSound(cue: GameSoundCue): void {
   });
 }
 
-export function unlockGameSounds(): void {
+export async function unlockGameSounds(): Promise<boolean> {
   const audio = context();
-  if (audio?.state === "suspended") void audio.resume().catch(() => undefined);
+  if (!audio || audio.state === "closed") return false;
+  if (audioIsRunning(audio)) return true;
+  try {
+    const buffer = audio.createBuffer(1, 1, audio.sampleRate);
+    const source = audio.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audio.destination);
+    source.start();
+    await audio.resume();
+    return audioIsRunning(audio);
+  } catch {
+    return false;
+  }
 }
 
 export function loadSoundEnabledPreference(): boolean {

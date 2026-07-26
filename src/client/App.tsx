@@ -134,9 +134,17 @@ export function App() {
 
   useEffect(() => {
     if (!soundEnabled) return;
-    const unlock = () => unlockGameSounds();
-    window.addEventListener("pointerdown", unlock, { once: true });
-    return () => window.removeEventListener("pointerdown", unlock);
+    const unlock = () => {
+      void unlockGameSounds();
+    };
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("touchend", unlock, { passive: true });
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("touchend", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
   }, [soundEnabled]);
 
   useEffect(() => {
@@ -213,8 +221,9 @@ export function App() {
     setSoundEnabled(enabled);
     saveSoundEnabledPreference(enabled);
     if (enabled) {
-      unlockGameSounds();
-      playGameSound("prompt");
+      void unlockGameSounds().then((unlocked) => {
+        if (unlocked) playGameSound("prompt");
+      });
     }
   }, []);
 

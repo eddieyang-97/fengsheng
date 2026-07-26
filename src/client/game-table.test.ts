@@ -24,6 +24,7 @@ import {
   publicCardSummary,
   publicTextReceiptEffect,
   reactionWindowLabel,
+  requiresLockCardSelection,
   receiptStageLabel,
   responseActionText,
   responseFocusActionText,
@@ -258,10 +259,33 @@ describe("automatic reaction passing", () => {
 });
 
 describe("锁定 prompt actions", () => {
-  it("在未选中手牌时也直接显示锁定，但其他手牌响应仍需选牌", () => {
+  const redLock = {
+    id: "p1-05",
+    photo: 1,
+    position: 20,
+    name: "锁定",
+    color: "红",
+    transmission: "密电",
+    circle: false,
+    unburnable: false,
+  } satisfies PhysicalCard;
+  const blueLock = {
+    ...redLock,
+    id: "p1-06",
+    color: "蓝",
+    transmission: "文本",
+  } satisfies PhysicalCard;
+  const matchingRedLock = {
+    ...redLock,
+    id: "p2-03",
+    photo: 2,
+    position: 3,
+  } satisfies PhysicalCard;
+
+  it("directly shows a single 锁定 while other card responses still require selection", () => {
     const actions = [
       { type: "PASS_LOCK" as const },
-      { type: "PLAY_LOCK" as const, cardId: "p1-05" as const },
+      { type: "PLAY_LOCK" as const, cardId: redLock.id as "p1-05" },
       {
         type: "PLAY_COUNTER" as const,
         cardId: "p1-03" as const,
@@ -271,9 +295,61 @@ describe("锁定 prompt actions", () => {
 
     expect(promptActions(actions)).toEqual([
       { type: "PASS_LOCK" },
-      { type: "PLAY_LOCK", cardId: "p1-05" },
+      { type: "PLAY_LOCK", cardId: redLock.id },
     ]);
     expect(promptActions(actions, "p1-03")).toEqual(actions);
+  });
+
+  it("requires choosing between visibly different 锁定 cards before confirmation", () => {
+    const actions = [
+      { type: "PASS_LOCK" as const },
+      { type: "PLAY_LOCK" as const, cardId: redLock.id as "p1-05" },
+      { type: "PLAY_LOCK" as const, cardId: blueLock.id as "p1-06" },
+    ];
+    const hand = [redLock, blueLock];
+
+    expect(requiresLockCardSelection(actions, hand)).toBe(true);
+    expect(promptActions(actions, undefined, hand)).toEqual([
+      { type: "PASS_LOCK" },
+    ]);
+    expect(promptActions(actions, blueLock.id, hand)).toEqual([
+      { type: "PASS_LOCK" },
+      { type: "PLAY_LOCK", cardId: blueLock.id },
+    ]);
+
+    const lockProjection = {
+      legalActions: actions,
+      own: { id: "甲", faction: "军情", hand },
+      players: [],
+    } as unknown as PlayerProjection;
+    expect(promptDescription(lockProjection)).toBe(
+      "请选择一张高亮的锁定牌，或选择不锁定。",
+    );
+    expect(promptDescription(lockProjection, blueLock.id)).toBe(
+      "已选择锁定牌；确认使用，或改选另一张高亮牌。",
+    );
+    expect(actionDetail(actions[2], lockProjection, {})).toBe(
+      "使用锁定（蓝 · 文本）",
+    );
+  });
+
+  it("treats visually identical 锁定 copies as one direct choice", () => {
+    const actions = [
+      { type: "PASS_LOCK" as const },
+      { type: "PLAY_LOCK" as const, cardId: redLock.id as "p1-05" },
+      { type: "PLAY_LOCK" as const, cardId: matchingRedLock.id as "p2-03" },
+    ];
+    const hand = [redLock, matchingRedLock];
+
+    expect(requiresLockCardSelection(actions, hand)).toBe(false);
+    expect(promptActions(actions, undefined, hand)).toEqual([
+      { type: "PASS_LOCK" },
+      { type: "PLAY_LOCK", cardId: redLock.id },
+    ]);
+    expect(promptActions(actions, matchingRedLock.id, hand)).toEqual([
+      { type: "PASS_LOCK" },
+      { type: "PLAY_LOCK", cardId: matchingRedLock.id },
+    ]);
   });
 });
 
