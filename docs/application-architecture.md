@@ -191,9 +191,14 @@ and cannot dispatch game commands.
 `ReactionTimeoutScheduler` is deliberately outside the engine. It derives the
 current optional prompt from authoritative state:
 
-- an active response window produces `PASS_REACTION`;
+- an active response window produces an internal `PASS_REACTION`;
 - a lock offer produces `PASS_LOCK`;
 - mandatory choices receive no timeout command.
+
+The final intended recipient's combined reaction/receipt prompt does not expose
+`PASS_REACTION` as a legal UI action. Its timer may still dispatch the internal
+pass command, which advances only to the ordinary untimed receipt decision and
+never chooses acceptance or refusal.
 
 A fingerprint identifies the exact prompt. Reconciliation preserves an
 existing timer when the fingerprint is unchanged and replaces it when game
@@ -204,9 +209,8 @@ then broadcasts and reconciles again.
 Timer snapshots contain a prompt ID, actor, deadline/remaining duration, and
 pause state. Timing data never enters `GameState`.
 
-The scheduler currently inspects the engine's global reaction window and
-selected interaction stacks to build fingerprints. This is an integration
-point for the resolution-stack refactor.
+The scheduler uses the engine's resolution-stack selectors to identify the
+current top reaction window and response frame when building fingerprints.
 
 ## Client automatic pass
 

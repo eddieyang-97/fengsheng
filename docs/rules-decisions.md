@@ -162,10 +162,10 @@ Hand-limit timing:
 - If countered, cancel the uncommitted 截获 and resume the exact parent intelligence priority from which it was declared.
 - 截获 has priority over 锁定.
 - A successful 截获 removes any 锁定 attached to the previous intended recipient.
-- Do not offer the final interceptor an accept/decline decision, a new 锁定 opportunity, or a 破译 opportunity.
+- On the final interceptor's last ordinary intelligence priority, combine any legal card reactions with a single `接收情报` action. Do not offer `拒绝情报`, a new 锁定 opportunity, or a 破译 opportunity.
 - 掉包 remains legal after 截获; the replacement intelligence inherits the interceptor's mandatory-acceptance commitment.
 - 转移 is not legal after 截获 because the interceptor is committed to accepting.
-- After all reactions finish, the final successful interceptor accepts the pending intelligence automatically.
+- If the final interceptor's combined prompt times out, advance to the ordinary untimed decision stage with only `接收情报`; do not accept automatically.
 - The active player cannot play 截获 during their own turn.
 - This includes intercepting their own intelligence back after another player intercepts it.
 

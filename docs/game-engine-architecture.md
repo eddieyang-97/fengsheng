@@ -182,7 +182,9 @@ flowchart LR
     B -->|no| D["intelligence reaction window"]
     C --> D
     D --> E{"Response action?"}
-    E -->|none remain| F["decision"]
+    E -->|final recipient chooses receipt| H
+    E -->|final recipient chooses refusal| A
+    E -->|final priority times out| F["decision"]
     E -->|转移/掉包/调虎离山/破译| G["dedicated counter window"]
     G --> D
     F -->|accept| H["accepted intelligence and receipt effect"]
@@ -196,6 +198,13 @@ countered `掉包` never changes the transmitted card and restores the parent
 intelligence priority. A countered `调虎离山` likewise restores the original intelligence window and
 the response position from which it was played, so players who had already
 passed are not prompted again.
+
+For the final intended recipient in an established intelligence window, the
+projection replaces visible pass with the applicable receipt action(s), alongside
+any legal reaction cards. Choosing receipt or refusal closes that final priority
+and settles the decision atomically. The timeout scheduler may still pass that
+optional priority internally; doing so exposes the ordinary untimed receipt
+decision instead of choosing for the player.
 
 The receipt resolution context contains response frames for `截获`, `转移`,
 `离间`, `识破`, `锁定`, `掉包`, `调虎离山`, and `破译`. Each pending frame owns
@@ -239,8 +248,12 @@ parent continuations retain their saved order and index.
 
 ## Burn nesting
 
-`烧毁` may interrupt an ordinary action or another response window and may
-itself be answered by `识破` or another nested `烧毁`.
+`烧毁` may interrupt an otherwise eligible ordinary action or response window
+and may itself be answered by `识破` or another nested `烧毁`. It is excluded
+from the sender-only 锁定 opportunity, the initial 秘密下达 opportunity, and
+the action-response window for a played 秘密下达. The target of a pending
+公开文本 or 危险情报 also cannot use a 烧毁 that remains at risk from that
+function effect.
 
 Each burn resolution context owns:
 
