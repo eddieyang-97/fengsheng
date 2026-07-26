@@ -1000,6 +1000,58 @@ describe("发送者锁定与目标最后响应", () => {
 });
 
 describe("截获、掉包、调虎离山与转移接收", () => {
+  it("截获被识破后恢复到截获出牌者的原情报响应位置", () => {
+    const state = initializedWithActive(players, 738);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const intercept = cardIdWhere((card) => card.name === "截获", [intelligence]);
+    const retryIntercept = cardIdWhere((card) => card.name === "截获", [
+      intelligence,
+      intercept,
+    ]);
+    const counter = cardIdWhere((card) => card.name === "识破", [
+      intelligence,
+      intercept,
+      retryIntercept,
+    ]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "丙", intercept, 0);
+    putCardInHand(state, "丙", retryIntercept, 1);
+    putCardInHand(state, "丁", counter, 0);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    const parentWindow = structuredClone(currentReactionWindow(state)!);
+    expect(parentWindow).toMatchObject({
+      kind: "intelligence",
+      affectedPlayerId: "乙",
+      responderOrder: ["丙", "丁", "戊", "甲", "乙"],
+      nextResponderIndex: 0,
+    });
+
+    playIntercept(state, "丙", intercept);
+    playCounter(state, "丁", counter, topResponseFrame(state)!.id);
+    finishCurrentReactionWindow(state);
+
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "乙",
+      interceptorCommitted: false,
+      pendingIntercept: undefined,
+      locked: false,
+      lockedRecipientId: undefined,
+    });
+    expect(currentReactionWindow(state)).toEqual(parentWindow);
+    expect(currentResponseFrames(state)).toHaveLength(0);
+    expect(state.publicDiscard).toEqual(
+      expect.arrayContaining([intercept, counter]),
+    );
+    const restoredActions = projectGameForPlayer(state, "丙").legalActions;
+    expect(restoredActions).toContainEqual({ type: "PASS_REACTION" });
+    expect(restoredActions).toContainEqual({
+      type: "PLAY_INTERCEPT",
+      cardId: retryIntercept,
+    });
+  });
+
   it("截获先进入仅直接响应的行动窗口，成功后才提交接收者并重开情报窗口", () => {
     const state = initializedWithActive(players, 739);
     const intelligence = cardIdWhere((card) => card.transmission === "直达");
@@ -1160,6 +1212,56 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     expect(state.auditLog).toContain(
       `掉包结算：原情报「${originalCard.name}（${originalCard.color} · ${originalCard.transmission}）」公开弃置；替换牌「${replacementCard.name}（${replacementCard.color} · ${replacementCard.transmission}）」正面朝上`,
     );
+  });
+
+  it("掉包被识破后保留原情报并恢复掉包出牌者的原响应位置", () => {
+    const state = initializedWithActive(players, 742);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const swap = cardIdWhere((card) => card.name === "掉包", [intelligence]);
+    const retrySwap = cardIdWhere((card) => card.name === "掉包", [
+      intelligence,
+      swap,
+    ]);
+    const counter = cardIdWhere((card) => card.name === "识破", [
+      intelligence,
+      swap,
+      retrySwap,
+    ]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "丙", swap, 0);
+    putCardInHand(state, "丙", retrySwap, 1);
+    putCardInHand(state, "丁", counter, 0);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    const parentWindow = structuredClone(currentReactionWindow(state)!);
+    const originalTransmission = {
+      cardId: state.transmission!.cardId,
+      intendedRecipientId: state.transmission!.intendedRecipientId,
+      faceUp: state.transmission!.faceUp,
+      interceptorCommitted: state.transmission!.interceptorCommitted,
+      transferredRecipientCommitted:
+        state.transmission!.transferredRecipientCommitted,
+    };
+
+    playSwap(state, "丙", swap);
+    playCounter(state, "丁", counter, topResponseFrame(state)!.id);
+    finishCurrentReactionWindow(state);
+
+    expect(state.transmission).toMatchObject({
+      ...originalTransmission,
+      pendingSwap: undefined,
+    });
+    expect(currentReactionWindow(state)).toEqual(parentWindow);
+    expect(currentResponseFrames(state)).toHaveLength(0);
+    expect(state.publicDiscard).toEqual(expect.arrayContaining([swap, counter]));
+    expect(state.publicDiscard).not.toContain(intelligence);
+    const restoredActions = projectGameForPlayer(state, "丙").legalActions;
+    expect(restoredActions).toContainEqual({ type: "PASS_REACTION" });
+    expect(restoredActions).toContainEqual({
+      type: "PLAY_SWAP",
+      cardId: retrySwap,
+    });
   });
 
   it("掉包结算后仍可再次掉包", () => {

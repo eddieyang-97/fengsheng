@@ -11,6 +11,7 @@ import {
   playCounter,
   playDangerousIntelligence,
   playPublicText,
+  playSecretOrder,
   projectGameForPlayer,
   resolveHostImposedDeath,
   startTransmission,
@@ -376,20 +377,72 @@ describe("烧毁", () => {
     expect(state.players["乙"].hand).toContain(burn);
   });
 
-  it("在秘密下达窗口中烧毁后恢复原响应位置", () => {
+  it("在秘密下达的机会及行动响应窗口中禁止烧毁", () => {
     const state = game(707);
-    const burn = findCard((card) => card.name === "烧毁");
-    const intelligence = ordinaryBlack([burn]);
-    inHand(state, "乙", burn);
-    acceptedBy(state, "丙", intelligence);
+    const secretOrder = findCard(
+      (card) => "variant" in card && card.variant?.kind === "secretOrder",
+    );
+    const offeringBurn = findCard((card) => card.name === "烧毁", [secretOrder]);
+    const responseBurn = findCard(
+      (card) => card.name === "烧毁",
+      [secretOrder, offeringBurn],
+    );
+    const intelligence = ordinaryBlack([
+      secretOrder,
+      offeringBurn,
+      responseBurn,
+    ]);
+    setExactHand(state, "乙", [secretOrder, offeringBurn]);
+    setExactHand(state, "丙", [responseBurn]);
+    acceptedBy(state, "丁", intelligence);
     enterTransmissionPhase(state, "甲");
-    const suspended = structuredClone(currentReactionWindow(state)!);
 
-    playBurn(state, "乙", burn, "丙", intelligence);
-    passCurrentWindow(state);
+    expect(currentReactionWindow(state)?.kind).toBe("secretOrder");
+    expect(projectGameForPlayer(state, "乙").legalActions).not.toContainEqual(
+      expect.objectContaining({ type: "PLAY_BURN", cardId: offeringBurn }),
+    );
+    expect(() =>
+      playBurn(state, "乙", offeringBurn, "丁", intelligence),
+    ).toThrow(
+      "当前没有可使用烧毁",
+    );
 
-    expect(currentReactionWindow(state)).toEqual(suspended);
-    expect(state.pendingSecretOrder?.stage).toBe("offering");
+    playSecretOrder(state, "乙", secretOrder, "听风");
+    expect(currentReactionWindow(state)?.kind).toBe("secretOrder");
+    expect(
+      currentReactionWindow(state)?.responderOrder[
+        currentReactionWindow(state)!.nextResponderIndex
+      ],
+    ).toBe("丙");
+    expect(projectGameForPlayer(state, "丙").legalActions).not.toContainEqual(
+      expect.objectContaining({ type: "PLAY_BURN", cardId: responseBurn }),
+    );
+    expect(() =>
+      playBurn(state, "丙", responseBurn, "丁", intelligence),
+    ).toThrow(
+      "当前没有可使用烧毁",
+    );
+  });
+
+  it("在锁定机会中禁止发送者使用烧毁", () => {
+    const state = game(716);
+    const transmitted = findCard(
+      (card) => card.transmission === "直达" && card.name !== "烧毁",
+    );
+    const burn = findCard((card) => card.name === "烧毁", [transmitted]);
+    const intelligence = ordinaryBlack([transmitted, burn]);
+    setExactHand(state, "甲", [transmitted, burn]);
+    acceptedBy(state, "丁", intelligence);
+
+    startTransmission(state, "甲", transmitted, { targetId: "乙" });
+
+    expect(state.transmission?.receiptStage).toBe("lockOffer");
+    expect(projectGameForPlayer(state, "甲").legalActions).not.toContainEqual(
+      expect.objectContaining({ type: "PLAY_BURN", cardId: burn }),
+    );
+    expect(() => playBurn(state, "甲", burn, "丁", intelligence)).toThrow(
+      "当前没有可使用烧毁",
+    );
   });
 
   it("在情报响应窗口中烧毁后恢复原响应位置", () => {

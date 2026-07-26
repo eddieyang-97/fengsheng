@@ -3619,6 +3619,7 @@ function isOpenBurnWindow(state: GameState, actorId: PlayerId): boolean {
     window?.responderOrder[window.nextResponderIndex];
   if (window) {
     return (
+      window.kind !== "secretOrder" &&
       currentResponder === actorId &&
       !isBurnAtRiskFromPendingHandEffect(state, actorId)
     );
@@ -4202,6 +4203,7 @@ export function projectGameForPlayer(
   const canViewerBurn =
     viewer.alive &&
     !isBurnAtRiskFromPendingHandEffect(state, viewerId) &&
+    reactionWindow?.kind !== "secretOrder" &&
     ((currentReactionResponderId === viewerId && Boolean(reactionWindow)) ||
       (state.phase === "initialized" &&
         state.activePlayerId === viewerId &&

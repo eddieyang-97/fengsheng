@@ -311,7 +311,9 @@ May redirect the target of:
 
 ### 烧毁
 
-- May be played during any open action or reaction window in any phase, except that the current target of 公开文本 or 危险情报 cannot play it while that function card is awaiting responses; the target's 烧毁 remains at risk of being exchanged or discarded by the pending effect.
+- May be played during an otherwise eligible open action or reaction window in any phase.
+- It cannot be played during the sender-only 锁定/不锁定 opportunity, during the initial 秘密下达 opportunity, or during the action-response window for a played 秘密下达.
+- The current target of 公开文本 or 危险情报 also cannot play it while that function card is awaiting responses; the target's 烧毁 remains at risk of being exchanged or discarded by the pending effect.
 - Targets only already accepted black intelligence in front of a living player.
 - The targeted black intelligence must not have the printed “不可烧毁” mark.
 - Authoritative physical-card mapping supplied by the owner: every black 掉包, every black 直达 锁定, and every 危险情报 is marked 不可烧毁. The manifest stores this as an explicit per-card property; runtime rules must not infer it from card family, color, or transmission method.
