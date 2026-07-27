@@ -5,7 +5,7 @@ import {
 } from "../game/engine";
 import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, LIVE_BOT_POLICY, type BotDecision, type BotMemory, type BotPolicy, type FactionBelief } from "../server/bot/strategy";
 import { GameSessionService, type GameCommand } from "../server/game-session";
-import { CANDIDATE_V8 } from "./policies";
+import { CANDIDATE_V10 } from "./policies";
 
 export interface SelfPlayGameOptions {
   playerCount: 2 | 5 | 6 | 7 | 8;
@@ -223,9 +223,9 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
   if (!Number.isInteger(options.pairs) || options.pairs < 1) throw new Error("pairs must be a positive integer");
   factionsForPlayerCount(options.playerCount);
   const firstLeg = Array.from({ length: options.playerCount }, (_, index): BotPolicy =>
-    index % 2 === 0 ? (options.candidatePolicy ?? CANDIDATE_V8) : (options.baselinePolicy ?? LIVE_BOT_POLICY)
+    index % 2 === 0 ? (options.candidatePolicy ?? CANDIDATE_V10) : (options.baselinePolicy ?? LIVE_BOT_POLICY)
   );
-  const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V8;
+  const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V10;
   const baselinePolicy = options.baselinePolicy ?? LIVE_BOT_POLICY;
   const secondLeg = firstLeg.map((policy): BotPolicy =>
     policy.id === candidatePolicy.id ? baselinePolicy : candidatePolicy

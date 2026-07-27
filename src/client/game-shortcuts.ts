@@ -3,8 +3,10 @@ export const GAME_SHORTCUT_BINDINGS = {
   previousCard: "ArrowLeft",
   nextCard: "ArrowRight",
   confirm: "Enter",
+  acceptIntelligence: "a",
   declineIntelligence: "d",
   passReaction: "s",
+  passLock: "n",
   enterTransmissionPhase: "t",
   cancel: "Escape",
 } as const;
@@ -13,8 +15,10 @@ export type GameShortcutIntent =
   | { type: "selectCard"; index: number }
   | { type: "moveCard"; direction: -1 | 1 }
   | { type: "confirm" }
+  | { type: "acceptIntelligence" }
   | { type: "declineIntelligence" }
   | { type: "passReaction" }
+  | { type: "passLock" }
   | { type: "enterTransmissionPhase" }
   | { type: "cancel" };
 
@@ -31,11 +35,17 @@ export function gameShortcutIntent(key: string): GameShortcutIntent | undefined 
     return { type: "moveCard", direction: 1 };
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.confirm) return { type: "confirm" };
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.acceptIntelligence) {
+    return { type: "acceptIntelligence" };
+  }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.declineIntelligence) {
     return { type: "declineIntelligence" };
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.passReaction) {
     return { type: "passReaction" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.passLock) {
+    return { type: "passLock" };
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.enterTransmissionPhase) {
     return { type: "enterTransmissionPhase" };

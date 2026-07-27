@@ -1,4 +1,4 @@
-import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, type BotPolicy } from "../server/bot/strategy";
+import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, type BotPolicy } from "../server/bot/strategy";
 
 export const CANDIDATE_V3: BotPolicy = {
   id: "candidate-v3",
@@ -9,6 +9,7 @@ export const CANDIDATE_V3: BotPolicy = {
   incrementalTransfer: false,
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
+  lockRequiresLikelyDecline: false,
 };
 
 export const CANDIDATE_V4: BotPolicy = {
@@ -40,16 +41,31 @@ export const CANDIDATE_V8: BotPolicy = {
   incrementalLure: true,
 };
 
+export const CANDIDATE_V9: BotPolicy = {
+  ...TACTICAL_V4,
+  id: "candidate-v9",
+  incrementalTransfer: true,
+};
+
+export const CANDIDATE_V10: BotPolicy = {
+  ...TACTICAL_V5,
+  id: "candidate-v10",
+  incrementalTransfer: true,
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
   TACTICAL_V4,
+  TACTICAL_V5,
   CANDIDATE_V3,
   CANDIDATE_V4,
   CANDIDATE_V5,
   CANDIDATE_V6,
   CANDIDATE_V7,
   CANDIDATE_V8,
+  CANDIDATE_V9,
+  CANDIDATE_V10,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

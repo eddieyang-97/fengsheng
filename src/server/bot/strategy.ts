@@ -19,6 +19,8 @@ export interface BotPolicy {
   readonly incrementalLure: boolean;
   /** Avoid 调虎离山 when the current recipient is already likely to decline voluntarily. */
   readonly lureRequiresLikelyAcceptance: boolean;
+  /** Avoid 锁定 when the current recipient is already likely to accept voluntarily. */
+  readonly lockRequiresLikelyDecline: boolean;
 }
 export const BASELINE_V1: BotPolicy = {
   id: "baseline-v1",
@@ -29,6 +31,7 @@ export const BASELINE_V1: BotPolicy = {
   incrementalTransfer: false,
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
+  lockRequiresLikelyDecline: false,
 };
 export const TACTICAL_V2: BotPolicy = {
   id: "tactical-v2",
@@ -39,6 +42,7 @@ export const TACTICAL_V2: BotPolicy = {
   incrementalTransfer: false,
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
+  lockRequiresLikelyDecline: false,
 };
 export const TACTICAL_V3: BotPolicy = {
   id: "tactical-v3",
@@ -49,6 +53,7 @@ export const TACTICAL_V3: BotPolicy = {
   incrementalTransfer: false,
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
+  lockRequiresLikelyDecline: false,
 };
 export const TACTICAL_V4: BotPolicy = {
   ...TACTICAL_V3,
@@ -56,7 +61,12 @@ export const TACTICAL_V4: BotPolicy = {
   incrementalLure: true,
   lureRequiresLikelyAcceptance: true,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V4;
+export const TACTICAL_V5: BotPolicy = {
+  ...TACTICAL_V4,
+  id: "tactical-v5",
+  lockRequiresLikelyDecline: true,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V5;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -521,8 +531,34 @@ function scoreAction(
       return decision(command, 10, "finish function-card phase");
     case "PASS_LOCK":
       return decision(command, 4, "preserve lock card");
-    case "PLAY_LOCK":
-      return decision(command, 6 + currentTransmissionReceiptUtility(projection.transmission?.intendedRecipientId, projection, beliefs, transmissionInference), "secure a tactically valuable receipt");
+    case "PLAY_LOCK": {
+      const currentTargetId = projection.transmission?.intendedRecipientId;
+      if (
+        policy.lockRequiresLikelyDecline &&
+        currentTransmissionRecipientUtility(
+          currentTargetId,
+          projection,
+          beliefs,
+          transmissionInference,
+        ) > 0
+      ) {
+        return decision(
+          command,
+          3,
+          "save lock because the current recipient is already likely to accept",
+        );
+      }
+      return decision(
+        command,
+        6 + currentTransmissionReceiptUtility(
+          currentTargetId,
+          projection,
+          beliefs,
+          transmissionInference,
+        ),
+        "force a tactically valuable receipt",
+      );
+    }
     case "PASS_REACTION": {
       const isEstablishedIntelligenceWindow =
         projection.reactionWindow?.kind === "intelligence" &&

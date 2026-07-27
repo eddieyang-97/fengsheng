@@ -13,8 +13,9 @@ import {
   TACTICAL_V2,
   TACTICAL_V3,
   TACTICAL_V4,
+  TACTICAL_V5,
 } from "./strategy";
-import { CANDIDATE_V5, CANDIDATE_V6, CANDIDATE_V7, CANDIDATE_V8 } from "../../ai-lab/policies";
+import { CANDIDATE_V5, CANDIDATE_V6, CANDIDATE_V7, CANDIDATE_V8, CANDIDATE_V9, CANDIDATE_V10 } from "../../ai-lab/policies";
 
 const blueCard = cardWhere((card) => card.color === "蓝");
 const redDirectCard = cardWhere((card) => card.color === "红" && card.transmission === "直达");
@@ -40,12 +41,17 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes acceptance-aware lure scoring as tactical-v4 while retaining prior policies", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V4);
+  it("promotes acceptance-aware lock scoring as tactical-v5 while retaining prior policies", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V5);
     expect({ ...CANDIDATE_V5, id: TACTICAL_V3.id }).toEqual(TACTICAL_V3);
     expect(TACTICAL_V4).toMatchObject({
       incrementalLure: true,
       lureRequiresLikelyAcceptance: true,
+    });
+    expect(TACTICAL_V5).toMatchObject({
+      incrementalLure: true,
+      lureRequiresLikelyAcceptance: true,
+      lockRequiresLikelyDecline: true,
     });
     expect(TACTICAL_V2.id).toBe("tactical-v2");
   });
@@ -535,6 +541,75 @@ describe("bot strategy", () => {
     expect(chooseTransfer(blueCard, [])).toBe("PASS_REACTION");
     expect(chooseTransfer(blackCard, [blackCard, { ...blackCard, id: "second-black" }]))
       .toBe("PLAY_TRANSFER");
+  });
+
+  it("candidate-v9 combines incremental transfer with the live lure safeguards", () => {
+    expect(CANDIDATE_V9).toMatchObject({
+      incrementalTransfer: true,
+      incrementalLure: true,
+      lureRequiresLikelyAcceptance: true,
+    });
+
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [transferCard] },
+      transmission: transmission(blueCard),
+      legalActions: [
+        { type: "PASS_REACTION" },
+        { type: "PLAY_TRANSFER", cardId: transferCard.id as PhysicalCardId, targetId: "b" },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V9 })?.type)
+      .toBe("PASS_REACTION");
+  });
+
+  it("candidate-v10 saves 锁定 when a 秘密下达 source is already likely to accept", () => {
+    const lockCard = cardWhere((card) => card.name === "锁定");
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [lockCard] },
+      transmission: {
+        ...transmission(blueCard),
+        senderId: "bot",
+        intendedRecipientId: "b",
+        receiptStage: "lockOffer",
+      },
+      legalActions: [
+        { type: "PASS_LOCK" },
+        { type: "PLAY_LOCK", cardId: lockCard.id as PhysicalCardId },
+      ],
+    });
+    const memory = createBotMemory(projection);
+    memory.evidence.b = { 军情: 100, 潜伏: -100, 特工: -100 };
+
+    expect(chooseBotCommand(projection, structuredClone(memory), { policy: TACTICAL_V4 })?.type)
+      .toBe("PLAY_LOCK");
+    expect(chooseBotCommand(projection, structuredClone(memory), { policy: TACTICAL_V5 })?.type)
+      .toBe("PASS_LOCK");
+  });
+
+  it("candidate-v10 still uses 锁定 to force an unfavorable receipt onto an opponent", () => {
+    const lockCard = cardWhere((card) => card.name === "锁定");
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [lockCard] },
+      transmission: {
+        ...transmission(blueCard),
+        senderId: "bot",
+        intendedRecipientId: "b",
+        receiptStage: "lockOffer",
+      },
+      legalActions: [
+        { type: "PASS_LOCK" },
+        { type: "PLAY_LOCK", cardId: lockCard.id as PhysicalCardId },
+      ],
+    });
+    const memory = createBotMemory(projection);
+    memory.evidence.b = { 军情: -100, 潜伏: 100, 特工: -100 };
+
+    expect(chooseBotCommand(projection, memory, { policy: TACTICAL_V5 })?.type)
+      .toBe("PLAY_LOCK");
   });
 
   it("candidate-v8 uses lure only when the forced next recipient improves the receipt", () => {

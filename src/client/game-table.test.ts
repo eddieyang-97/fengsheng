@@ -264,7 +264,7 @@ describe("keyboard action confirmation", () => {
   it("confirms only one unambiguous non-discard primary action", () => {
     expect(keyboardConfirmAction([
       { type: "ACCEPT_INTELLIGENCE" },
-    ])).toEqual({ type: "ACCEPT_INTELLIGENCE" });
+    ])).toBeUndefined();
     expect(keyboardConfirmAction([
       { type: "PLAY_LOCK", cardId: "p1-05" },
     ])).toEqual({ type: "PLAY_LOCK", cardId: "p1-05" });

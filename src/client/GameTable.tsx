@@ -700,6 +700,7 @@ const KEYBOARD_CONFIRM_EXCLUDED_ACTIONS = new Set<ProjectedLegalAction["type"]>(
   "CHOOSE_DANGEROUS_DISCARD",
   "CHOOSE_PROBE_DISCARD",
   "CHOOSE_PUBLIC_TEXT_DISCARD",
+  "ACCEPT_INTELLIGENCE",
   "ENTER_TRANSMISSION_PHASE",
 ]);
 
@@ -933,6 +934,10 @@ export function GameTable({
   const primaryPromptActions = visiblePromptActions.filter((action) => !isSecondaryPromptAction(action));
   const secondaryPromptActions = visiblePromptActions.filter(isSecondaryPromptAction);
   const keyboardPrimaryAction = keyboardConfirmAction(primaryPromptActions);
+  const keyboardAcceptAction = actions.find(
+    (action): action is Extract<GameCommand, { type: "ACCEPT_INTELLIGENCE" }> =>
+      action.type === "ACCEPT_INTELLIGENCE",
+  );
   const keyboardDeclineAction = actions.find(
     (action): action is Extract<GameCommand, { type: "DECLINE_INTELLIGENCE" }> =>
       action.type === "DECLINE_INTELLIGENCE",
@@ -940,6 +945,10 @@ export function GameTable({
   const keyboardPassReactionAction = actions.find(
     (action): action is Extract<GameCommand, { type: "PASS_REACTION" }> =>
       action.type === "PASS_REACTION",
+  );
+  const keyboardPassLockAction = actions.find(
+    (action): action is Extract<GameCommand, { type: "PASS_LOCK" }> =>
+      action.type === "PASS_LOCK",
   );
   const keyboardEnterTransmissionPhaseAction = actions.find(
     (action): action is Extract<GameCommand, { type: "ENTER_TRANSMISSION_PHASE" }> =>
@@ -1225,6 +1234,11 @@ export function GameTable({
         dispatchCommand(keyboardConfirmCommand);
         return;
       }
+      if (intent.type === "acceptIntelligence" && keyboardAcceptAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardAcceptAction);
+        return;
+      }
       if (intent.type === "declineIntelligence" && keyboardDeclineAction) {
         event.preventDefault();
         dispatchCommand(keyboardDeclineAction);
@@ -1233,6 +1247,11 @@ export function GameTable({
       if (intent.type === "passReaction" && keyboardPassReactionAction) {
         event.preventDefault();
         dispatchCommand(keyboardPassReactionAction);
+        return;
+      }
+      if (intent.type === "passLock" && keyboardPassLockAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardPassLockAction);
         return;
       }
       if (
@@ -1258,9 +1277,11 @@ export function GameTable({
     detailCard,
     discardPileOpen,
     dispatchCommand,
+    keyboardAcceptAction,
     keyboardConfirmCommand,
     keyboardDeclineAction,
     keyboardEnterTransmissionPhaseAction,
+    keyboardPassLockAction,
     keyboardPassReactionAction,
     keyboardShortcutsEnabled,
     projection.own.hand,
@@ -1343,8 +1364,10 @@ export function GameTable({
                   <div><dt><kbd>1–9</kbd></dt><dd>选择手牌</dd></div>
                   <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>切换可用手牌</dd></div>
                   <div><dt><kbd>Enter</kbd></dt><dd>确认唯一主要操作</dd></div>
+                  <div><dt><kbd>A</kbd></dt><dd>接受情报</dd></div>
                   <div><dt><kbd>D</kbd></dt><dd>不接收情报</dd></div>
                   <div><dt><kbd>S</kbd></dt><dd>跳过反应</dd></div>
+                  <div><dt><kbd>N</kbd></dt><dd>不锁定</dd></div>
                   <div><dt><kbd>T</kbd></dt><dd>进入情报传递阶段</dd></div>
                   <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
                 </dl>
@@ -1644,6 +1667,9 @@ export function GameTable({
                       {keyboardShortcutsEnabled && action.type === "ENTER_TRANSMISSION_PHASE" && (
                         <kbd className="action-shortcut-badge">T</kbd>
                       )}
+                      {keyboardShortcutsEnabled && action.type === "ACCEPT_INTELLIGENCE" && (
+                        <kbd className="action-shortcut-badge">A</kbd>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -1664,6 +1690,9 @@ export function GameTable({
                       )}
                       {keyboardShortcutsEnabled && action.type === "PASS_REACTION" && (
                         <kbd className="action-shortcut-badge">S</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && action.type === "PASS_LOCK" && (
+                        <kbd className="action-shortcut-badge">N</kbd>
                       )}
                     </button>
                   ))}
