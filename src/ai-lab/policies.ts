@@ -10,6 +10,7 @@ export const CANDIDATE_V3: BotPolicy = {
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
   lockRequiresLikelyDecline: false,
+  inferResolvedActionAffinity: false,
 };
 
 export const CANDIDATE_V4: BotPolicy = {
@@ -53,6 +54,12 @@ export const CANDIDATE_V10: BotPolicy = {
   incrementalTransfer: true,
 };
 
+export const CANDIDATE_V11: BotPolicy = {
+  ...TACTICAL_V5,
+  id: "candidate-v11",
+  inferResolvedActionAffinity: true,
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
@@ -66,6 +73,7 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V8,
   CANDIDATE_V9,
   CANDIDATE_V10,
+  CANDIDATE_V11,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

@@ -31,7 +31,6 @@ import {
   projectGameForSpectator,
   resolveHostImposedDeath,
   startTransmission,
-  claimNoSecretOrderMatch,
   type Direction,
   type FixedTransmissionMethod,
   type GameState,
@@ -71,7 +70,6 @@ export type GameCommand =
   | { type: "CHOOSE_PROBE_DISCARD"; cardId: PhysicalCardId }
   | { type: "ENTER_TRANSMISSION_PHASE" }
   | { type: "PLAY_SECRET_ORDER"; cardId: PhysicalCardId; word: SecretOrderWord }
-  | { type: "CLAIM_NO_SECRET_ORDER_MATCH" }
   | { type: "PASS_LOCK" }
   | { type: "PLAY_LOCK"; cardId: PhysicalCardId }
   | { type: "PLAY_SWAP"; cardId: PhysicalCardId }
@@ -211,8 +209,6 @@ function dispatchGameCommand(
       return enterTransmissionPhase(state, actorId);
     case "PLAY_SECRET_ORDER":
       return playSecretOrder(state, actorId, command.cardId, command.word);
-    case "CLAIM_NO_SECRET_ORDER_MATCH":
-      return claimNoSecretOrderMatch(state, actorId);
     case "PASS_LOCK":
       return passLockOpportunity(state, actorId);
     case "PLAY_LOCK":

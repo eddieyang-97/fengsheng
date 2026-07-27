@@ -21,6 +21,8 @@ export interface BotPolicy {
   readonly lureRequiresLikelyAcceptance: boolean;
   /** Avoid 锁定 when the current recipient is already likely to accept voluntarily. */
   readonly lockRequiresLikelyDecline: boolean;
+  /** Learn weak faction evidence from completed voluntary actions that help or harm this bot. */
+  readonly inferResolvedActionAffinity: boolean;
 }
 export const BASELINE_V1: BotPolicy = {
   id: "baseline-v1",
@@ -32,6 +34,7 @@ export const BASELINE_V1: BotPolicy = {
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
   lockRequiresLikelyDecline: false,
+  inferResolvedActionAffinity: false,
 };
 export const TACTICAL_V2: BotPolicy = {
   id: "tactical-v2",
@@ -43,6 +46,7 @@ export const TACTICAL_V2: BotPolicy = {
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
   lockRequiresLikelyDecline: false,
+  inferResolvedActionAffinity: false,
 };
 export const TACTICAL_V3: BotPolicy = {
   id: "tactical-v3",
@@ -54,6 +58,7 @@ export const TACTICAL_V3: BotPolicy = {
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
   lockRequiresLikelyDecline: false,
+  inferResolvedActionAffinity: false,
 };
 export const TACTICAL_V4: BotPolicy = {
   ...TACTICAL_V3,
@@ -91,6 +96,7 @@ interface PublicObservation {
     kind: ActiveFunctionKind;
     sourceId: string;
     targetId: string;
+    redirected: boolean;
   };
   secretOrder?: {
     signature: string;
@@ -104,6 +110,7 @@ interface PublicObservation {
     handCount: number;
     intelligence: PhysicalCard[];
   }>;
+  ownHand: PhysicalCard[];
 }
 
 export interface FactionBelief {
@@ -173,7 +180,11 @@ export function createBotMemory(projection: PlayerProjection): BotMemory {
  * Updates private bot beliefs from public board changes and explicitly revealed
  * factions. It deliberately does not inspect engine state or other hands.
  */
-export function observeBotProjection(memory: BotMemory, projection: PlayerProjection): void {
+export function observeBotProjection(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  policy: BotPolicy = LIVE_BOT_POLICY,
+): void {
   if (memory.botId !== projection.own.id) {
     throw new Error("Bot memory cannot observe another player's private projection");
   }
@@ -231,7 +242,7 @@ export function observeBotProjection(memory: BotMemory, projection: PlayerProjec
   }
 
   const priorFunction = memory.previous?.functionAction;
-  const currentFunction = functionObservation(projection);
+  const currentFunction = functionObservation(projection, memory.previous);
   if (
     priorFunction?.kind === "probeDrawDiscard" &&
     priorFunction.targetId === projection.own.id &&
@@ -260,6 +271,13 @@ export function observeBotProjection(memory: BotMemory, projection: PlayerProjec
       }
     }
   }
+  if (
+    policy.inferResolvedActionAffinity &&
+    priorFunction &&
+    currentFunction?.signature !== priorFunction.signature
+  ) {
+    observeResolvedActionAffinity(memory, projection, priorFunction);
+  }
 
   const priorSecretOrder = memory.previous?.secretOrder;
   const currentSecretOrder = secretOrderObservation(projection);
@@ -272,7 +290,7 @@ export function observeBotProjection(memory: BotMemory, projection: PlayerProjec
     }
   }
 
-  memory.previous = snapshot(projection);
+  memory.previous = snapshot(projection, currentFunction);
 }
 
 export function factionBeliefs(memory: BotMemory, projection: PlayerProjection): Record<string, FactionBelief> {
@@ -412,11 +430,11 @@ export function chooseBotDecision(
   memory: BotMemory,
   options: BotDecisionOptions = {},
 ): BotDecision | undefined {
-  observeBotProjection(memory, projection);
+  const policy = options.policy ?? LIVE_BOT_POLICY;
+  observeBotProjection(memory, projection, policy);
   if (projection.winner || !projection.players.find((player) => player.id === memory.botId)?.alive) {
     return undefined;
   }
-  const policy = options.policy ?? LIVE_BOT_POLICY;
   const beliefs = factionBeliefsForPolicy(memory, projection, policy);
   const excluded = new Set(
     options.excludedCommands?.map((command) => JSON.stringify(command)) ?? [],
@@ -489,7 +507,6 @@ function scoreBaselineAction(
     case "CHOOSE_PROBE_IDENTITY": return decision(command, action.choice === "giveRandom" && projection.own.hand.length > 2 ? 9 : 7, "baseline probe choice");
     case "CHOOSE_PUBLIC_TEXT_EFFECT": return decision(command, action.choice === "drawTwo" ? 20 : action.choice === "drawOne" ? 13 : 4, "baseline public text choice");
     case "PLAY_SECRET_ORDER": return decision(command, 12, "baseline secret order");
-    case "CLAIM_NO_SECRET_ORDER_MATCH": return decision(command, 100, "baseline required claim");
     case "DISCARD_FOR_HAND_LIMIT":
     case "CHOOSE_DANGEROUS_DISCARD":
     case "CHOOSE_PROBE_DISCARD":
@@ -728,8 +745,6 @@ function scoreAction(
         PASS_REACTION_SCORE + secretOrderImprovement(card, action.word, projection, beliefs) - SECRET_ORDER_CARD_COST,
         "force a likely opponent away from their most favorable intelligence color",
       );
-    case "CLAIM_NO_SECRET_ORDER_MATCH":
-      return decision(command, 100, "required secret-order response");
     case "DISCARD_FOR_HAND_LIMIT":
     case "CHOOSE_DANGEROUS_DISCARD":
     case "CHOOSE_PROBE_DISCARD":
@@ -1266,11 +1281,14 @@ function pickIndex(length: number, random?: BotRandom): number {
   return Math.min(length - 1, Math.floor(random() * length));
 }
 
-function snapshot(projection: PlayerProjection): PublicObservation {
+function snapshot(
+  projection: PlayerProjection,
+  currentFunction = functionObservation(projection),
+): PublicObservation {
   return {
     auditLength: projection.auditLog.length,
     transmission: transmissionObservation(projection),
-    functionAction: functionObservation(projection),
+    functionAction: currentFunction,
     secretOrder: secretOrderObservation(projection),
     players: Object.fromEntries(projection.players.map((player) => [player.id, {
       alive: player.alive,
@@ -1278,6 +1296,7 @@ function snapshot(projection: PlayerProjection): PublicObservation {
       handCount: player.handCount,
       intelligence: [...player.intelligence],
     }])),
+    ownHand: [...projection.own.hand],
   };
 }
 
@@ -1315,7 +1334,9 @@ function observeTransmissionInference(
     const priorSecretOrder = memory.previous?.secretOrder;
     const recentAudit = projection.auditLog.slice(memory.previous?.auditLength ?? 0);
     const secretOrderInvalidated = recentAudit.some(
-      (entry) => entry.includes("秘密下达被识破") || entry.includes("声明无匹配牌并通过服务器验证"),
+      (entry) =>
+        entry.includes("秘密下达被识破") ||
+        entry.includes("服务器自动验证并解除颜色限制"),
     );
     memory.transmissionInference = {
       signature: current.signature,
@@ -1393,15 +1414,99 @@ function observeDefinitivePublicTextInference(
   }
 }
 
-function functionObservation(projection: PlayerProjection): PublicObservation["functionAction"] {
+function functionObservation(
+  projection: PlayerProjection,
+  previous?: PublicObservation,
+): PublicObservation["functionAction"] {
   const current = projection.activeFunctionAction;
   if (!current) return undefined;
+  const prior = previous?.functionAction;
+  const labels: Record<ActiveFunctionKind, string> = {
+    reinforcement: "使用增援",
+    confidentialFile: "使用机密文件",
+    publicText: "使用公开文本",
+    dangerousIntelligence: "使用危险情报",
+    probeIdentity: "使用试探",
+    probeDrawDiscard: "使用试探",
+  };
+  let startAuditIndex = -1;
+  for (let index = projection.auditLog.length - 1; index >= 0; index -= 1) {
+    const entry = projection.auditLog[index]!;
+    if (
+      entry.startsWith(current.sourcePlayerId) &&
+      entry.includes(labels[current.kind])
+    ) {
+      startAuditIndex = index;
+      break;
+    }
+  }
+  const signature = [
+    current.kind,
+    current.sourcePlayerId,
+    Math.max(0, startAuditIndex),
+  ].join("|");
+  const sameAction = prior?.signature === signature;
+  const redirected = Boolean(
+    (sameAction && (prior.redirected || prior.targetId !== current.targetPlayerId)) ||
+    projection.auditLog
+      .slice(Math.max(0, startAuditIndex))
+      .some((entry) => entry.startsWith("离间结算：功能牌目标改为"))
+  );
   return {
-    signature: [current.kind, current.sourcePlayerId].join("|"),
+    signature,
     kind: current.kind,
     sourceId: current.sourcePlayerId,
     targetId: current.targetPlayerId,
+    redirected,
   };
+}
+
+function observeResolvedActionAffinity(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  action: NonNullable<PublicObservation["functionAction"]>,
+): void {
+  if (
+    action.sourceId === memory.botId ||
+    action.targetId !== memory.botId ||
+    action.redirected ||
+    projection.own.faction === "特工"
+  ) {
+    return;
+  }
+  if (
+    action.kind !== "publicText" &&
+    action.kind !== "dangerousIntelligence" &&
+    action.kind !== "probeIdentity" &&
+    action.kind !== "probeDrawDiscard"
+  ) {
+    return;
+  }
+  const previousHand = memory.previous?.ownHand;
+  if (!previousHand) return;
+  const before = previousHand.reduce(
+    (total, card) => total + cardUtility(card, projection.own.faction),
+    0,
+  );
+  const after = projection.own.hand.reduce(
+    (total, card) => total + cardUtility(card, projection.own.faction),
+    0,
+  );
+  const change = after - before;
+  if (Math.abs(change) < 0.0001) return;
+
+  // A successful 试探 draw already has a stronger, exact outcome signal.
+  if (action.kind === "probeDrawDiscard" && change > 0) return;
+
+  const sourceEvidence = memory.evidence[action.sourceId] ??= emptyBelief();
+  if (change > 0) {
+    sourceEvidence[projection.own.faction] += 0.35;
+    return;
+  }
+  sourceEvidence[projection.own.faction] -= 0.35;
+  for (const faction of FACTIONS) {
+    if (faction !== projection.own.faction) sourceEvidence[faction] += 0.15;
+  }
 }
 
 function secretOrderObservation(projection: PlayerProjection): PublicObservation["secretOrder"] {

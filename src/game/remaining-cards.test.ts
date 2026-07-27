@@ -10,7 +10,6 @@ import {
   currentReactionWindow,
   chooseProbeDiscard,
   chooseProbeIdentityResponse,
-  claimNoSecretOrderMatch,
   currentResponseFrames,
   enterTransmissionPhase,
   initializeGame,
@@ -368,7 +367,7 @@ describe("秘密下达", () => {
     expect(state.pendingSecretOrder).toBeUndefined();
   });
 
-  it("无匹配声明由服务器验证，且仅秘密下达使用者持续看到当时的完整手牌", () => {
+  it("无匹配手牌由服务器自动验证，且仅秘密下达使用者持续看到当时的完整手牌", () => {
     const state = game(321);
     const orderId = card((candidate) => candidate.variant?.kind === "secretOrder");
     putInHand(state, "乙", orderId);
@@ -388,12 +387,12 @@ describe("秘密下达", () => {
     }
     enterTransmissionPhase(state, "甲");
     playSecretOrder(state, "乙", orderId, word);
-    passAll(state);
-    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([
-      { type: "CLAIM_NO_SECRET_ORDER_MATCH" },
-    ]);
     const inspectedHand = [...state.players["甲"].hand];
-    claimNoSecretOrderMatch(state, "甲");
+    passAll(state);
+    expect(state.pendingSecretOrder?.verifiedNoMatch).toBe(true);
+    expect(state.auditLog).toContain(
+      `甲没有符合秘密下达要求的${required}色情报，服务器自动验证并解除颜色限制`,
+    );
     expect(projectGameForPlayer(state, "乙").pendingSecretOrder?.inspectedHand?.map((c) => c.id))
       .toEqual(inspectedHand);
     expect(projectGameForPlayer(state, "丙").pendingSecretOrder?.inspectedHand).toBeUndefined();
@@ -409,8 +408,6 @@ describe("秘密下达", () => {
         expect.objectContaining({ kind: "secretOrderHandInspected" }),
       );
     }
-    expect(() => claimNoSecretOrderMatch(state, "甲")).toThrow("当前没有可验证的秘密下达");
-
     const transmitted = inspectedHand[0];
     const transmittedCard = PHYSICAL_DECK.find((candidate) => candidate.id === transmitted)!;
     startTransmission(state, "甲", transmitted, {

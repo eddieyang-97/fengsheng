@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, resolve } from "node:path";
 
 import { runPairedTournament } from "./benchmark";
+import type { PolicyPerformanceSummary } from "./benchmark";
 import {
   addTournamentChunk,
   assertCampaignConfig,
@@ -10,14 +11,14 @@ import {
   type TournamentCampaignCheckpoint,
   type TournamentCampaignConfig,
 } from "./campaign";
-import { CANDIDATE_V10, evaluationPolicyById } from "./policies";
+import { CANDIDATE_V11, evaluationPolicyById } from "./policies";
 import { LIVE_BOT_POLICY } from "../server/bot/strategy";
 
 const parsed = parseArguments(process.argv.slice(2));
 const playerCount = parseInteger(parsed.positional[0] ?? "5", "player count") as 2 | 5 | 6 | 7 | 8;
 const targetPairs = parseInteger(parsed.positional[1] ?? "1000", "pair count");
 const startSeed = parseInteger(parsed.positional[2] ?? "1", "start seed");
-const candidate = evaluationPolicyById(parsed.options.candidate ?? CANDIDATE_V10.id);
+const candidate = evaluationPolicyById(parsed.options.candidate ?? CANDIDATE_V11.id);
 const baseline = evaluationPolicyById(parsed.options.baseline ?? LIVE_BOT_POLICY.id);
 if (candidate.id === baseline.id) throw new Error("candidate and baseline policies must differ");
 const chunkSize = parseInteger(parsed.options["chunk-size"] ?? String(Math.min(100, targetPairs)), "chunk size");
@@ -61,6 +62,8 @@ console.log(`candidate by faction=${formatBreakdown(result.candidate.byFaction)}
 console.log(`baseline by faction=${formatBreakdown(result.baseline.byFaction)}`);
 console.log(`candidate by seat=${formatBreakdown(result.candidate.bySeat)}`);
 console.log(`baseline by seat=${formatBreakdown(result.baseline.bySeat)}`);
+console.log(`candidate beliefs=${formatCalibration(result.candidate.beliefCalibration)}`);
+console.log(`baseline beliefs=${formatCalibration(result.baseline.beliefCalibration)}`);
 if (checkpointPath) console.log(`checkpoint=${checkpointPath}`);
 
 function loadOrCreateCheckpoint(
@@ -94,6 +97,10 @@ function formatBreakdown(values: Record<string, { wins: number; entries: number;
 
 function formatWinRate(value: { wins: number; entries: number; winRate: number }): string {
   return `${value.wins}/${value.entries} (${percent(value.winRate)})`;
+}
+
+function formatCalibration(value: PolicyPerformanceSummary["beliefCalibration"]): string {
+  return `brier=${value.brierScore.toFixed(4)} topChoice=${value.correctTopChoice}/${value.observations} (${percent(value.topChoiceAccuracy)})`;
 }
 
 function percent(value: number): string {

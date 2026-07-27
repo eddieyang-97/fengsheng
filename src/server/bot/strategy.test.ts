@@ -15,11 +15,12 @@ import {
   TACTICAL_V4,
   TACTICAL_V5,
 } from "./strategy";
-import { CANDIDATE_V5, CANDIDATE_V6, CANDIDATE_V7, CANDIDATE_V8, CANDIDATE_V9, CANDIDATE_V10 } from "../../ai-lab/policies";
+import { CANDIDATE_V5, CANDIDATE_V6, CANDIDATE_V7, CANDIDATE_V8, CANDIDATE_V9, CANDIDATE_V10, CANDIDATE_V11 } from "../../ai-lab/policies";
 
 const blueCard = cardWhere((card) => card.color === "蓝");
 const redDirectCard = cardWhere((card) => card.color === "红" && card.transmission === "直达");
 const redPublicText = cardWhere((card) => card.name === "公开文本" && card.color === "红");
+const bluePublicText = cardWhere((card) => card.name === "公开文本" && card.color === "蓝");
 const blueDirectCard = cardWhere((card) => card.color === "蓝" && card.transmission === "直达");
 const blackCard = cardWhere((card) => card.color === "黑");
 const counterCard = cardWhere((card) => card.name === "识破");
@@ -76,6 +77,122 @@ describe("bot strategy", () => {
     observeBotProjection(memory, updated);
     expect(memory.evidence.b.军情).toBeGreaterThan(0);
     expect(factionBeliefs(memory, updated).b.军情).toBeGreaterThan(before);
+  });
+
+  it("candidate-v11 learns weak affinity from a completed action that helps the bot", () => {
+    const initial = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [redDirectCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot" ? { ...player, handCount: 1 } : player
+      ),
+      auditLog: ["b对bot使用公开文本，等待响应"],
+      activeFunctionAction: {
+        kind: "publicText",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "reactions",
+      },
+    });
+    const memory = createBotMemory(initial);
+    const updated = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [bluePublicText] },
+      players: initial.players,
+      auditLog: [
+        "b对bot使用公开文本，等待响应",
+        "b完成与bot的公开文本交换",
+      ],
+    });
+
+    observeBotProjection(memory, updated, CANDIDATE_V11);
+
+    expect(memory.evidence.b.军情).toBeCloseTo(0.35);
+    expect(memory.evidence.b.潜伏).toBe(0);
+  });
+
+  it("candidate-v11 treats a completed harmful action as opposing evidence", () => {
+    const initial = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [counterCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot" ? { ...player, handCount: 1 } : player
+      ),
+      auditLog: ["b对bot使用危险情报，等待响应"],
+      activeFunctionAction: {
+        kind: "dangerousIntelligence",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "reactions",
+      },
+    });
+    const memory = createBotMemory(initial);
+    const updated = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [] },
+      players: initial.players,
+      auditLog: [
+        "b对bot使用危险情报，等待响应",
+        "b通过危险情报自动弃置bot唯一的手牌",
+      ],
+    });
+
+    observeBotProjection(memory, updated, CANDIDATE_V11);
+
+    expect(memory.evidence.b.军情).toBeCloseTo(-0.35);
+    expect(memory.evidence.b.潜伏).toBeCloseTo(0.15);
+    expect(memory.evidence.b.特工).toBeCloseTo(0.15);
+  });
+
+  it("candidate-v11 ignores a helpful action redirected onto the bot", () => {
+    const initial = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [redDirectCard] },
+      auditLog: [
+        "b对c使用公开文本，等待响应",
+        "离间结算：功能牌目标改为bot",
+      ],
+      activeFunctionAction: {
+        kind: "publicText",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "reactions",
+      },
+    });
+    const memory = createBotMemory(initial);
+    const updated = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [bluePublicText] },
+      players: initial.players,
+      auditLog: [
+        ...initial.auditLog,
+        "b完成与bot的公开文本交换",
+      ],
+    });
+
+    observeBotProjection(memory, updated, CANDIDATE_V11);
+
+    expect(memory.evidence.b).toEqual({ 军情: 0, 潜伏: 0, 特工: 0 });
+  });
+
+  it("candidate-v11 does not infer teammates for a 特工 bot", () => {
+    const initial = makeProjection({
+      own: { id: "bot", faction: "特工", hand: [redDirectCard] },
+      auditLog: ["b对bot使用公开文本，等待响应"],
+      activeFunctionAction: {
+        kind: "publicText",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "reactions",
+      },
+    });
+    const memory = createBotMemory(initial);
+    const updated = makeProjection({
+      own: { id: "bot", faction: "特工", hand: [counterCard] },
+      players: initial.players,
+      auditLog: [
+        ...initial.auditLog,
+        "b完成与bot的公开文本交换",
+      ],
+    });
+
+    observeBotProjection(memory, updated, CANDIDATE_V11);
+
+    expect(memory.evidence.b).toEqual({ 军情: 0, 潜伏: 0, 特工: 0 });
   });
 
   it("infers sender alignment from a face-up transmission to a revealed player", () => {
@@ -168,7 +285,7 @@ describe("bot strategy", () => {
   });
 
   it.each([
-    "b声明无匹配牌并通过服务器验证",
+    "b没有符合秘密下达要求的蓝色情报，服务器自动验证并解除颜色限制",
     "秘密下达被识破，颜色限制取消",
   ])("does not retain an invalidated secret-order constraint: %s", (invalidationEntry) => {
     const ordered = makeProjection({

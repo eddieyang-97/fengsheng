@@ -592,7 +592,6 @@ export interface PlayerProjection {
     | { type: "CHOOSE_PROBE_DISCARD"; cardId: PhysicalCardId }
     | { type: "ENTER_TRANSMISSION_PHASE" }
     | { type: "PLAY_SECRET_ORDER"; cardId: PhysicalCardId; word: SecretOrderWord }
-    | { type: "CLAIM_NO_SECRET_ORDER_MATCH" }
     | {
         type: "PLAY_PUBLIC_TEXT";
         cardId: PhysicalCardId;
@@ -2072,7 +2071,7 @@ export function playSecretOrder(
   assertGameStateInvariants(state);
 }
 
-export function claimNoSecretOrderMatch(state: GameState, actorId: PlayerId): void {
+function automaticallyVerifyNoSecretOrderMatch(state: GameState): boolean {
   const pending = state.pendingSecretOrder;
   if (
     state.phase !== "preTransmission" ||
@@ -2081,21 +2080,23 @@ export function claimNoSecretOrderMatch(state: GameState, actorId: PlayerId): vo
     pending.countered ||
     pending.verifiedNoMatch ||
     !pending.requiredColor ||
-    !pending.sourcePlayerId ||
-    actorId !== state.activePlayerId
-  ) throw new Error("当前没有可验证的秘密下达");
+    !pending.sourcePlayerId
+  ) return false;
+  const actorId = state.activePlayerId;
   const matching = state.players[actorId].hand.some((id) =>
     cardMatchesSecretOrder(cardById(id), pending.requiredColor!),
   );
-  if (matching) throw new Error("手牌中存在符合秘密下达颜色的牌");
+  if (matching) return false;
   pending.verifiedNoMatch = true;
   state.privateNotices[pending.sourcePlayerId].push({
     kind: "secretOrderHandInspected",
     otherPlayerId: actorId,
     cardIds: [...state.players[actorId].hand],
   });
-  state.auditLog.push(`${actorId}声明无匹配牌并通过服务器验证`);
-  assertGameStateInvariants(state);
+  state.auditLog.push(
+    `${actorId}没有符合秘密下达要求的${pending.requiredColor}色情报，服务器自动验证并解除颜色限制`,
+  );
+  return true;
 }
 
 function cardMatchesSecretOrder(card: PhysicalCard, color: SingleColor): boolean {
@@ -2626,7 +2627,7 @@ export function startTransmission(
       !order.verifiedNoMatch &&
       !cardMatchesSecretOrder(card, order.requiredColor)
     ) {
-      throw new Error("必须传递符合秘密下达颜色的牌，或先声明无匹配牌");
+      throw new Error("必须传递符合秘密下达颜色的牌");
     }
   }
 
@@ -3594,7 +3595,9 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
       pending.stage = "selection";
       pending.countered = false;
       settleSecretOrderResolution(state);
-      state.auditLog.push("秘密下达结算，颜色限制生效");
+      if (!automaticallyVerifyNoSecretOrderMatch(state)) {
+        state.auditLog.push("秘密下达结算，颜色限制生效");
+      }
       assertGameStateInvariants(state);
     } else if (context.kind === "function") {
       finishActiveFunctionAction(state);
@@ -4668,17 +4671,6 @@ export function projectGameForPlayer(
                     : [];
                 })),
           ]
-      : state.phase === "preTransmission" &&
-          state.pendingSecretOrder?.stage === "selection" &&
-          viewerId === state.activePlayerId &&
-          state.pendingSecretOrder.sourceCardId &&
-          !state.pendingSecretOrder.countered &&
-          !state.pendingSecretOrder.verifiedNoMatch &&
-          state.pendingSecretOrder.requiredColor &&
-          !viewer.hand.some((id) =>
-            cardMatchesSecretOrder(cardById(id), state.pendingSecretOrder!.requiredColor!),
-          )
-        ? [{ type: "CLAIM_NO_SECRET_ORDER_MATCH" }]
       : state.phase === "initialized" &&
           viewerId === state.activePlayerId &&
           !activeFunctionAction &&

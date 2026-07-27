@@ -3,10 +3,11 @@
 Offline bot evaluation lives here so tournaments and analysis are not part of
 the production server runtime.
 
-- `benchmark.ts`: deterministic self-play and paired policy tournaments
+- `benchmark.ts`: deterministic self-play, paired policy tournaments, and
+  final pre-reveal belief-calibration metrics
 - `benchmark-cli.ts`: command-line entry point used by `npm run ai:benchmark`
 - `campaign.ts` / `campaign-cli.ts`: chunked, resumable A/B campaigns with
-  faction and seat breakdowns
+  faction, seat, and belief-calibration breakdowns
 - `benchmark.test.ts`: determinism, pairing, and non-interference checks
 - `policies.ts`: evaluation-only candidate policy configurations
 
@@ -22,7 +23,10 @@ rollback. `candidate-v8` is the earlier incremental 调虎离山 experiment with
 the voluntary-rejection check. `candidate-v7` remains available as the earlier
 incremental 转移 experiment. `candidate-v9` combines `tactical-v4` with
 incremental 转移 scoring. `candidate-v10` layers that 转移 experiment over live
-`tactical-v5` and is the default evaluation candidate.
+`tactical-v5`. `candidate-v11` adds weak faction evidence when a completed,
+non-redirected function action measurably helps or harms the bot's own hand. It
+ignores self-actions, neutral outcomes, and all such inference for 特工. It is
+the default evaluation candidate but is not live.
 
 Initial five-player paired run (100 pairs, seeds 1-100): candidate-v8 37.2%
 versus tactical-v3 35.4%, paired difference +1.8 percentage points with a 95%
@@ -51,11 +55,25 @@ results are statistically inconclusive, but the no-op avoidance is a
 deterministic dominance fix, so that rule alone was promoted as tactical-v5;
 incremental 转移 was not.
 
+Belief calibration is reported from each bot's final pre-reveal beliefs. The
+multiclass Brier score measures probability quality (lower is better), while
+top-choice accuracy measures whether the most likely faction is correct.
+
+For candidate-v11, a 100-pair five-player comparison against tactical-v5
+completed all 200 games without stalls or rejected commands. Candidate win rate
+was 38.6% versus 36.6% (+2.0 percentage points, 95% CI [-0.8, +4.8]), which was
+inconclusive. Belief calibration did not improve: Brier score was 0.1951 versus
+0.1934, and top-choice accuracy was 84.45% versus 84.50%. The candidate remains
+available for analysis but was not promoted because the simple action-outcome
+signal is too noisy in its current form.
+
 For a large five-player comparison, save an atomic checkpoint after each chunk:
 
 ```powershell
-npm run ai:campaign -- 5 5000 1 --candidate candidate-v10 --baseline tactical-v5 --chunk-size 100 --checkpoint .ai-results/v10-v5.json
+npm run ai:campaign -- 5 5000 1 --candidate candidate-v11 --baseline tactical-v5 --chunk-size 100 --checkpoint .ai-results/v11-v5.json
 ```
 
 If the process stops, repeat the command with `--resume`. A checkpoint is only
 accepted when player count, policies, target pairs, and seed range all match.
+Calibration-aware checkpoints use schema version 2; older checkpoints are not
+resumable.

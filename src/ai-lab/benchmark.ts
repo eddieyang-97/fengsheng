@@ -5,7 +5,7 @@ import {
 } from "../game/engine";
 import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, LIVE_BOT_POLICY, type BotDecision, type BotMemory, type BotPolicy, type FactionBelief } from "../server/bot/strategy";
 import { GameSessionService, type GameCommand } from "../server/game-session";
-import { CANDIDATE_V10 } from "./policies";
+import { CANDIDATE_V11 } from "./policies";
 
 export interface SelfPlayGameOptions {
   playerCount: 2 | 5 | 6 | 7 | 8;
@@ -55,6 +55,11 @@ export interface SelfPlayGameResult {
     faction: string;
     policy: string;
     won: boolean;
+    beliefCalibration: {
+      observations: number;
+      brierSum: number;
+      correctTopChoice: number;
+    };
   }>;
   disagreements: BotDisagreement[];
 }
@@ -113,6 +118,15 @@ export interface WinRateSummary {
 export interface PolicyPerformanceSummary extends WinRateSummary {
   byFaction: Record<string, WinRateSummary>;
   bySeat: Record<string, WinRateSummary>;
+  beliefCalibration: BeliefCalibrationSummary;
+}
+
+export interface BeliefCalibrationSummary {
+  observations: number;
+  brierSum: number;
+  brierScore: number;
+  correctTopChoice: number;
+  topChoiceAccuracy: number;
 }
 
 /** Runs one game using only player projections, the same information available to live bots. */
@@ -202,7 +216,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
       }
     }
     if (!advanced && !attempted) {
-      return summarizeGame(games, roomCode, options, policies, commands, rejectedCommands, "stalled", disagreements, lastRejection);
+      return summarizeGame(games, roomCode, options, policies, memories, commands, rejectedCommands, "stalled", disagreements, lastRejection);
     }
   }
 
@@ -211,6 +225,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
     roomCode,
     options,
     policies,
+    memories,
     commands,
     rejectedCommands,
     games.getState(roomCode).winner ? "completed" : "commandLimit",
@@ -223,9 +238,9 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
   if (!Number.isInteger(options.pairs) || options.pairs < 1) throw new Error("pairs must be a positive integer");
   factionsForPlayerCount(options.playerCount);
   const firstLeg = Array.from({ length: options.playerCount }, (_, index): BotPolicy =>
-    index % 2 === 0 ? (options.candidatePolicy ?? CANDIDATE_V10) : (options.baselinePolicy ?? LIVE_BOT_POLICY)
+    index % 2 === 0 ? (options.candidatePolicy ?? CANDIDATE_V11) : (options.baselinePolicy ?? LIVE_BOT_POLICY)
   );
-  const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V10;
+  const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V11;
   const baselinePolicy = options.baselinePolicy ?? LIVE_BOT_POLICY;
   const secondLeg = firstLeg.map((policy): BotPolicy =>
     policy.id === candidatePolicy.id ? baselinePolicy : candidatePolicy
@@ -315,6 +330,7 @@ function summarizeGame(
   roomCode: string,
   options: SelfPlayGameOptions,
   policies: readonly BotPolicy[],
+  memories: ReadonlyMap<string, BotMemory>,
   commands: number,
   rejectedCommands: number,
   status: SelfPlayGameResult["status"],
@@ -344,6 +360,13 @@ function summarizeGame(
       faction: state.players[id].faction,
       policy: policies[index]!.id,
       won: didPlayerWin(state.winner, id, state.players[id].faction),
+      beliefCalibration: beliefCalibrationForObserver(
+        games,
+        roomCode,
+        id,
+        policies[index]!,
+        memories.get(id),
+      ),
     })),
     disagreements,
   };
@@ -406,6 +429,73 @@ function policySummary(
     ...winRateSummary(entries),
     byFaction: groupedWinRates(entries, (entry) => entry.faction),
     bySeat: groupedWinRates(entries, (entry) => String(entry.seat)),
+    beliefCalibration: summarizeBeliefCalibration(entries),
+  };
+}
+
+const CALIBRATION_FACTIONS = ["军情", "潜伏", "特工"] as const;
+
+function beliefCalibrationForObserver(
+  games: GameSessionService,
+  roomCode: string,
+  observerId: string,
+  policy: BotPolicy,
+  memory: BotMemory | undefined,
+): SelfPlayGameResult["participants"][number]["beliefCalibration"] {
+  if (!memory) return { observations: 0, brierSum: 0, correctTopChoice: 0 };
+  const projection = games.project(roomCode, observerId);
+  const hiddenFactionProjection = {
+    ...projection,
+    players: projection.players.map((player) => ({
+      ...player,
+      faction: undefined,
+    })),
+  };
+  const beliefs = factionBeliefsForPolicy(memory, hiddenFactionProjection, policy);
+  const state = games.getState(roomCode);
+  let observations = 0;
+  let brierSum = 0;
+  let correctTopChoice = 0;
+  for (const targetId of state.seatOrder) {
+    if (targetId === observerId) continue;
+    const probabilities = beliefs[targetId];
+    if (!probabilities) continue;
+    const actual = state.players[targetId].faction;
+    observations += 1;
+    brierSum += CALIBRATION_FACTIONS.reduce(
+      (sum, faction) =>
+        sum + (probabilities[faction] - (faction === actual ? 1 : 0)) ** 2,
+      0,
+    );
+    const predicted = CALIBRATION_FACTIONS.reduce((best, faction) =>
+      probabilities[faction] > probabilities[best] ? faction : best
+    );
+    if (predicted === actual) correctTopChoice += 1;
+  }
+  return { observations, brierSum, correctTopChoice };
+}
+
+function summarizeBeliefCalibration(
+  entries: readonly SelfPlayGameResult["participants"][number][],
+): BeliefCalibrationSummary {
+  const observations = entries.reduce(
+    (sum, entry) => sum + entry.beliefCalibration.observations,
+    0,
+  );
+  const brierSum = entries.reduce(
+    (sum, entry) => sum + entry.beliefCalibration.brierSum,
+    0,
+  );
+  const correctTopChoice = entries.reduce(
+    (sum, entry) => sum + entry.beliefCalibration.correctTopChoice,
+    0,
+  );
+  return {
+    observations,
+    brierSum,
+    brierScore: brierSum / Math.max(1, observations),
+    correctTopChoice,
+    topChoiceAccuracy: correctTopChoice / Math.max(1, observations),
   };
 }
 

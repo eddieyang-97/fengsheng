@@ -371,7 +371,6 @@ const ACTION_LABELS: Record<string, string> = {
   CHOOSE_PROBE_DISCARD: "选择弃牌",
   ENTER_TRANSMISSION_PHASE: "进入传情报阶段",
   PLAY_SECRET_ORDER: "秘密下达",
-  CLAIM_NO_SECRET_ORDER_MATCH: "没有符合的手牌",
   PLAY_PUBLIC_TEXT: "公开文本",
   PLAY_DANGEROUS_INTELLIGENCE: "危险情报",
   PLAY_FUNCTION_SEPARATION: "离间",
@@ -632,9 +631,6 @@ export function promptTitle(projection: PlayerProjection): string {
     projection.activePlayerId === projection.own.id &&
     !projection.reactionWindow
   ) {
-    if (actions.some((action) => action.type === "CLAIM_NO_SECRET_ORDER_MATCH")) {
-      return `没有符合秘密下达要求的${projection.pendingSecretOrder.requiredColor ?? "指定"}色手牌，请先声明`;
-    }
     if (
       projection.pendingSecretOrder.requiredColor &&
       !projection.pendingSecretOrder.verifiedNoMatch

@@ -441,8 +441,8 @@ Draw handling:
 - The target must transmit a matching color when possible.
 - A red-blue card may satisfy either a red or blue requirement.
 - If multiple matching cards exist, the target chooses freely among them.
-- If the target claims no matching card exists, the server verifies their hand.
-- The player who used 秘密下达 privately inspects the target's hand to verify the claim.
+- If no matching card exists, the server verifies this automatically as soon as 秘密下达 resolves; the target is not asked to make a redundant declaration.
+- The player who used 秘密下达 privately inspects the target's hand as part of that automatic verification.
 - If the target truly has no matching card, the order's color restriction ends and the target transmits any otherwise legal card.
 - At most one 秘密下达 may successfully apply to each transmission.
 - 识破 may counter 秘密下达. The countered order remains spent face down, but the opportunity window resumes at the exact player and response position from which it was played, so another 秘密下达 may be attempted.
@@ -643,7 +643,7 @@ A client must not receive:
 - Returning the room to the lobby clears the previous match's chat history.
 - Chat is separate from the public game/room audit log and is not included in saved public replays.
 - On receipt, the latest player message appears in a small bubble beside its sender for five seconds while remaining permanently visible in the match chat panel. Spectator messages remain panel-only and never create a table bubble.
-- On desktop, the fixed right sidebar is divided approximately equally between the public match log and chat. Chat is not draggable and must not cover the table.
+- On desktop, the fixed right sidebar is divided approximately equally between the public match log and chat. The divider may be dragged to adjust their relative heights or double-clicked to restore an even split; neither panel may cover the table.
 
 ### Player reactions
 

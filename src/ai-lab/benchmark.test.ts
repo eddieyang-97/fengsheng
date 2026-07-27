@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V7, CANDIDATE_V10 } from "./policies";
+import { CANDIDATE_V7, CANDIDATE_V11 } from "./policies";
 import { LIVE_BOT_POLICY, TACTICAL_V2 } from "../server/bot/strategy";
 
 describe("AI self-play benchmark", () => {
@@ -39,6 +39,11 @@ describe("AI self-play benchmark", () => {
     expect(first.stalled).toBe(0);
     expect(first.candidate.entries).toBe(10);
     expect(first.baseline.entries).toBe(10);
+    expect(first.candidate.beliefCalibration.observations).toBe(10);
+    expect(first.baseline.beliefCalibration.observations).toBe(10);
+    expect(first.candidate.beliefCalibration.brierScore).toBeGreaterThanOrEqual(0);
+    expect(first.candidate.beliefCalibration.topChoiceAccuracy).toBeGreaterThanOrEqual(0);
+    expect(first.candidate.beliefCalibration.topChoiceAccuracy).toBeLessThanOrEqual(1);
     expect(first.confidence95.low).toBeLessThanOrEqual(first.pairedWinRateDifference);
     expect(first.confidence95.high).toBeGreaterThanOrEqual(first.pairedWinRateDifference);
     for (let index = 0; index < first.results.length; index += 2) {
@@ -50,7 +55,7 @@ describe("AI self-play benchmark", () => {
       );
       expect(firstLeg.participants.map((entry) => entry.policy)).toEqual(
         secondLeg.participants.map((entry) =>
-          entry.policy === CANDIDATE_V10.id ? LIVE_BOT_POLICY.id : CANDIDATE_V10.id
+          entry.policy === CANDIDATE_V11.id ? LIVE_BOT_POLICY.id : CANDIDATE_V11.id
         ),
       );
     }

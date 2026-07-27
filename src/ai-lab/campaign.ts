@@ -14,7 +14,7 @@ export interface TournamentCampaignConfig {
 }
 
 export interface TournamentCampaignCheckpoint {
-  version: 1;
+  version: 2;
   config: TournamentCampaignConfig;
   completedPairs: number;
   completedGames: number;
@@ -37,7 +37,7 @@ export function createCampaignCheckpoint(config: TournamentCampaignConfig): Tour
     throw new Error("targetPairs must be a positive integer");
   }
   return {
-    version: 1,
+    version: 2,
     config,
     completedPairs: 0,
     completedGames: 0,
@@ -103,11 +103,24 @@ export function assertCampaignConfig(
   if (JSON.stringify(checkpoint.config) !== JSON.stringify(expected)) {
     throw new Error("checkpoint configuration does not match the requested campaign");
   }
-  if (checkpoint.version !== 1) throw new Error(`unsupported checkpoint version: ${checkpoint.version}`);
+  if (checkpoint.version !== 2) throw new Error(`unsupported checkpoint version: ${checkpoint.version}`);
 }
 
 function emptyPolicySummary(): PolicyPerformanceSummary {
-  return { wins: 0, entries: 0, winRate: 0, byFaction: {}, bySeat: {} };
+  return {
+    wins: 0,
+    entries: 0,
+    winRate: 0,
+    byFaction: {},
+    bySeat: {},
+    beliefCalibration: {
+      observations: 0,
+      brierSum: 0,
+      brierScore: 0,
+      correctTopChoice: 0,
+      topChoiceAccuracy: 0,
+    },
+  };
 }
 
 function mergePolicySummaries(
@@ -118,6 +131,26 @@ function mergePolicySummaries(
     ...mergeWinRates(left, right),
     byFaction: mergeBreakdown(left.byFaction, right.byFaction),
     bySeat: mergeBreakdown(left.bySeat, right.bySeat),
+    beliefCalibration: mergeBeliefCalibration(
+      left.beliefCalibration,
+      right.beliefCalibration,
+    ),
+  };
+}
+
+function mergeBeliefCalibration(
+  left: PolicyPerformanceSummary["beliefCalibration"],
+  right: PolicyPerformanceSummary["beliefCalibration"],
+): PolicyPerformanceSummary["beliefCalibration"] {
+  const observations = left.observations + right.observations;
+  const brierSum = left.brierSum + right.brierSum;
+  const correctTopChoice = left.correctTopChoice + right.correctTopChoice;
+  return {
+    observations,
+    brierSum,
+    brierScore: brierSum / Math.max(1, observations),
+    correctTopChoice,
+    topChoiceAccuracy: correctTopChoice / Math.max(1, observations),
   };
 }
 
