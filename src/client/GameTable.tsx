@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { Faction, PhysicalCard, PhysicalCardId } from "../game/cards";
+import type {
+  Faction,
+  PhysicalCard,
+  PhysicalCardId,
+  SecretOrderWord,
+} from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
 import type { ChatMessageSnapshot, PublicAuditEvent } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
@@ -13,6 +18,7 @@ import {
   GAME_SHORTCUT_BINDINGS,
   gameShortcutIntent,
   nextSelectableCardId,
+  shouldHandleGameShortcutFromElement,
 } from "./game-shortcuts";
 import { PlayerReactionLayer, PlayerReactionMenu } from "./PlayerReactionLayer";
 import { ResizableGameSidebar } from "./ResizableGameSidebar";
@@ -356,7 +362,7 @@ const ACTION_LABELS: Record<string, string> = {
   DISCARD_FOR_HAND_LIMIT: "弃牌",
   PLAY_TRANSFER: "转移",
   PASS_REACTION: "跳过反应",
-  PASS_LOCK: "不锁定",
+  PASS_LOCK: "跳过反应",
   PLAY_LOCK: "锁定",
   PLAY_SWAP: "掉包",
   PLAY_LURE: "调虎离山",
@@ -545,7 +551,7 @@ function CardView({
   );
   return (
     <button
-      className={`game-card game-card--${cardTone(card)}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}${inspectable ? " game-card--inspectable" : ""}`}
+      className={`game-card game-card--${cardTone(card)}${card.unburnable ? " game-card--unburnable" : ""}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}${inspectable ? " game-card--inspectable" : ""}`}
       disabled={!onClick}
       onClick={onClick}
       ref={buttonRef}
@@ -555,7 +561,13 @@ function CardView({
       <CardArtwork cardName={card.name} />
       {shortcutLabel && <kbd className="card-shortcut-badge">{shortcutLabel}</kbd>}
       <strong>{card.name}</strong>
-      <span className="game-card__meta">{card.color} · {card.transmission}</span>
+      <span
+        className="game-card__meta"
+        data-color={card.color}
+        data-transmission={card.transmission}
+      >
+        {card.color} · {card.transmission}
+      </span>
       {displayedVariantText && <small>{displayedVariantText}</small>}
       {card.circle && <small>可选方向</small>}
       {card.color === "黑" && card.unburnable && (
@@ -675,7 +687,7 @@ export function promptDescription(
     );
     return selectedLock
       ? "已选择锁定牌；确认使用，或改选另一张高亮牌。"
-      : "请选择一张高亮的锁定牌，或选择不锁定。";
+      : "请选择一张高亮的锁定牌，或跳过反应。";
   }
   if (projection.reactionWindow) return "可使用高亮手牌，或选择下方的可用操作。";
   if (actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT")) {
@@ -730,6 +742,13 @@ const DEDICATED_ACTION_SHORTCUTS: Partial<
 export function dedicatedActionShortcut(
   action: ProjectedLegalAction,
 ): string | undefined {
+  if (action.type === "PLAY_SECRET_ORDER") {
+    return {
+      听风: "Q",
+      看雨: "W",
+      日落: "E",
+    }[action.word];
+  }
   return DEDICATED_ACTION_SHORTCUTS[action.type];
 }
 
@@ -776,11 +795,49 @@ export function keyboardSeparationShortcutAction(
   return separationActions.length === 1 ? separationActions[0] : undefined;
 }
 
-function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  return ["A", "BUTTON", "INPUT", "OPTION", "SELECT", "SUMMARY", "TEXTAREA"]
-    .includes(target.tagName);
+export function keyboardSecretOrderCardId(
+  actions: readonly ProjectedLegalAction[],
+  selectedCardId?: string,
+): string | undefined {
+  const cardIds = [
+    ...new Set(
+      actions
+        .filter((action) => action.type === "PLAY_SECRET_ORDER")
+        .map((action) => action.cardId),
+    ),
+  ];
+  if (selectedCardId && cardIds.includes(selectedCardId as PhysicalCardId)) {
+    return selectedCardId;
+  }
+  return cardIds.length === 1 ? cardIds[0] : undefined;
+}
+
+export function keyboardSecretOrderAction(
+  actions: readonly ProjectedLegalAction[],
+  selectedCardId: string | undefined,
+  word: SecretOrderWord,
+): ProjectedLegalAction | undefined {
+  const cardId = keyboardSecretOrderCardId(actions, selectedCardId);
+  return cardId
+    ? actions.find(
+        (action) =>
+          action.type === "PLAY_SECRET_ORDER" &&
+          action.cardId === cardId &&
+          action.word === word,
+      )
+    : undefined;
+}
+
+function shouldHandleKeyboardShortcut(
+  target: EventTarget | null,
+  intent: NonNullable<ReturnType<typeof gameShortcutIntent>>,
+): boolean {
+  if (!(target instanceof HTMLElement)) return true;
+  return shouldHandleGameShortcutFromElement(intent, {
+    tagName: target.tagName,
+    isContentEditable: target.isContentEditable,
+    classNames: [...target.classList],
+  });
 }
 
 const REACTION_WINDOW_LABELS: Record<ProjectedReactionKind, string> = {
@@ -1056,6 +1113,10 @@ export function GameTable({
     "PLAY_REINFORCEMENT",
     activeSelectedCardId,
   );
+  const keyboardSecretOrderSelectionId = keyboardSecretOrderCardId(
+    actions,
+    activeSelectedCardId,
+  );
   const keyboardEnterTransmissionPhaseAction = actions.find(
     (action): action is Extract<GameCommand, { type: "ENTER_TRANSMISSION_PHASE" }> =>
       action.type === "ENTER_TRANSMISSION_PHASE",
@@ -1307,7 +1368,7 @@ export function GameTable({
       }
 
       if (
-        isKeyboardShortcutTarget(event.target) ||
+        !shouldHandleKeyboardShortcut(event.target, intent) ||
         detailCard ||
         discardPileOpen ||
         busy ||
@@ -1350,14 +1411,12 @@ export function GameTable({
         dispatchCommand(keyboardDeclineAction);
         return;
       }
-      if (intent.type === "passReaction" && keyboardPassReactionAction) {
+      if (
+        intent.type === "passWindow" &&
+        (keyboardPassReactionAction || keyboardPassLockAction)
+      ) {
         event.preventDefault();
-        dispatchCommand(keyboardPassReactionAction);
-        return;
-      }
-      if (intent.type === "passLock" && keyboardPassLockAction) {
-        event.preventDefault();
-        dispatchCommand(keyboardPassLockAction);
+        dispatchCommand(keyboardPassReactionAction ?? keyboardPassLockAction!);
         return;
       }
       if (intent.type === "playLock" && keyboardLockAction) {
@@ -1406,6 +1465,25 @@ export function GameTable({
         return;
       }
       if (
+        intent.type === "selectSecretOrder" &&
+        keyboardSecretOrderSelectionId
+      ) {
+        event.preventDefault();
+        selectCard(keyboardSecretOrderSelectionId);
+        return;
+      }
+      if (intent.type === "playSecretOrder") {
+        const secretOrderAction = keyboardSecretOrderAction(
+          actions,
+          activeSelectedCardId,
+          intent.word,
+        );
+        if (!secretOrderAction) return;
+        event.preventDefault();
+        dispatchCommand(secretOrderAction);
+        return;
+      }
+      if (
         intent.type === "enterTransmissionPhase" &&
         keyboardEnterTransmissionPhaseAction
       ) {
@@ -1437,6 +1515,7 @@ export function GameTable({
     keyboardPassLockAction,
     keyboardPassReactionAction,
     keyboardReinforcementAction,
+    keyboardSecretOrderSelectionId,
     keyboardCounterAction,
     keyboardBurnAction,
     keyboardInterceptAction,
@@ -1444,6 +1523,7 @@ export function GameTable({
     keyboardSeparationAction,
     keyboardSwapAction,
     keyboardShortcutsEnabled,
+    actions,
     projection.own.hand,
     reactionTargetId,
     selectCard,
@@ -1520,26 +1600,50 @@ export function GameTable({
                   />
                   启用键盘快捷键
                 </label>
-                <dl aria-label="键盘快捷键说明">
-                  <div><dt><kbd>1–9</kbd></dt><dd>选择手牌</dd></div>
-                  <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>切换可用手牌</dd></div>
-                  <div><dt><kbd>Enter</kbd></dt><dd>确认唯一主要操作</dd></div>
-                  <div><dt><kbd>A</kbd></dt><dd>接受情报</dd></div>
-                  <div><dt><kbd>D</kbd></dt><dd>不接收情报</dd></div>
-                  <div><dt><kbd>S</kbd></dt><dd>跳过反应</dd></div>
-                  <div><dt><kbd>N</kbd></dt><dd>不锁定</dd></div>
-                  <div><dt><kbd>L</kbd></dt><dd>锁定</dd></div>
-                  <div><dt><kbd>R</kbd></dt><dd>掉包</dd></div>
-                  <div><dt><kbd>C</kbd></dt><dd>识破</dd></div>
-                  <div><dt><kbd>I</kbd></dt><dd>截获</dd></div>
-                  <div><dt><kbd>B</kbd></dt><dd>烧毁（目标唯一时）</dd></div>
-                  <div><dt><kbd>U</kbd></dt><dd>调虎离山</dd></div>
-                  <div><dt><kbd>O</kbd></dt><dd>离间（目标唯一时）</dd></div>
-                  <div><dt><kbd>P</kbd></dt><dd>破译</dd></div>
-                  <div><dt><kbd>F</kbd></dt><dd>增援</dd></div>
-                  <div><dt><kbd>T</kbd></dt><dd>进入情报传递阶段</dd></div>
-                  <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
-                </dl>
+                <div aria-label="键盘快捷键说明" className="keyboard-shortcut-groups">
+                  <section className="keyboard-shortcut-group">
+                    <h4>通用</h4>
+                    <dl>
+                      <div><dt><kbd>1–9</kbd></dt><dd>选择手牌</dd></div>
+                      <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>切换可用手牌</dd></div>
+                      <div><dt><kbd>Enter</kbd></dt><dd>确认唯一主要操作</dd></div>
+                      <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
+                    </dl>
+                  </section>
+                  <section className="keyboard-shortcut-group">
+                    <h4>流程</h4>
+                    <dl>
+                      <div><dt><kbd>T</kbd></dt><dd>进入情报传递阶段</dd></div>
+                      <div><dt><kbd>S</kbd></dt><dd>跳过当前窗口</dd></div>
+                    </dl>
+                  </section>
+                  <section className="keyboard-shortcut-group">
+                    <h4>决定</h4>
+                    <dl>
+                      <div><dt><kbd>A</kbd></dt><dd>接受情报</dd></div>
+                      <div><dt><kbd>D</kbd></dt><dd>不接收情报</dd></div>
+                    </dl>
+                  </section>
+                  <section className="keyboard-shortcut-group keyboard-shortcut-group--function">
+                    <h4>功能牌</h4>
+                    <dl>
+                      <div><dt><kbd>L</kbd></dt><dd>锁定</dd></div>
+                      <div><dt><kbd>F</kbd></dt><dd>增援</dd></div>
+                      <div><dt><kbd>R</kbd></dt><dd>掉包</dd></div>
+                      <div><dt><kbd>I</kbd></dt><dd>截获</dd></div>
+                      <div><dt><kbd>U</kbd></dt><dd>调虎离山</dd></div>
+                      <div><dt><kbd>P</kbd></dt><dd>破译</dd></div>
+                      <div><dt><kbd>B</kbd></dt><dd>烧毁（目标唯一时）</dd></div>
+                      <div><dt><kbd>O</kbd></dt><dd>离间（目标唯一时）</dd></div>
+                      <div><dt><kbd>C</kbd></dt><dd>识破</dd></div>
+                      <div><dt><kbd>M</kbd></dt><dd>选择秘密下达</dd></div>
+                      <div>
+                        <dt><kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd></dt>
+                        <dd>听风 / 看雨 / 日落</dd>
+                      </div>
+                    </dl>
+                  </section>
+                </div>
                 <small>输入聊天消息或操作表单时，快捷键会自动停用。</small>
               </section>
               <label className="auto-pass-control">
@@ -1862,7 +1966,7 @@ export function GameTable({
                         <kbd className="action-shortcut-badge">S</kbd>
                       )}
                       {keyboardShortcutsEnabled && action.type === "PASS_LOCK" && (
-                        <kbd className="action-shortcut-badge">N</kbd>
+                        <kbd className="action-shortcut-badge">S</kbd>
                       )}
                     </button>
                   ))}

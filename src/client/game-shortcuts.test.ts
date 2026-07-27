@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   gameShortcutIntent,
   nextSelectableCardId,
+  shouldHandleGameShortcutFromElement,
 } from "./game-shortcuts";
 
 describe("game keyboard shortcuts", () => {
@@ -16,10 +17,10 @@ describe("game keyboard shortcuts", () => {
     expect(gameShortcutIntent("A")).toEqual({ type: "acceptIntelligence" });
     expect(gameShortcutIntent("d")).toEqual({ type: "declineIntelligence" });
     expect(gameShortcutIntent("D")).toEqual({ type: "declineIntelligence" });
-    expect(gameShortcutIntent("s")).toEqual({ type: "passReaction" });
-    expect(gameShortcutIntent("S")).toEqual({ type: "passReaction" });
-    expect(gameShortcutIntent("n")).toEqual({ type: "passLock" });
-    expect(gameShortcutIntent("N")).toEqual({ type: "passLock" });
+    expect(gameShortcutIntent("s")).toEqual({ type: "passWindow" });
+    expect(gameShortcutIntent("S")).toEqual({ type: "passWindow" });
+    expect(gameShortcutIntent("n")).toBeUndefined();
+    expect(gameShortcutIntent("N")).toBeUndefined();
     expect(gameShortcutIntent("l")).toEqual({ type: "playLock" });
     expect(gameShortcutIntent("L")).toEqual({ type: "playLock" });
     expect(gameShortcutIntent("r")).toEqual({ type: "playSwap" });
@@ -38,6 +39,20 @@ describe("game keyboard shortcuts", () => {
     expect(gameShortcutIntent("P")).toEqual({ type: "playDecrypt" });
     expect(gameShortcutIntent("f")).toEqual({ type: "playReinforcement" });
     expect(gameShortcutIntent("F")).toEqual({ type: "playReinforcement" });
+    expect(gameShortcutIntent("m")).toEqual({ type: "selectSecretOrder" });
+    expect(gameShortcutIntent("M")).toEqual({ type: "selectSecretOrder" });
+    expect(gameShortcutIntent("q")).toEqual({
+      type: "playSecretOrder",
+      word: "听风",
+    });
+    expect(gameShortcutIntent("w")).toEqual({
+      type: "playSecretOrder",
+      word: "看雨",
+    });
+    expect(gameShortcutIntent("e")).toEqual({
+      type: "playSecretOrder",
+      word: "日落",
+    });
     expect(gameShortcutIntent("t")).toEqual({ type: "enterTransmissionPhase" });
     expect(gameShortcutIntent("T")).toEqual({ type: "enterTransmissionPhase" });
     expect(gameShortcutIntent("Escape")).toEqual({ type: "cancel" });
@@ -55,5 +70,44 @@ describe("game keyboard shortcuts", () => {
     expect(nextSelectableCardId(hand, selectable, "c", 1)).toBe("a");
     expect(nextSelectableCardId(hand, selectable, "a", -1)).toBe("c");
     expect(nextSelectableCardId(hand, new Set(), "a", 1)).toBeUndefined();
+  });
+
+  it("allows card shortcuts after clicking a hand card without hijacking native Enter", () => {
+    const focusedCard = {
+      tagName: "BUTTON",
+      isContentEditable: false,
+      classNames: ["game-card"],
+    };
+
+    expect(shouldHandleGameShortcutFromElement(
+      { type: "playLock" },
+      focusedCard,
+    )).toBe(true);
+    expect(shouldHandleGameShortcutFromElement(
+      { type: "playSecretOrder", word: "听风" },
+      focusedCard,
+    )).toBe(true);
+    expect(shouldHandleGameShortcutFromElement(
+      { type: "confirm" },
+      focusedCard,
+    )).toBe(false);
+  });
+
+  it("keeps shortcuts disabled for form fields and ordinary controls", () => {
+    const playLock = { type: "playLock" } as const;
+
+    expect(shouldHandleGameShortcutFromElement(playLock, {
+      tagName: "INPUT",
+      isContentEditable: false,
+    })).toBe(false);
+    expect(shouldHandleGameShortcutFromElement(playLock, {
+      tagName: "BUTTON",
+      isContentEditable: false,
+      classNames: ["prompt-action"],
+    })).toBe(false);
+    expect(shouldHandleGameShortcutFromElement(playLock, {
+      tagName: "DIV",
+      isContentEditable: true,
+    })).toBe(false);
   });
 });

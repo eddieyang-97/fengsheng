@@ -18,6 +18,8 @@ import {
   keyboardConfirmAction,
   keyboardCardShortcutAction,
   keyboardSeparationShortcutAction,
+  keyboardSecretOrderAction,
+  keyboardSecretOrderCardId,
   privateNoticeVariantText,
   promptDescription,
   probeIdentityNoticeText,
@@ -298,6 +300,11 @@ describe("dedicated action shortcut labels", () => {
       cardId: "p1-06",
     })).toBe("F");
     expect(dedicatedActionShortcut({
+      type: "PLAY_SECRET_ORDER",
+      cardId: "p1-07",
+      word: "听风",
+    })).toBe("Q");
+    expect(dedicatedActionShortcut({
       type: "CHOOSE_PUBLIC_TEXT_EFFECT",
       choice: "drawOne",
     })).toBeUndefined();
@@ -398,6 +405,38 @@ describe("keyboard card action shortcuts", () => {
   });
 });
 
+describe("秘密下达 keyboard shortcuts", () => {
+  const firstCardActions = (["听风", "看雨", "日落"] as const).map((word) => ({
+    type: "PLAY_SECRET_ORDER" as const,
+    cardId: "p1-08" as const,
+    word,
+  }));
+  const secondCardAction = {
+    type: "PLAY_SECRET_ORDER" as const,
+    cardId: "p1-09" as const,
+    word: "听风" as const,
+  };
+
+  it("selects an unambiguous card and maps Q/W/E to declarations", () => {
+    expect(keyboardSecretOrderCardId(firstCardActions)).toBe("p1-08");
+    expect(
+      keyboardSecretOrderAction(firstCardActions, undefined, "看雨"),
+    ).toEqual(firstCardActions[1]);
+    expect(
+      keyboardSecretOrderCardId(
+        [...firstCardActions, secondCardAction],
+      ),
+    ).toBeUndefined();
+    expect(
+      keyboardSecretOrderAction(
+        [...firstCardActions, secondCardAction],
+        "p1-09",
+        "听风",
+      ),
+    ).toEqual(secondCardAction);
+  });
+});
+
 describe("锁定 prompt actions", () => {
   const redLock = {
     id: "p1-05",
@@ -463,7 +502,7 @@ describe("锁定 prompt actions", () => {
       players: [],
     } as unknown as PlayerProjection;
     expect(promptDescription(lockProjection)).toBe(
-      "请选择一张高亮的锁定牌，或选择不锁定。",
+      "请选择一张高亮的锁定牌，或跳过反应。",
     );
     expect(promptDescription(lockProjection, blueLock.id)).toBe(
       "已选择锁定牌；确认使用，或改选另一张高亮牌。",

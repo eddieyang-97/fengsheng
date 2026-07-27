@@ -5,8 +5,7 @@ export const GAME_SHORTCUT_BINDINGS = {
   confirm: "Enter",
   acceptIntelligence: "a",
   declineIntelligence: "d",
-  passReaction: "s",
-  passLock: "n",
+  passWindow: "s",
   playLock: "l",
   playSwap: "r",
   playCounter: "c",
@@ -16,6 +15,10 @@ export const GAME_SHORTCUT_BINDINGS = {
   playSeparation: "o",
   playDecrypt: "p",
   playReinforcement: "f",
+  selectSecretOrder: "m",
+  secretOrderListen: "q",
+  secretOrderWatch: "w",
+  secretOrderSunset: "e",
   enterTransmissionPhase: "t",
   cancel: "Escape",
 } as const;
@@ -26,8 +29,7 @@ export type GameShortcutIntent =
   | { type: "confirm" }
   | { type: "acceptIntelligence" }
   | { type: "declineIntelligence" }
-  | { type: "passReaction" }
-  | { type: "passLock" }
+  | { type: "passWindow" }
   | { type: "playLock" }
   | { type: "playSwap" }
   | { type: "playCounter" }
@@ -37,8 +39,29 @@ export type GameShortcutIntent =
   | { type: "playSeparation" }
   | { type: "playDecrypt" }
   | { type: "playReinforcement" }
+  | { type: "selectSecretOrder" }
+  | { type: "playSecretOrder"; word: "听风" | "看雨" | "日落" }
   | { type: "enterTransmissionPhase" }
   | { type: "cancel" };
+
+export function shouldHandleGameShortcutFromElement(
+  intent: GameShortcutIntent,
+  element: {
+    tagName: string;
+    isContentEditable: boolean;
+    classNames?: readonly string[];
+  },
+): boolean {
+  if (element.isContentEditable) return false;
+  if (element.tagName === "BUTTON") {
+    return (
+      element.classNames?.includes("game-card") === true &&
+      intent.type !== "confirm"
+    );
+  }
+  return !["A", "INPUT", "OPTION", "SELECT", "SUMMARY", "TEXTAREA"]
+    .includes(element.tagName);
+}
 
 export function gameShortcutIntent(key: string): GameShortcutIntent | undefined {
   const normalizedKey = key.length === 1 ? key.toLowerCase() : key;
@@ -59,11 +82,8 @@ export function gameShortcutIntent(key: string): GameShortcutIntent | undefined 
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.declineIntelligence) {
     return { type: "declineIntelligence" };
   }
-  if (normalizedKey === GAME_SHORTCUT_BINDINGS.passReaction) {
-    return { type: "passReaction" };
-  }
-  if (normalizedKey === GAME_SHORTCUT_BINDINGS.passLock) {
-    return { type: "passLock" };
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.passWindow) {
+    return { type: "passWindow" };
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.playLock) {
     return { type: "playLock" };
@@ -91,6 +111,18 @@ export function gameShortcutIntent(key: string): GameShortcutIntent | undefined 
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.playReinforcement) {
     return { type: "playReinforcement" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.selectSecretOrder) {
+    return { type: "selectSecretOrder" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.secretOrderListen) {
+    return { type: "playSecretOrder", word: "听风" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.secretOrderWatch) {
+    return { type: "playSecretOrder", word: "看雨" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.secretOrderSunset) {
+    return { type: "playSecretOrder", word: "日落" };
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.enterTransmissionPhase) {
     return { type: "enterTransmissionPhase" };
