@@ -75,3 +75,18 @@
 @media (prefers-reduced-motion:reduce) {
   .game-card,.table-player>.player-card,.prompt-actions button { transition:none; }
 }
+
+/* Desktop keyboard shortcut hints and settings reference. */
+.keyboard-shortcut-settings { display:grid; gap:7px; padding:9px 10px; background:rgba(255,255,255,.045); border:1px solid rgba(230,197,122,.18); border-radius:7px; }
+.keyboard-shortcut-settings dl { display:grid; gap:4px; margin:0; }
+.keyboard-shortcut-settings dl>div { display:grid; grid-template-columns:72px 1fr; align-items:center; gap:7px; }
+.keyboard-shortcut-settings dt { display:flex; gap:3px; }
+.keyboard-shortcut-settings dd { margin:0; color:#ddd1bc; font-size:10px; }
+.keyboard-shortcut-settings kbd,.action-shortcut-badge,.card-shortcut-badge { font-family:inherit; font-weight:800; }
+.keyboard-shortcut-settings kbd { min-width:20px; padding:1px 4px; color:#fff2cd; background:#314b40; border:1px solid #8d8065; border-bottom-width:2px; border-radius:4px; font-size:9px; text-align:center; }
+.card-shortcut-badge { position:absolute; right:4px; top:4px; z-index:4; min-width:17px; padding:1px 4px; color:#201b14; background:#f5d77f; border:1px solid rgba(69,49,20,.55); border-bottom-width:2px; border-radius:4px; box-shadow:0 2px 5px rgba(0,0,0,.25); font-size:9px; line-height:1.25; text-align:center; }
+.game-card:not(.game-card--playable) .card-shortcut-badge { opacity:.48; }
+.action-shortcut-badge { display:inline-block; margin-left:7px; padding:1px 5px; color:#3b2a11; background:#f4d985; border:1px solid rgba(72,48,15,.55); border-bottom-width:2px; border-radius:4px; font-size:8px; line-height:1.2; vertical-align:middle; }
+@media (max-width:850px) {
+  .card-shortcut-badge,.action-shortcut-badge { display:none; }
+}

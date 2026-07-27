@@ -5,7 +5,20 @@ import { CANDIDATE_V7, CANDIDATE_V8 } from "./policies";
 import { LIVE_BOT_POLICY, TACTICAL_V2 } from "../server/bot/strategy";
 
 describe("AI self-play benchmark", () => {
-  it("finishes deterministic duel batches without stalling", () => {
+  it("completes a live-policy smoke sample without rejected projected commands", () => {
+    const result = runSelfPlayBenchmark({
+      playerCount: 5,
+      games: 5,
+      startSeed: 1,
+    });
+
+    expect(result.completed).toBe(5);
+    expect(result.stalled).toBe(0);
+    expect(result.commandLimited).toBe(0);
+    expect(result.rejectedCommands).toBe(0);
+  });
+
+  it("finishes deterministic duel batches without stalling or rejected commands", () => {
     const first = runSelfPlayBenchmark({ playerCount: 2, games: 5, startSeed: 1 });
     const second = runSelfPlayBenchmark({ playerCount: 2, games: 5, startSeed: 1 });
 
@@ -13,7 +26,7 @@ describe("AI self-play benchmark", () => {
     expect(first.completed).toBe(5);
     expect(first.stalled).toBe(0);
     expect(first.commandLimited).toBe(0);
-    expect(first.rejectedCommands).toBeGreaterThan(0);
+    expect(first.rejectedCommands).toBe(0);
   });
 
   it("compares baseline and candidate in deterministic swapped-seat pairs", () => {

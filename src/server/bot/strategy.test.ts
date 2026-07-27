@@ -22,6 +22,8 @@ const redPublicText = cardWhere((card) => card.name === "公开文本" && card.c
 const blueDirectCard = cardWhere((card) => card.color === "蓝" && card.transmission === "直达");
 const blackCard = cardWhere((card) => card.color === "黑");
 const counterCard = cardWhere((card) => card.name === "识破");
+const interceptCard = cardWhere((card) => card.name === "截获");
+const decryptCard = cardWhere((card) => card.name === "破译");
 const transferCard = cardWhere((card) => card.name === "转移");
 const separationCard = cardWhere((card) => card.name === "离间");
 const lureCard = cardWhere((card) => card.name === "调虎离山");
@@ -227,6 +229,61 @@ describe("bot strategy", () => {
     });
 
     expect(memory.transmissionInference?.forcedColor).toBeUndefined();
+  });
+
+  it("does not immediately 掉包 its own 秘密下达 intelligence to a different color", () => {
+    const ordered = makeProjection({
+      phase: "preTransmission",
+      own: { id: "bot", faction: "军情", hand: [blueSwapCard] },
+      auditLog: ["bot使用秘密下达并宣布：日落"],
+      pendingSecretOrder: {
+        stage: "selection",
+        sourcePlayerId: "bot",
+        targetPlayerId: "b",
+        word: "日落",
+        requiredColor: "红",
+        verifiedNoMatch: false,
+      },
+    });
+    const memory = createBotMemory(ordered);
+    const transmitting = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [blueSwapCard] },
+      auditLog: [
+        ...ordered.auditLog,
+        "b开始以密电传递情报，当前接收者：c",
+      ],
+      transmission: {
+        ...transmission(redMailCard),
+        card: undefined,
+        faceUp: false,
+        senderId: "b",
+        intendedRecipientId: "c",
+      },
+      reactionWindow: {
+        kind: "intelligence",
+        currentResponderId: "bot",
+      },
+      responseStack: [{
+        id: "intelligence",
+        kind: "intelligence",
+        sourcePlayerId: "b",
+        targetPlayerId: "c",
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_SWAP",
+          cardId: blueSwapCard.id as PhysicalCardId,
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(transmitting, memory)?.type).toBe("PASS_REACTION");
+    expect(memory.transmissionInference).toMatchObject({
+      forcedColor: "红",
+      forcedByPlayerId: "bot",
+    });
   });
 
   it("treats a forced public-text discard as definitive faction evidence", () => {
@@ -776,6 +833,285 @@ describe("bot strategy", () => {
       .toBeGreaterThan(9_000);
     expect(chooseBotCommand(projection, memory, { policy: TACTICAL_V2, random: () => 0.99 })?.type)
       .toBe("ACCEPT_INTELLIGENCE");
+  });
+
+  it.each([
+    ["blue", blueCard],
+    ["red", redDirectCard],
+    ["black", blackCard],
+    ["hidden", undefined],
+  ] as const)(
+    "does not decline %s intelligence toward a known 特工 with a guaranteed sixth-card win",
+    (_label, incomingCard) => {
+      const safeAgentBoard = PHYSICAL_DECK
+        .filter((card) => card.color !== "黑")
+        .slice(0, 5);
+      const projection = makeProjection({
+        phase: "transmitting",
+        players: makeProjection().players.map((player) =>
+          player.id === "b"
+            ? {
+                ...player,
+                faction: "特工" as Faction,
+                intelligence: safeAgentBoard,
+              }
+            : player
+        ),
+        transmission: {
+          ...transmission(incomingCard ?? blueCard),
+          card: incomingCard,
+          faceUp: Boolean(incomingCard),
+          senderId: "b",
+          intendedRecipientId: "bot",
+        },
+        legalActions: [
+          { type: "ACCEPT_INTELLIGENCE" },
+          { type: "DECLINE_INTELLIGENCE" },
+        ],
+      });
+
+      expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
+        .toBe("ACCEPT_INTELLIGENCE");
+    },
+  );
+
+  it("uses an available interception instead of passing a guaranteed sixth card to a known 特工", () => {
+    const safeAgentBoard = PHYSICAL_DECK
+      .filter((card) => card.color !== "黑")
+      .slice(0, 5);
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [interceptCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? {
+              ...player,
+              faction: "特工" as Faction,
+              intelligence: safeAgentBoard,
+            }
+          : player
+      ),
+      transmission: {
+        ...transmission(blueCard),
+        card: undefined,
+        faceUp: false,
+        senderId: "c",
+        intendedRecipientId: "b",
+      },
+      reactionWindow: {
+        kind: "intelligence",
+        currentResponderId: "bot",
+      },
+      responseStack: [{
+        id: "intelligence",
+        kind: "intelligence",
+        sourcePlayerId: "c",
+        targetPlayerId: "b",
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_INTERCEPT",
+          cardId: interceptCard.id as PhysicalCardId,
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
+      .toBe("PLAY_INTERCEPT");
+  });
+
+  it("does not use 破译 on visible intelligence that it originally transmitted", () => {
+    const knownReturnedTransmission = {
+      ...transmission(blueCard),
+      senderId: "bot",
+      intendedRecipientId: "bot",
+      returnedToSender: true,
+      card: blueCard,
+      faceUp: false,
+    };
+    const reactionProjection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [decryptCard] },
+      transmission: {
+        ...knownReturnedTransmission,
+        receiptStage: "reactions",
+      },
+      reactionWindow: {
+        kind: "intelligence",
+        currentResponderId: "bot",
+      },
+      responseStack: [{
+        id: "intelligence",
+        kind: "intelligence",
+        sourcePlayerId: "bot",
+        targetPlayerId: "bot",
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_DECRYPT",
+          cardId: decryptCard.id as PhysicalCardId,
+        },
+      ],
+    });
+    expect(
+      chooseBotCommand(
+        reactionProjection,
+        createBotMemory(reactionProjection),
+      )?.type,
+    ).toBe("PASS_REACTION");
+
+    const finalProjection: PlayerProjection = {
+      ...reactionProjection,
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        {
+          type: "PLAY_DECRYPT",
+          cardId: decryptCard.id as PhysicalCardId,
+        },
+      ],
+    };
+    expect(
+      chooseBotCommand(finalProjection, createBotMemory(finalProjection))?.type,
+    ).toBe("ACCEPT_INTELLIGENCE");
+  });
+
+  it("declines 直达 instead of spending 转移 to its original sender", () => {
+    const twoBlack = [
+      blackCard,
+      { ...blackCard, id: "second-black" },
+    ];
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [transferCard] },
+      players: makeProjection().players.map((player) => {
+        if (player.id === "bot") {
+          return { ...player, intelligence: twoBlack };
+        }
+        if (player.id === "b") {
+          return {
+            ...player,
+            faction: "潜伏" as Faction,
+            intelligence: twoBlack.map((card, index) => ({
+              ...card,
+              id: `target-black-${index}`,
+            })),
+          };
+        }
+        return player;
+      }),
+      transmission: {
+        ...transmission(blackCard),
+        method: "直达",
+        intendedRecipientId: "bot",
+      },
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "DECLINE_INTELLIGENCE" },
+        {
+          type: "PLAY_TRANSFER",
+          cardId: transferCard.id as PhysicalCardId,
+          targetId: "b",
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
+      .toBe("DECLINE_INTELLIGENCE");
+  });
+
+  it("may still transfer 直达 to someone other than its original sender", () => {
+    const twoBlack = [
+      blackCard,
+      { ...blackCard, id: "second-black" },
+    ];
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [transferCard] },
+      players: makeProjection().players.map((player) => {
+        if (player.id === "bot") {
+          return { ...player, intelligence: twoBlack };
+        }
+        if (player.id === "b") {
+          return { ...player, faction: "军情" as Faction };
+        }
+        if (player.id === "c") {
+          return {
+            ...player,
+            faction: "潜伏" as Faction,
+            intelligence: twoBlack.map((card, index) => ({
+              ...card,
+              id: `other-target-black-${index}`,
+            })),
+          };
+        }
+        return player;
+      }),
+      transmission: {
+        ...transmission(blackCard),
+        method: "直达",
+        senderId: "b",
+        intendedRecipientId: "bot",
+      },
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "DECLINE_INTELLIGENCE" },
+        {
+          type: "PLAY_TRANSFER",
+          cardId: transferCard.id as PhysicalCardId,
+          targetId: "c",
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))).toMatchObject({
+      type: "PLAY_TRANSFER",
+      targetId: "c",
+    });
+  });
+
+  it("still permits 转移 for 直达 when refusal is forbidden", () => {
+    const twoBlack = [
+      blackCard,
+      { ...blackCard, id: "second-black" },
+    ];
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [transferCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: twoBlack }
+          : player.id === "b"
+            ? {
+                ...player,
+                faction: "潜伏" as Faction,
+                intelligence: twoBlack.map((card, index) => ({
+                  ...card,
+                  id: `forced-target-black-${index}`,
+                })),
+              }
+            : player
+      ),
+      transmission: {
+        ...transmission(blackCard),
+        method: "直达",
+        senderId: "bot",
+        intendedRecipientId: "bot",
+        returnedToSender: true,
+      },
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        {
+          type: "PLAY_TRANSFER",
+          cardId: transferCard.id as PhysicalCardId,
+          targetId: "b",
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
+      .toBe("PLAY_TRANSFER");
   });
 
   it("counters hostile actions but preserves 识破 when the pending action helps", () => {

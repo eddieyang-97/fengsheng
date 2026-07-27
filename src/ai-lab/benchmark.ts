@@ -186,7 +186,19 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
         rejected.push(command);
         rejectedByState.set(stateKey, rejected);
         rejectedCommands += 1;
-        lastRejection = `${JSON.stringify(command)}: ${error instanceof Error ? error.message : String(error)}`;
+        lastRejection = JSON.stringify({
+          command,
+          error: error instanceof Error ? error.message : String(error),
+          projection: {
+            phase: projection.phase,
+            activePlayerId: projection.activePlayerId,
+            actorId: projection.own.id,
+            activeFunctionAction: projection.activeFunctionAction,
+            reactionWindow: projection.reactionWindow,
+            receiptStage: projection.transmission?.receiptStage,
+            legalActionTypes: projection.legalActions.map((action) => action.type),
+          },
+        });
       }
     }
     if (!advanced && !attempted) {

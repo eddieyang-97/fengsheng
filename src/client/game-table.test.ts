@@ -13,6 +13,7 @@ import {
   formatAuditEntries,
   inspectedHandForProjection,
   isSecondaryPromptAction,
+  keyboardConfirmAction,
   privateNoticeVariantText,
   promptDescription,
   probeIdentityNoticeText,
@@ -255,6 +256,27 @@ describe("automatic reaction passing", () => {
     expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 1, 500)).toBe(500);
     expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 1, 3_000)).toBe(3_000);
     expect(automaticPassDelayMs({ type: "PASS_LOCK" })).toBe(0);
+  });
+});
+
+describe("keyboard action confirmation", () => {
+  it("confirms only one unambiguous non-discard primary action", () => {
+    expect(keyboardConfirmAction([
+      { type: "ACCEPT_INTELLIGENCE" },
+    ])).toEqual({ type: "ACCEPT_INTELLIGENCE" });
+    expect(keyboardConfirmAction([
+      { type: "PLAY_LOCK", cardId: "p1-05" },
+    ])).toEqual({ type: "PLAY_LOCK", cardId: "p1-05" });
+    expect(keyboardConfirmAction([
+      { type: "ACCEPT_INTELLIGENCE" },
+      { type: "PLAY_DECRYPT", cardId: "p1-03" },
+    ])).toBeUndefined();
+    expect(keyboardConfirmAction([
+      { type: "DISCARD_FOR_HAND_LIMIT", cardId: "p1-03" },
+    ])).toBeUndefined();
+    expect(keyboardConfirmAction([
+      { type: "CHOOSE_PUBLIC_TEXT_DISCARD", cardId: "p1-03" },
+    ])).toBeUndefined();
   });
 });
 

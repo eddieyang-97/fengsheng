@@ -65,6 +65,7 @@ const SECRET_ORDER_CARD_COST = 4;
 const DECRYPT_REJECTION_BLACK_PROBABILITY = 0.7;
 const SECRET_ORDER_COLOR_EVIDENCE = 0.45;
 const DEFINITIVE_FACTION_EVIDENCE = 100;
+const TERMINAL_LOSS_UTILITY = -1_000;
 
 interface PublicObservation {
   auditLength: number;
@@ -110,6 +111,7 @@ export interface BotMemory {
     completedDecryptors: string[];
     blackProbability?: number;
     forcedColor?: SingleColor;
+    forcedByPlayerId?: string;
   };
   previous?: PublicObservation;
 }
@@ -499,29 +501,92 @@ function scoreAction(
   switch (action.type) {
     case "ACCEPT_INTELLIGENCE":
       return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, transmissionInference), "evaluate tactical receipt outcome");
-    case "DECLINE_INTELLIGENCE":
-      return decision(command, 5, "preserve the current board state");
+    case "DECLINE_INTELLIGENCE": {
+      const nextRecipientId = nextRecipientAfterDecline(projection);
+      const nextReceiptUtility = currentTransmissionReceiptUtility(
+        nextRecipientId,
+        projection,
+        beliefs,
+        transmissionInference,
+      );
+      return nextReceiptUtility <= TERMINAL_LOSS_UTILITY
+        ? decision(
+            command,
+            5 + nextReceiptUtility,
+            "do not route intelligence to a recipient with a guaranteed terminal win",
+          )
+        : decision(command, 5, "preserve the current board state");
+    }
     case "ENTER_TRANSMISSION_PHASE":
       return decision(command, 10, "finish function-card phase");
     case "PASS_LOCK":
       return decision(command, 4, "preserve lock card");
     case "PLAY_LOCK":
       return decision(command, 6 + currentTransmissionReceiptUtility(projection.transmission?.intendedRecipientId, projection, beliefs, transmissionInference), "secure a tactically valuable receipt");
-    case "PASS_REACTION":
-      return decision(command, PASS_REACTION_SCORE, "preserve reaction cards");
+    case "PASS_REACTION": {
+      const isEstablishedIntelligenceWindow =
+        projection.reactionWindow?.kind === "intelligence" &&
+        projection.responseStack.at(-1)?.kind === "intelligence";
+      const pendingReceiptUtility = isEstablishedIntelligenceWindow
+        ? currentTransmissionReceiptUtility(
+            projection.transmission?.intendedRecipientId,
+            projection,
+            beliefs,
+            transmissionInference,
+          )
+        : 0;
+      return pendingReceiptUtility <= TERMINAL_LOSS_UTILITY
+        ? decision(
+            command,
+            PASS_REACTION_SCORE + pendingReceiptUtility,
+            "do not pass when the intended recipient has a guaranteed terminal win",
+          )
+        : decision(command, PASS_REACTION_SCORE, "preserve reaction cards");
+    }
     case "PLAY_COUNTER":
       return decision(command, 5 - pendingInteractionUtility(projection, beliefs), "counter only when the pending action is unfavorable");
     case "PLAY_DECRYPT":
-      return decision(command, projection.transmission?.card ? 4 : 14, "learn hidden intelligence");
+      return projection.transmission?.card
+        ? decision(
+            command,
+            -100_000,
+            "do not spend decrypt on intelligence already known to this player",
+          )
+        : decision(command, 14, "learn hidden intelligence");
     case "PLAY_INTERCEPT":
       return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, transmissionInference), "intercept tactically useful intelligence");
     case "PLAY_SWAP":
+      if (
+        transmissionInference?.forcedByPlayerId === projection.own.id &&
+        transmissionInference.forcedColor &&
+        card &&
+        !matchesColor(card, transmissionInference.forcedColor)
+      ) {
+        return decision(
+          command,
+          -100_000,
+          "do not replace intelligence with a color that contradicts this bot's own secret order",
+        );
+      }
       return decision(
         command,
         PASS_REACTION_SCORE + swapImprovement(card, projection, beliefs, transmissionInference) - SWAP_CARD_COST,
         "swap only when the replacement improves enough to justify spending the card",
       );
     case "PLAY_TRANSFER": {
+      if (
+        projection.transmission?.method === "直达" &&
+        action.targetId === projection.transmission.senderId &&
+        projection.legalActions.some(
+          (candidate) => candidate.type === "DECLINE_INTELLIGENCE",
+        )
+      ) {
+        return decision(
+          command,
+          -100_000,
+          "do not spend transfer to the original sender when direct intelligence can be declined there",
+        );
+      }
       const targetValue = currentTransmissionReceiptUtility(action.targetId, projection, beliefs, transmissionInference);
       const currentValue = currentTransmissionReceiptUtility(
         projection.transmission?.intendedRecipientId,
@@ -1223,6 +1288,10 @@ function observeTransmissionInference(
         priorSecretOrder?.targetId === current.senderId && !secretOrderInvalidated
           ? priorSecretOrder.requiredColor
           : undefined,
+      forcedByPlayerId:
+        priorSecretOrder?.targetId === current.senderId && !secretOrderInvalidated
+          ? priorSecretOrder.sourceId
+          : undefined,
     };
   }
   const inference = memory.transmissionInference!;
@@ -1232,6 +1301,7 @@ function observeTransmissionInference(
   for (const entry of projection.auditLog.slice(scanFrom)) {
     if (entry.startsWith("掉包结算：")) {
       inference.forcedColor = undefined;
+      inference.forcedByPlayerId = undefined;
       continue;
     }
     const completedDecrypt = /^(.+)完成破译$/.exec(entry)?.[1];

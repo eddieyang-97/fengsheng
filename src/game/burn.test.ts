@@ -243,6 +243,26 @@ describe("烧毁", () => {
     );
   });
 
+  it("烧毁等待他人响应时不向行动玩家暴露普通行动阶段指令", () => {
+    const state = game(717);
+    const burn = findCard((card) => card.name === "烧毁");
+    const intelligence = ordinaryBlack([burn]);
+    inHand(state, "甲", burn);
+    acceptedBy(state, "乙", intelligence);
+
+    playBurn(state, "甲", burn, "乙", intelligence);
+
+    expect(currentReactionWindow(state)).toMatchObject({
+      kind: "burn",
+      responderOrder: ["丙", "丁", "戊", "乙"],
+      nextResponderIndex: 0,
+    });
+    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([]);
+    expect(projectGameForPlayer(state, "丙").legalActions).toContainEqual({
+      type: "PASS_REACTION",
+    });
+  });
+
   it.each(unburnableIds)(
     "拒绝带不可烧毁标记的实体牌 %s",
     (intelligence) => {

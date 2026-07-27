@@ -9,6 +9,11 @@ import { CardArtwork, cardArtPath } from "./CardArtwork";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import { FinalHandsPanel } from "./FinalHandsPanel";
+import {
+  GAME_SHORTCUT_BINDINGS,
+  gameShortcutIntent,
+  nextSelectableCardId,
+} from "./game-shortcuts";
 import { PlayerReactionLayer, PlayerReactionMenu } from "./PlayerReactionLayer";
 import { ResizableGameSidebar } from "./ResizableGameSidebar";
 import {
@@ -58,6 +63,7 @@ export interface GameTableProps {
 
 const AUTO_PASS_STORAGE_KEY = "fengsheng:auto-pass-no-action";
 const AUTO_PASS_IGNORE_BURN_STORAGE_KEY = "fengsheng:auto-pass-ignore-burn";
+const KEYBOARD_SHORTCUTS_STORAGE_KEY = "fengsheng:keyboard-shortcuts";
 
 export function automaticPassCommand(
   actions: readonly ProjectedLegalAction[],
@@ -103,6 +109,15 @@ function loadAutoPassPreference(): boolean {
 function loadAutoPassIgnoreBurnPreference(): boolean {
   try {
     const stored = localStorage.getItem(AUTO_PASS_IGNORE_BURN_STORAGE_KEY);
+    return stored === null ? true : stored === "true";
+  } catch {
+    return true;
+  }
+}
+
+function loadKeyboardShortcutsPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(KEYBOARD_SHORTCUTS_STORAGE_KEY);
     return stored === null ? true : stored === "true";
   } catch {
     return true;
@@ -499,6 +514,7 @@ function CardView({
   inspectable,
   noticeSummary = false,
   reverseProbeMapping = false,
+  shortcutLabel,
   onClick,
 }: {
   card: PhysicalCard;
@@ -507,6 +523,7 @@ function CardView({
   inspectable?: boolean;
   noticeSummary?: boolean;
   reverseProbeMapping?: boolean;
+  shortcutLabel?: string;
   onClick?: () => void;
 }) {
   const displayedVariantText = privateNoticeVariantText(
@@ -522,6 +539,7 @@ function CardView({
       type="button"
     >
       <CardArtwork cardName={card.name} />
+      {shortcutLabel && <kbd className="card-shortcut-badge">{shortcutLabel}</kbd>}
       <strong>{card.name}</strong>
       <span className="game-card__meta">{card.color} · {card.transmission}</span>
       {displayedVariantText && <small>{displayedVariantText}</small>}
@@ -660,6 +678,30 @@ export function promptDescription(
 
 export function isSecondaryPromptAction(action: ProjectedLegalAction): boolean {
   return action.type.startsWith("PASS_") || action.type === "DECLINE_INTELLIGENCE";
+}
+
+const KEYBOARD_CONFIRM_EXCLUDED_ACTIONS = new Set<ProjectedLegalAction["type"]>([
+  "DISCARD_FOR_HAND_LIMIT",
+  "CHOOSE_DANGEROUS_DISCARD",
+  "CHOOSE_PROBE_DISCARD",
+  "CHOOSE_PUBLIC_TEXT_DISCARD",
+]);
+
+export function keyboardConfirmAction(
+  primaryActions: readonly ProjectedLegalAction[],
+): ProjectedLegalAction | undefined {
+  if (primaryActions.length !== 1) return undefined;
+  const action = primaryActions[0];
+  return action && !KEYBOARD_CONFIRM_EXCLUDED_ACTIONS.has(action.type)
+    ? action
+    : undefined;
+}
+
+function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return ["A", "BUTTON", "INPUT", "OPTION", "SELECT", "SUMMARY", "TEXTAREA"]
+    .includes(target.tagName);
 }
 
 const REACTION_WINDOW_LABELS: Record<ProjectedReactionKind, string> = {
@@ -830,8 +872,12 @@ export function GameTable({
   onCommand,
 }: GameTableProps) {
   const [selectedCardId, setSelectedCardId] = useState<string>();
+  const selectedCardContext = useRef<string | undefined>(undefined);
   const [autoPassNoAction, setAutoPassNoAction] = useState(loadAutoPassPreference);
   const [autoPassIgnoreBurn, setAutoPassIgnoreBurn] = useState(loadAutoPassIgnoreBurnPreference);
+  const [keyboardShortcutsEnabled, setKeyboardShortcutsEnabled] = useState(
+    loadKeyboardShortcutsPreference,
+  );
   const lastAutoPassPrompt = useRef<string | undefined>(undefined);
   const pendingAutoPassTimer = useRef<number | undefined>(undefined);
   const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("直达");
@@ -845,21 +891,37 @@ export function GameTable({
   const [reactionTargetId, setReactionTargetId] = useState<string>();
   const auditLogRef = useRef<HTMLOListElement>(null);
   const auditLogFollowsLatest = useRef(true);
+  const settingsRef = useRef<HTMLDetailsElement>(null);
   const chatBubbles = usePlayerChatBubbles(chatMessages);
   const actions = projection.legalActions;
+  const selectionContext = [
+    projection.phase,
+    projection.activePlayerId,
+    projection.reactionWindow?.kind,
+    projection.reactionWindow?.currentResponderId,
+    projection.responseStack.at(-1)?.id,
+    projection.transmission?.intendedRecipientId,
+    projection.transmission?.receiptStage,
+    projection.pendingSecretOrder?.stage,
+    projection.activeFunctionAction?.stage,
+  ].join("|");
+  const activeSelectedCardId = selectedCardContext.current === selectionContext
+    ? selectedCardId
+    : undefined;
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
-  const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
-  const visiblePromptActions = promptActions(actions, selectedCardId, projection.own.hand);
+  const selectedActions = activeSelectedCardId ? actions.filter((action) => actionCardId(action) === activeSelectedCardId) : [];
+  const visiblePromptActions = promptActions(actions, activeSelectedCardId, projection.own.hand);
   const primaryPromptActions = visiblePromptActions.filter((action) => !isSecondaryPromptAction(action));
   const secondaryPromptActions = visiblePromptActions.filter(isSecondaryPromptAction);
+  const keyboardPrimaryAction = keyboardConfirmAction(primaryPromptActions);
   const inspectedHand = inspectedHandForProjection(projection);
-  const selectedBurnActions = selectedCardId
+  const selectedBurnActions = activeSelectedCardId
     ? (actions as readonly GameCommand[]).filter(
         (action): action is BurnCommand =>
-          action.type === "PLAY_BURN" && action.cardId === selectedCardId,
+          action.type === "PLAY_BURN" && action.cardId === activeSelectedCardId,
       )
     : [];
-  const selectedCard = projection.own.hand.find((card) => card.id === selectedCardId);
+  const selectedCard = projection.own.hand.find((card) => card.id === activeSelectedCardId);
   const forcedChoice = actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT");
   const isResolvedPreTransmissionSelection =
     projection.phase === "preTransmission" &&
@@ -882,27 +944,22 @@ export function GameTable({
       )
       .forEach((card) => selectableCardIds.add(card.id));
   }
-  const selectionContext = [
-    projection.phase,
-    projection.activePlayerId,
-    projection.reactionWindow?.kind,
-    projection.reactionWindow?.currentResponderId,
-    projection.responseStack.at(-1)?.id,
-    projection.transmission?.intendedRecipientId,
-    projection.transmission?.receiptStage,
-    projection.pendingSecretOrder?.stage,
-    projection.activeFunctionAction?.stage,
-  ].join("|");
+  const selectCard = useCallback((cardId: string | undefined) => {
+    selectedCardContext.current = cardId ? selectionContext : undefined;
+    setSelectedCardId(cardId);
+  }, [selectionContext]);
 
   useEffect(() => {
+    selectedCardContext.current = undefined;
     setSelectedCardId(undefined);
   }, [selectionContext]);
 
   useEffect(() => {
-    if (selectedCardId && !selectableCardIds.has(selectedCardId)) {
+    if (activeSelectedCardId && !selectableCardIds.has(activeSelectedCardId)) {
+      selectedCardContext.current = undefined;
       setSelectedCardId(undefined);
     }
-  }, [selectedCardId, selectableCardIds]);
+  }, [activeSelectedCardId, selectableCardIds]);
 
   const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
   const directTransmissionTargetIds = canStartTransmission && selectedCard && effectiveMethod === "直达"
@@ -910,6 +967,30 @@ export function GameTable({
         .filter((player) => player.alive && player.id !== projection.own.id)
         .map((player) => player.id)
     : [];
+  const keyboardTransmissionCommand: GameCommand | undefined =
+    canStartTransmission && selectedCard && effectiveMethod
+      ? effectiveMethod === "直达"
+        ? directTransmissionTargetIds.length === 1
+          ? {
+              type: "START_TRANSMISSION",
+              cardId: selectedCard.id as PhysicalCardId,
+              method: effectiveMethod,
+              targetId: directTransmissionTargetIds[0]!,
+            }
+          : undefined
+        : {
+            type: "START_TRANSMISSION",
+            cardId: selectedCard.id as PhysicalCardId,
+            method: effectiveMethod,
+            direction: transmissionDirectionForSelection(
+              projection.mode,
+              selectedCard.circle,
+              direction,
+            ),
+          }
+      : undefined;
+  const keyboardConfirmCommand: GameCommand | undefined =
+    keyboardPrimaryAction ?? keyboardTransmissionCommand;
   const targetIds = new Set([
     ...selectedActions
       .filter((action) => action.type !== "PLAY_BURN")
@@ -1000,6 +1081,102 @@ export function GameTable({
     };
   }, [autoPassAction, autoPassDelayMs, autoPassNoAction, autoPassPrompt, busy, cancelPendingAutoPass, connected, onCommand, projection.own.hand.length]);
 
+  useEffect(() => {
+    const handleKeyboardShortcut = (event: KeyboardEvent) => {
+      if (
+        !keyboardShortcutsEnabled ||
+        event.defaultPrevented ||
+        event.repeat ||
+        event.isComposing ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey
+      ) {
+        return;
+      }
+      const intent = gameShortcutIntent(event.key);
+      if (!intent) return;
+
+      if (intent.type === "cancel") {
+        if (detailCard) {
+          event.preventDefault();
+          setDetailCard(undefined);
+          return;
+        }
+        if (discardPileOpen) {
+          event.preventDefault();
+          setDiscardPileOpen(false);
+          return;
+        }
+        if (settingsRef.current?.open) {
+          event.preventDefault();
+          settingsRef.current.removeAttribute("open");
+          return;
+        }
+        if (reactionTargetId) {
+          event.preventDefault();
+          setReactionTargetId(undefined);
+          return;
+        }
+      }
+
+      if (
+        isKeyboardShortcutTarget(event.target) ||
+        detailCard ||
+        discardPileOpen ||
+        busy ||
+        !connected
+      ) {
+        return;
+      }
+
+      if (intent.type === "selectCard") {
+        const card = projection.own.hand[intent.index];
+        if (!card || !selectableCardIds.has(card.id)) return;
+        event.preventDefault();
+        selectCard(card.id === activeSelectedCardId ? undefined : card.id);
+        return;
+      }
+      if (intent.type === "moveCard") {
+        const nextCardId = nextSelectableCardId(
+          projection.own.hand.map((card) => card.id),
+          selectableCardIds,
+          activeSelectedCardId,
+          intent.direction,
+        );
+        if (!nextCardId) return;
+        event.preventDefault();
+        selectCard(nextCardId);
+        return;
+      }
+      if (intent.type === "confirm" && keyboardConfirmCommand) {
+        event.preventDefault();
+        dispatchCommand(keyboardConfirmCommand);
+        return;
+      }
+      if (intent.type === "cancel" && activeSelectedCardId) {
+        event.preventDefault();
+        selectCard(undefined);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyboardShortcut);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcut);
+  }, [
+    activeSelectedCardId,
+    busy,
+    connected,
+    detailCard,
+    discardPileOpen,
+    dispatchCommand,
+    keyboardConfirmCommand,
+    keyboardShortcutsEnabled,
+    projection.own.hand,
+    reactionTargetId,
+    selectCard,
+    selectableCardIds,
+  ]);
+
   const chooseTarget = (targetId: string) => {
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
     if (matches.length === 1) {
@@ -1041,7 +1218,7 @@ export function GameTable({
           <span className={`game-status-chip ${connected ? "online-dot" : "offline-dot"}`}>
             {connected ? "● 已连接" : "● 连接中断，游戏暂停"}
           </span>
-          <details className="game-settings">
+          <details className="game-settings" ref={settingsRef}>
             <summary>⚙ 游戏设置</summary>
             <div className="game-settings__popover">
               <button
@@ -1053,6 +1230,31 @@ export function GameTable({
               >
                 {soundEnabled ? "🔊 音效已开启" : "🔇 音效已关闭"}
               </button>
+              <section className="keyboard-shortcut-settings">
+                <label className="auto-pass-control">
+                  <input
+                    checked={keyboardShortcutsEnabled}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setKeyboardShortcutsEnabled(checked);
+                      try {
+                        localStorage.setItem(KEYBOARD_SHORTCUTS_STORAGE_KEY, String(checked));
+                      } catch {
+                        // The preference remains active for this page when storage is unavailable.
+                      }
+                    }}
+                    type="checkbox"
+                  />
+                  启用键盘快捷键
+                </label>
+                <dl aria-label="键盘快捷键说明">
+                  <div><dt><kbd>1–9</kbd></dt><dd>选择手牌</dd></div>
+                  <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>切换可用手牌</dd></div>
+                  <div><dt><kbd>Enter</kbd></dt><dd>确认唯一主要操作</dd></div>
+                  <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
+                </dl>
+                <small>输入聊天消息或操作表单时，快捷键会自动停用。</small>
+              </section>
               <label className="auto-pass-control">
                 <input
                   checked={autoPassNoAction}
@@ -1327,7 +1529,7 @@ export function GameTable({
                 {!projection.reactionWindow && reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
               </p>
               <h2>{promptTitle(projection)}</h2>
-              <small>{promptDescription(projection, selectedCardId)}</small>
+              <small>{promptDescription(projection, activeSelectedCardId)}</small>
             </div>
             <div className="prompt-actions">
               {primaryPromptActions.length > 0 && (
@@ -1341,6 +1543,9 @@ export function GameTable({
                       type="button"
                     >
                       {actionDetail(action, projection, playerDisplayNames)}
+                      {keyboardShortcutsEnabled && action === keyboardPrimaryAction && (
+                        <kbd className="action-shortcut-badge">Enter</kbd>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -1422,13 +1627,18 @@ export function GameTable({
             <div><h2>你的手牌</h2><span>阵营：{projection.own.faction}</span></div>
             <div className="hand-row">
               {projection.own.hand.length === 0 && <p className="empty-hand">暂无手牌</p>}
-              {projection.own.hand.map((card) => (
+              {projection.own.hand.map((card, index) => (
                 <CardView
                   card={card}
                   key={card.id}
                   playable={selectableCardIds.has(card.id)}
-                  selected={selectedCardId === card.id}
-                  onClick={selectableCardIds.has(card.id) ? () => setSelectedCardId(card.id === selectedCardId ? undefined : card.id) : undefined}
+                  selected={activeSelectedCardId === card.id}
+                  shortcutLabel={
+                    keyboardShortcutsEnabled && index < GAME_SHORTCUT_BINDINGS.cardKeys.length
+                      ? GAME_SHORTCUT_BINDINGS.cardKeys[index]
+                      : undefined
+                  }
+                  onClick={selectableCardIds.has(card.id) ? () => selectCard(card.id === activeSelectedCardId ? undefined : card.id) : undefined}
                 />
               ))}
             </div>
@@ -1446,9 +1656,19 @@ export function GameTable({
                   </select>
                 )}
                 {effectiveMethod === "直达" ? projection.players.filter((player) => player.alive && player.id !== projection.own.id).map((player) => (
-                  <button disabled={busy || !connected} key={player.id} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">{playerDisplayNames[player.id] ?? player.id}</button>
+                  <button disabled={busy || !connected} key={player.id} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">
+                    {playerDisplayNames[player.id] ?? player.id}
+                    {keyboardShortcutsEnabled && keyboardTransmissionCommand?.type === "START_TRANSMISSION" && keyboardTransmissionCommand.targetId === player.id && (
+                      <kbd className="action-shortcut-badge">Enter</kbd>
+                    )}
+                  </button>
                 )) : (
-                  <button disabled={busy || !connected} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: transmissionDirectionForSelection(projection.mode, selectedCard.circle, direction) })} type="button">开始传递</button>
+                  <button disabled={busy || !connected} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: transmissionDirectionForSelection(projection.mode, selectedCard.circle, direction) })} type="button">
+                    开始传递
+                    {keyboardShortcutsEnabled && keyboardTransmissionCommand && (
+                      <kbd className="action-shortcut-badge">Enter</kbd>
+                    )}
+                  </button>
                 )}
               </div>
             )}

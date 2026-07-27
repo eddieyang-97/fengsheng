@@ -4411,6 +4411,7 @@ export function projectGameForPlayer(
     state.phase === "initialized" &&
     state.activePlayerId === viewerId &&
     !activeFunctionAction &&
+    !reactionWindow &&
     viewer.hand.length > 1
   ) {
     for (const cardId of viewer.hand) {
@@ -4660,7 +4661,8 @@ export function projectGameForPlayer(
         ? [{ type: "CLAIM_NO_SECRET_ORDER_MATCH" }]
       : state.phase === "initialized" &&
           viewerId === state.activePlayerId &&
-          !activeFunctionAction
+          !activeFunctionAction &&
+          !reactionWindow
         ? [...activeFunctionActions, ...burnActions, { type: "ENTER_TRANSMISSION_PHASE" }]
         : activeFunctionActions,
   };
