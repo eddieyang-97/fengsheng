@@ -4,6 +4,7 @@ import {
   gameShortcutIntent,
   nextSelectableCardId,
   shouldHandleGameShortcutFromElement,
+  transmissionOptionShortcutIndex,
 } from "./game-shortcuts";
 
 describe("game keyboard shortcuts", () => {
@@ -70,6 +71,13 @@ describe("game keyboard shortcuts", () => {
     expect(nextSelectableCardId(hand, selectable, "c", 1)).toBe("a");
     expect(nextSelectableCardId(hand, selectable, "a", -1)).toBe("c");
     expect(nextSelectableCardId(hand, new Set(), "a", 1)).toBeUndefined();
+  });
+
+  it("maps up to seven visible transmission choices in QWERTYU order", () => {
+    expect(["q", "W", "e", "R", "t", "Y", "u"].map(
+      transmissionOptionShortcutIndex,
+    )).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(transmissionOptionShortcutIndex("i")).toBeUndefined();
   });
 
   it("allows card shortcuts after clicking a hand card without hijacking native Enter", () => {

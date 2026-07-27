@@ -676,6 +676,13 @@ function scoreAction(
       );
     }
     case "PLAY_BURN":
+      if (shouldDeferBurnUntilAfterReceipt(action.targetPlayerId, projection)) {
+        return decision(
+          command,
+          -100_000,
+          "do not delay a safe receipt to burn intelligence that is not an immediate survival requirement",
+        );
+      }
       return decision(
         command,
         policy.burnBase + burnUtility(action.targetPlayerId, projection, beliefs),
@@ -1100,6 +1107,25 @@ function burnUtility(
     playerBoardUtility(after, faction, targetId, projection.own.id, projection.own.faction)
     - playerBoardUtility(before, faction, targetId, projection.own.id, projection.own.faction)
   ), 0);
+}
+
+function shouldDeferBurnUntilAfterReceipt(
+  targetId: string,
+  projection: PlayerProjection,
+): boolean {
+  if (!projection.legalActions.some((action) => action.type === "ACCEPT_INTELLIGENCE")) {
+    return false;
+  }
+  if (targetId !== projection.own.id) return true;
+
+  const ownPlayer = projection.players.find((player) => player.id === projection.own.id);
+  const ownBlackCount = ownPlayer
+    ? countIntelligence(ownPlayer.intelligence).black
+    : 0;
+  if (ownBlackCount < 2) return true;
+
+  const incoming = projection.transmission?.card;
+  return incoming !== undefined && incoming.color !== "黑";
 }
 
 function pendingInteractionUtility(

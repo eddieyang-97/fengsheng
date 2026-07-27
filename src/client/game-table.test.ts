@@ -8,6 +8,7 @@ import {
   automaticPassDelayMs,
   automaticPassCommand,
   cardVariantText,
+  compactCardMeta,
   dedicatedActionShortcut,
   cardArtPath,
   factionBackgroundClass,
@@ -39,6 +40,7 @@ import {
   seatOrderAnchoredAtPlayer,
   shouldShowIdleFocusPanel,
   transmissionDirectionForSelection,
+  transmissionPromptDescription,
   updateIdentityMarkers,
 } from "./GameTable";
 
@@ -60,6 +62,24 @@ describe("card artwork", () => {
     expect(cardArtPath("公开文本")).toBe("/card-art/public-text.png");
     expect(cardArtPath("烧毁")).toBe("/card-art/burn.png");
     expect(cardArtPath("秘密下达")).toBe("/card-art/secret-order.png");
+  });
+});
+
+describe("compact card metadata", () => {
+  it("keeps ordinary metadata on one line without spacing", () => {
+    expect(compactCardMeta({
+      color: "红蓝",
+      transmission: "直达",
+      unburnable: false,
+    })).toBe("红蓝·直达");
+  });
+
+  it("abbreviates transmission only when sharing space with the unburnable marker", () => {
+    expect(compactCardMeta({
+      color: "黑",
+      transmission: "文本",
+      unburnable: true,
+    })).toBe("黑·文");
   });
 });
 
@@ -818,5 +838,25 @@ describe("duel transmission direction", () => {
       .toBeUndefined();
     expect(transmissionDirectionForSelection("standard", true, "counterclockwise"))
       .toBe("counterclockwise");
+  });
+});
+
+describe("transmission prompt", () => {
+  it("describes only the choices required by the selected card", () => {
+    expect(transmissionPromptDescription(
+      { circle: false, transmission: "任意" },
+      "直达",
+      "standard",
+    )).toBe("请选择传递方式和接收者。");
+    expect(transmissionPromptDescription(
+      { circle: true, transmission: "密电" },
+      "密电",
+      "standard",
+    )).toBe("请选择传递方向。");
+    expect(transmissionPromptDescription(
+      { circle: true, transmission: "密电" },
+      "密电",
+      "duel",
+    )).toBe("确认后开始传递。");
   });
 });

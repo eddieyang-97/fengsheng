@@ -23,6 +23,8 @@ export const GAME_SHORTCUT_BINDINGS = {
   cancel: "Escape",
 } as const;
 
+export const TRANSMISSION_OPTION_KEYS = ["q", "w", "e", "r", "t", "y", "u"] as const;
+
 export type GameShortcutIntent =
   | { type: "selectCard"; index: number }
   | { type: "moveCard"; direction: -1 | 1 }
@@ -44,8 +46,8 @@ export type GameShortcutIntent =
   | { type: "enterTransmissionPhase" }
   | { type: "cancel" };
 
-export function shouldHandleGameShortcutFromElement(
-  intent: GameShortcutIntent,
+export function shouldHandleGameShortcutFromElement<T extends { type: string }>(
+  intent: T,
   element: {
     tagName: string;
     isContentEditable: boolean;
@@ -61,6 +63,14 @@ export function shouldHandleGameShortcutFromElement(
   }
   return !["A", "INPUT", "OPTION", "SELECT", "SUMMARY", "TEXTAREA"]
     .includes(element.tagName);
+}
+
+export function transmissionOptionShortcutIndex(key: string): number | undefined {
+  const normalizedKey = key.length === 1 ? key.toLowerCase() : key;
+  const index = TRANSMISSION_OPTION_KEYS.indexOf(
+    normalizedKey as (typeof TRANSMISSION_OPTION_KEYS)[number],
+  );
+  return index >= 0 ? index : undefined;
 }
 
 export function gameShortcutIntent(key: string): GameShortcutIntent | undefined {

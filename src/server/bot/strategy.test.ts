@@ -23,6 +23,10 @@ const redPublicText = cardWhere((card) => card.name === "公开文本" && card.c
 const bluePublicText = cardWhere((card) => card.name === "公开文本" && card.color === "蓝");
 const blueDirectCard = cardWhere((card) => card.color === "蓝" && card.transmission === "直达");
 const blackCard = cardWhere((card) => card.color === "黑");
+const secondBlackCard = cardWhere(
+  (card) => card.color === "黑" && card.id !== blackCard.id,
+);
+const burnCard = cardWhere((card) => card.name === "烧毁");
 const counterCard = cardWhere((card) => card.name === "识破");
 const interceptCard = cardWhere((card) => card.name === "截获");
 const decryptCard = cardWhere((card) => card.name === "破译");
@@ -1167,6 +1171,59 @@ describe("bot strategy", () => {
     expect(
       chooseBotCommand(finalProjection, createBotMemory(finalProjection))?.type,
     ).toBe("ACCEPT_INTELLIGENCE");
+  });
+
+  it("accepts safe intelligence instead of using 烧毁 first", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [burnCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: [blackCard, secondBlackCard] }
+          : player
+      ),
+      transmission: transmission(redDirectCard),
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        {
+          type: "PLAY_BURN",
+          cardId: burnCard.id as PhysicalCardId,
+          targetPlayerId: "bot",
+          targetIntelligenceCardId: blackCard.id as PhysicalCardId,
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
+      .toBe("ACCEPT_INTELLIGENCE");
+  });
+
+  it("may use 烧毁 before a forced receipt when it prevents immediate black death", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [burnCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: [blackCard, secondBlackCard] }
+          : player
+      ),
+      transmission: {
+        ...transmission(blackCard),
+        transferredRecipientCommitted: true,
+      },
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        {
+          type: "PLAY_BURN",
+          cardId: burnCard.id as PhysicalCardId,
+          targetPlayerId: "bot",
+          targetIntelligenceCardId: blackCard.id as PhysicalCardId,
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
+      .toBe("PLAY_BURN");
   });
 
   it("declines 直达 instead of spending 转移 to its original sender", () => {

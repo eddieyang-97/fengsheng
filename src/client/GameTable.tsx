@@ -19,6 +19,8 @@ import {
   gameShortcutIntent,
   nextSelectableCardId,
   shouldHandleGameShortcutFromElement,
+  TRANSMISSION_OPTION_KEYS,
+  transmissionOptionShortcutIndex,
 } from "./game-shortcuts";
 import { PlayerReactionLayer, PlayerReactionMenu } from "./PlayerReactionLayer";
 import { ResizableGameSidebar } from "./ResizableGameSidebar";
@@ -415,6 +417,20 @@ export function transmissionDirectionForSelection(
   return circle && mode !== "duel" ? direction : undefined;
 }
 
+export function transmissionPromptDescription(
+  card: Pick<PhysicalCard, "circle" | "transmission">,
+  method: PhysicalCard["transmission"],
+  mode: PlayerProjection["mode"],
+): string {
+  const choices: string[] = [];
+  if (card.transmission === "任意") choices.push("传递方式");
+  if (method === "直达") choices.push("接收者");
+  else if (card.circle && mode !== "duel") choices.push("传递方向");
+  return choices.length > 0
+    ? `请选择${choices.join("和")}。`
+    : "确认后开始传递。";
+}
+
 export function inspectedHandForProjection(
   projection: PlayerProjection,
 ): PhysicalCard[] {
@@ -456,6 +472,13 @@ export function privateNoticeVariantText(
 
 export function publicCardSummary(card: PhysicalCard): string {
   return `${card.name} · ${card.color} · ${card.transmission}`;
+}
+
+export function compactCardMeta(card: Pick<PhysicalCard, "color" | "transmission" | "unburnable">): string {
+  const transmission = card.unburnable
+    ? ({ 直达: "直", 密电: "密", 文本: "文", 任意: "任" } as const)[card.transmission]
+    : card.transmission;
+  return `${card.color}·${transmission}`;
 }
 
 export function publicTextReceiptEffect(card: PhysicalCard): string | undefined {
@@ -564,6 +587,7 @@ function CardView({
       <span
         className="game-card__meta"
         data-color={card.color}
+        data-compact-meta={compactCardMeta(card)}
         data-transmission={card.transmission}
       >
         {card.color} · {card.transmission}
@@ -830,7 +854,7 @@ export function keyboardSecretOrderAction(
 
 function shouldHandleKeyboardShortcut(
   target: EventTarget | null,
-  intent: NonNullable<ReturnType<typeof gameShortcutIntent>>,
+  intent: { type: string },
 ): boolean {
   if (!(target instanceof HTMLElement)) return true;
   return shouldHandleGameShortcutFromElement(intent, {
@@ -1341,7 +1365,13 @@ export function GameTable({
       ) {
         return;
       }
-      const intent = gameShortcutIntent(event.key);
+      const transmissionOptionIndex = transmissionOptionShortcutIndex(event.key);
+      const transmissionTargetId = transmissionOptionIndex === undefined
+        ? undefined
+        : directTransmissionTargetIds[transmissionOptionIndex];
+      const intent = transmissionTargetId
+        ? { type: "chooseTransmissionRecipient", targetId: transmissionTargetId } as const
+        : gameShortcutIntent(event.key);
       if (!intent) return;
 
       if (intent.type === "cancel") {
@@ -1374,6 +1404,18 @@ export function GameTable({
         busy ||
         !connected
       ) {
+        return;
+      }
+
+      if (intent.type === "chooseTransmissionRecipient") {
+        if (!selectedCard || effectiveMethod !== "直达") return;
+        event.preventDefault();
+        dispatchCommand({
+          type: "START_TRANSMISSION",
+          cardId: selectedCard.id as PhysicalCardId,
+          method: effectiveMethod,
+          targetId: intent.targetId,
+        });
         return;
       }
 
@@ -1523,6 +1565,9 @@ export function GameTable({
     keyboardSeparationAction,
     keyboardSwapAction,
     keyboardShortcutsEnabled,
+    directTransmissionTargetIds,
+    effectiveMethod,
+    selectedCard,
     actions,
     projection.own.hand,
     reactionTargetId,
@@ -1615,6 +1660,7 @@ export function GameTable({
                     <dl>
                       <div><dt><kbd>T</kbd></dt><dd>进入情报传递阶段</dd></div>
                       <div><dt><kbd>S</kbd></dt><dd>跳过当前窗口</dd></div>
+                      <div><dt><kbd>QWERTYU</kbd></dt><dd>选择直达接收者</dd></div>
                     </dl>
                   </section>
                   <section className="keyboard-shortcut-group">
@@ -1919,10 +1965,93 @@ export function GameTable({
                   : "行动提示"}
                 {!projection.reactionWindow && reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
               </p>
-              <h2>{promptTitle(projection)}</h2>
-              <small>{promptDescription(projection, activeSelectedCardId)}</small>
+              <h2>
+                {canStartTransmission && selectedCard
+                  ? `传递【${selectedCard.name}】`
+                  : promptTitle(projection)}
+              </h2>
+              <small>
+                {canStartTransmission && selectedCard && effectiveMethod
+                  ? transmissionPromptDescription(
+                      selectedCard,
+                      effectiveMethod,
+                      projection.mode,
+                    )
+                  : promptDescription(projection, activeSelectedCardId)}
+              </small>
             </div>
             <div className="prompt-actions">
+              {canStartTransmission && selectedCard && effectiveMethod && (
+                <div
+                  aria-label="情报传递选项"
+                  className={`transmission-composer${effectiveMethod === "直达" ? " transmission-composer--targets" : ""}`}
+                  role="group"
+                >
+                  {selectedCard.transmission === "任意" && (
+                    <select
+                      aria-label="传递方式"
+                      onChange={(event) => setTransmissionMethod(event.target.value as typeof transmissionMethod)}
+                      value={transmissionMethod}
+                    >
+                      <option value="直达">直达</option>
+                      <option value="文本">文本</option>
+                      <option value="密电">密电</option>
+                    </select>
+                  )}
+                  {projection.mode !== "duel" && selectedCard.circle && effectiveMethod !== "直达" && (
+                    <select
+                      aria-label="传递方向"
+                      onChange={(event) => setDirection(event.target.value as typeof direction)}
+                      value={direction}
+                    >
+                      <option value="clockwise">顺时针</option>
+                      <option value="counterclockwise">逆时针</option>
+                    </select>
+                  )}
+                  {effectiveMethod === "直达" ? projection.players
+                    .filter((player) => player.alive && player.id !== projection.own.id)
+                    .map((player, index) => (
+                      <button
+                        disabled={busy || !connected}
+                        key={player.id}
+                        onClick={() => dispatchCommand({
+                          type: "START_TRANSMISSION",
+                          cardId: selectedCard.id as PhysicalCardId,
+                          method: effectiveMethod,
+                          targetId: player.id,
+                        })}
+                        type="button"
+                      >
+                        {playerDisplayNames[player.id] ?? player.id}
+                        {keyboardShortcutsEnabled && TRANSMISSION_OPTION_KEYS[index] && (
+                          <kbd className="action-shortcut-badge">
+                            {TRANSMISSION_OPTION_KEYS[index].toUpperCase()}
+                          </kbd>
+                        )}
+                      </button>
+                    )) : (
+                    <button
+                      disabled={busy || !connected}
+                      onClick={() => dispatchCommand({
+                        type: "START_TRANSMISSION",
+                        cardId: selectedCard.id as PhysicalCardId,
+                        method: effectiveMethod,
+                        direction: transmissionDirectionForSelection(
+                          projection.mode,
+                          selectedCard.circle,
+                          direction,
+                        ),
+                      })}
+                      type="button"
+                    >
+                      开始传递
+                      {keyboardShortcutsEnabled && keyboardTransmissionCommand && (
+                        <kbd className="action-shortcut-badge">Enter</kbd>
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
               {primaryPromptActions.length > 0 && (
                 <div aria-label="主要操作" className="prompt-actions__group prompt-actions__group--primary" role="group">
                   {primaryPromptActions.map((action, index) => (
@@ -2032,7 +2161,7 @@ export function GameTable({
 
           <section className="own-area">
             <div className="own-area__header"><h2>你的手牌</h2><span>阵营：{projection.own.faction}</span></div>
-            <div className={`own-area__body${canStartTransmission && selectedCard ? " own-area__body--composing" : ""}`}>
+            <div className="own-area__body">
               <div className={`own-hand-scroll${handOverflow.left ? " own-hand-scroll--left" : ""}${handOverflow.right ? " own-hand-scroll--right" : ""}`}>
                 <div className="hand-row own-hand-row" onScroll={updateHandOverflow} ref={handRowRef}>
                   {projection.own.hand.length === 0 && <p className="empty-hand">暂无手牌</p>}
@@ -2056,36 +2185,6 @@ export function GameTable({
                   ))}
                 </div>
               </div>
-              {canStartTransmission && selectedCard && (
-                <div className={`transmission-composer${effectiveMethod === "直达" ? " transmission-composer--targets" : ""}`}>
-                  <strong>{effectiveMethod === "直达" ? "选择接收者" : "发送这张牌"}</strong>
-                  {selectedCard.transmission === "任意" && (
-                    <select onChange={(event) => setTransmissionMethod(event.target.value as typeof transmissionMethod)} value={transmissionMethod}>
-                      <option value="直达">直达</option><option value="文本">文本</option><option value="密电">密电</option>
-                    </select>
-                  )}
-                  {projection.mode !== "duel" && selectedCard.circle && effectiveMethod !== "直达" && (
-                    <select onChange={(event) => setDirection(event.target.value as typeof direction)} value={direction}>
-                      <option value="clockwise">顺时针</option><option value="counterclockwise">逆时针</option>
-                    </select>
-                  )}
-                  {effectiveMethod === "直达" ? projection.players.filter((player) => player.alive && player.id !== projection.own.id).map((player) => (
-                    <button disabled={busy || !connected} key={player.id} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">
-                      {playerDisplayNames[player.id] ?? player.id}
-                      {keyboardShortcutsEnabled && keyboardTransmissionCommand?.type === "START_TRANSMISSION" && keyboardTransmissionCommand.targetId === player.id && (
-                        <kbd className="action-shortcut-badge">Enter</kbd>
-                      )}
-                    </button>
-                  )) : (
-                    <button disabled={busy || !connected} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: transmissionDirectionForSelection(projection.mode, selectedCard.circle, direction) })} type="button">
-                      开始传递
-                      {keyboardShortcutsEnabled && keyboardTransmissionCommand && (
-                        <kbd className="action-shortcut-badge">Enter</kbd>
-                      )}
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
           </section>
         </div>
