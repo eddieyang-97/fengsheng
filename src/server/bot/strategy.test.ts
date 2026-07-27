@@ -289,7 +289,7 @@ describe("bot strategy", () => {
   });
 
   it.each([
-    "b没有符合秘密下达要求的蓝色情报，服务器自动验证并解除颜色限制",
+    "b没有符合秘密下达所要求的颜色的情报，服务器自动验证并解除颜色限制",
     "秘密下达被识破，颜色限制取消",
   ])("does not retain an invalidated secret-order constraint: %s", (invalidationEntry) => {
     const ordered = makeProjection({

@@ -391,7 +391,7 @@ describe("秘密下达", () => {
     passAll(state);
     expect(state.pendingSecretOrder?.verifiedNoMatch).toBe(true);
     expect(state.auditLog).toContain(
-      `甲没有符合秘密下达要求的${required}色情报，服务器自动验证并解除颜色限制`,
+      `甲没有符合秘密下达所要求的颜色的情报，服务器自动验证并解除颜色限制`,
     );
     expect(projectGameForPlayer(state, "乙").pendingSecretOrder?.inspectedHand?.map((c) => c.id))
       .toEqual(inspectedHand);

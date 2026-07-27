@@ -2094,7 +2094,7 @@ function automaticallyVerifyNoSecretOrderMatch(state: GameState): boolean {
     cardIds: [...state.players[actorId].hand],
   });
   state.auditLog.push(
-    `${actorId}没有符合秘密下达要求的${pending.requiredColor}色情报，服务器自动验证并解除颜色限制`,
+    `${actorId}没有符合秘密下达所要求的颜色的情报，服务器自动验证并解除颜色限制`,
   );
   return true;
 }
