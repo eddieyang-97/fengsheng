@@ -3562,7 +3562,7 @@ function resolveSuccessfulReceiptAction(
     transmission.pendingDecrypt = undefined;
     state.auditLog.push(`${transmission.decryptedById}完成破译`);
     settleReceiptResolution(state);
-    transmission.receiptStage = "decision";
+    beginReceiptReactionStage(state);
     assertGameStateInvariants(state);
   } else {
     throw new Error("当前帧不是可直接结算的情报行动");
@@ -4337,6 +4337,8 @@ export function projectGameForPlayer(
     isIntelligenceStateWindow &&
     transmission?.intendedRecipientId === viewerId &&
     transmission.method !== "文本" &&
+    !transmission.faceUp &&
+    transmission.decryptedById !== viewerId &&
     transmission.lockedRecipientId !== transmission.intendedRecipientId &&
     !transmission.interceptorCommitted
       ? viewer.hand

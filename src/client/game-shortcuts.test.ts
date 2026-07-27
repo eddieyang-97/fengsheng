@@ -36,6 +36,8 @@ describe("game keyboard shortcuts", () => {
     expect(gameShortcutIntent("O")).toEqual({ type: "playSeparation" });
     expect(gameShortcutIntent("p")).toEqual({ type: "playDecrypt" });
     expect(gameShortcutIntent("P")).toEqual({ type: "playDecrypt" });
+    expect(gameShortcutIntent("f")).toEqual({ type: "playReinforcement" });
+    expect(gameShortcutIntent("F")).toEqual({ type: "playReinforcement" });
     expect(gameShortcutIntent("t")).toEqual({ type: "enterTransmissionPhase" });
     expect(gameShortcutIntent("T")).toEqual({ type: "enterTransmissionPhase" });
     expect(gameShortcutIntent("Escape")).toEqual({ type: "cancel" });

@@ -1486,7 +1486,58 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     );
   });
 
-  it("转移目标可破译且必须接收，掉包后仍保留该承诺", () => {
+  it("破译成功后重开情报响应，其他玩家可使用调虎离山或掉包", () => {
+    const state = initializedWithActive(players, 769);
+    const intelligence = cardIdWhere(
+      (card) => card.transmission === "密电" && !card.circle,
+    );
+    const decrypt = cardIdWhere((card) => card.name === "破译", [intelligence]);
+    const lure = cardIdWhere((card) => card.name === "调虎离山", [
+      intelligence,
+      decrypt,
+    ]);
+    const swap = cardIdWhere((card) => card.name === "掉包", [
+      intelligence,
+      decrypt,
+      lure,
+    ]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "乙", decrypt, 0);
+    putCardInHand(state, "丙", lure, 0);
+    putCardInHand(state, "丙", swap, 1);
+
+    startTransmission(state, "甲", intelligence);
+    passLockOpportunity(state, "甲");
+    passUntilReactionTurn(state, "乙");
+    playDecrypt(state, "乙", decrypt);
+    finishCurrentReactionWindow(state);
+
+    expect(currentReactionWindow(state)).toMatchObject({
+      kind: "intelligence",
+      affectedPlayerId: "乙",
+      responderOrder: ["丙", "丁", "戊", "甲", "乙"],
+      nextResponderIndex: 0,
+    });
+    expect(projectGameForPlayer(state, "丙").legalActions).toEqual(
+      expect.arrayContaining([
+        { type: "PLAY_LURE", cardId: lure },
+        { type: "PLAY_SWAP", cardId: swap },
+      ]),
+    );
+    passUntilReactionTurn(state, "乙");
+    expect(projectGameForPlayer(state, "乙").legalActions).toEqual(
+      expect.arrayContaining([
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "DECLINE_INTELLIGENCE" },
+      ]),
+    );
+    expect(projectGameForPlayer(state, "乙").legalActions).not.toContainEqual({
+      type: "PLAY_DECRYPT",
+      cardId: decrypt,
+    });
+  });
+
+  it("转移目标可破译且必须接收，破译后掉包仍保留该承诺", () => {
     const state = initializedWithActive(players, 77);
     const intelligence = cardIdWhere((card) => card.transmission === "直达");
     const transfer = cardIdWhere((card) => card.name === "转移", [intelligence]);
@@ -1520,10 +1571,6 @@ describe("截获、掉包、调虎离山与转移接收", () => {
       type: "PLAY_SWAP",
       cardId: swap,
     });
-    playSwap(state, "戊", swap);
-    finishCurrentReactionWindow(state);
-
-    expect(state.transmission?.transferredRecipientCommitted).toBe(true);
     passUntilReactionTurn(state, "丁");
     expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
       type: "PLAY_DECRYPT",
@@ -1532,6 +1579,21 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     playDecrypt(state, "丁", decrypt);
     finishCurrentReactionWindow(state);
 
+    expect(currentReactionWindow(state)).toMatchObject({
+      kind: "intelligence",
+      affectedPlayerId: "丁",
+      responderOrder: ["戊", "甲", "乙", "丙", "丁"],
+      nextResponderIndex: 0,
+    });
+    expect(projectGameForPlayer(state, "戊").legalActions).toContainEqual({
+      type: "PLAY_SWAP",
+      cardId: swap,
+    });
+    playSwap(state, "戊", swap);
+    finishCurrentReactionWindow(state);
+
+    expect(state.transmission?.transferredRecipientCommitted).toBe(true);
+    passUntilReactionTurn(state, "丁");
     expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
       { type: "ACCEPT_INTELLIGENCE" },
     ]);

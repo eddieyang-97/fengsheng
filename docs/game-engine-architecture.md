@@ -199,6 +199,15 @@ intelligence priority. A countered `调虎离山` likewise restores the original
 the response position from which it was played, so players who had already
 passed are not prompted again.
 
+A successful `破译` preserves the current recipient's private visibility of the
+unchanged intelligence, then opens a fresh ordinary intelligence reaction round
+anchored on that recipient. This lets the other players react to the newly
+informed receipt state with otherwise-legal actions such as `调虎离山` or
+`掉包`, while preserving any existing mandatory-acceptance commitment. The same
+recipient cannot inspect the same hidden card twice; a replacement card or new
+recipient starts a new receipt cycle without inheriting the old private
+visibility.
+
 For the final intended recipient in an established intelligence window, the
 projection replaces visible pass with the applicable receipt action(s), alongside
 any legal reaction cards. Choosing receipt or refusal closes that final priority

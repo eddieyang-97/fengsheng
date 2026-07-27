@@ -15,6 +15,7 @@ export const GAME_SHORTCUT_BINDINGS = {
   playLure: "u",
   playSeparation: "o",
   playDecrypt: "p",
+  playReinforcement: "f",
   enterTransmissionPhase: "t",
   cancel: "Escape",
 } as const;
@@ -35,6 +36,7 @@ export type GameShortcutIntent =
   | { type: "playLure" }
   | { type: "playSeparation" }
   | { type: "playDecrypt" }
+  | { type: "playReinforcement" }
   | { type: "enterTransmissionPhase" }
   | { type: "cancel" };
 
@@ -86,6 +88,9 @@ export function gameShortcutIntent(key: string): GameShortcutIntent | undefined 
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.playDecrypt) {
     return { type: "playDecrypt" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playReinforcement) {
+    return { type: "playReinforcement" };
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.enterTransmissionPhase) {
     return { type: "enterTransmissionPhase" };

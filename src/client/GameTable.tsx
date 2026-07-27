@@ -710,6 +710,29 @@ export function keyboardConfirmAction(
     : undefined;
 }
 
+const DEDICATED_ACTION_SHORTCUTS: Partial<
+  Record<ProjectedLegalAction["type"], string>
+> = {
+  ACCEPT_INTELLIGENCE: "A",
+  ENTER_TRANSMISSION_PHASE: "T",
+  PLAY_LOCK: "L",
+  PLAY_SWAP: "R",
+  PLAY_COUNTER: "C",
+  PLAY_INTERCEPT: "I",
+  PLAY_BURN: "B",
+  PLAY_LURE: "U",
+  PLAY_SEPARATION: "O",
+  PLAY_FUNCTION_SEPARATION: "O",
+  PLAY_DECRYPT: "P",
+  PLAY_REINFORCEMENT: "F",
+};
+
+export function dedicatedActionShortcut(
+  action: ProjectedLegalAction,
+): string | undefined {
+  return DEDICATED_ACTION_SHORTCUTS[action.type];
+}
+
 export function keyboardCardShortcutAction(
   actions: readonly ProjectedLegalAction[],
   type:
@@ -719,7 +742,8 @@ export function keyboardCardShortcutAction(
     | "PLAY_INTERCEPT"
     | "PLAY_BURN"
     | "PLAY_LURE"
-    | "PLAY_DECRYPT",
+    | "PLAY_DECRYPT"
+    | "PLAY_REINFORCEMENT",
   selectedCardId?: string,
 ): ProjectedLegalAction | undefined {
   const matching = actions.filter((action) => action.type === type);
@@ -1025,6 +1049,11 @@ export function GameTable({
   const keyboardDecryptAction = keyboardCardShortcutAction(
     actions,
     "PLAY_DECRYPT",
+    activeSelectedCardId,
+  );
+  const keyboardReinforcementAction = keyboardCardShortcutAction(
+    actions,
+    "PLAY_REINFORCEMENT",
     activeSelectedCardId,
   );
   const keyboardEnterTransmissionPhaseAction = actions.find(
@@ -1371,6 +1400,11 @@ export function GameTable({
         dispatchCommand(keyboardDecryptAction);
         return;
       }
+      if (intent.type === "playReinforcement" && keyboardReinforcementAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardReinforcementAction);
+        return;
+      }
       if (
         intent.type === "enterTransmissionPhase" &&
         keyboardEnterTransmissionPhaseAction
@@ -1402,6 +1436,7 @@ export function GameTable({
     keyboardLockAction,
     keyboardPassLockAction,
     keyboardPassReactionAction,
+    keyboardReinforcementAction,
     keyboardCounterAction,
     keyboardBurnAction,
     keyboardInterceptAction,
@@ -1501,6 +1536,7 @@ export function GameTable({
                   <div><dt><kbd>U</kbd></dt><dd>调虎离山</dd></div>
                   <div><dt><kbd>O</kbd></dt><dd>离间（目标唯一时）</dd></div>
                   <div><dt><kbd>P</kbd></dt><dd>破译</dd></div>
+                  <div><dt><kbd>F</kbd></dt><dd>增援</dd></div>
                   <div><dt><kbd>T</kbd></dt><dd>进入情报传递阶段</dd></div>
                   <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
                 </dl>
@@ -1794,41 +1830,15 @@ export function GameTable({
                       type="button"
                     >
                       {actionDetail(action, projection, playerDisplayNames)}
-                      {keyboardShortcutsEnabled && action === keyboardPrimaryAction && (
+                      {keyboardShortcutsEnabled &&
+                        action === keyboardPrimaryAction &&
+                        !dedicatedActionShortcut(action) && (
                         <kbd className="action-shortcut-badge">Enter</kbd>
                       )}
-                      {keyboardShortcutsEnabled && action.type === "ENTER_TRANSMISSION_PHASE" && (
-                        <kbd className="action-shortcut-badge">T</kbd>
-                      )}
-                      {keyboardShortcutsEnabled && action.type === "ACCEPT_INTELLIGENCE" && (
-                        <kbd className="action-shortcut-badge">A</kbd>
-                      )}
-                      {keyboardShortcutsEnabled && action.type === "PLAY_LOCK" && (
-                        <kbd className="action-shortcut-badge">L</kbd>
-                      )}
-                      {keyboardShortcutsEnabled && action.type === "PLAY_SWAP" && (
-                        <kbd className="action-shortcut-badge">R</kbd>
-                      )}
-                      {keyboardShortcutsEnabled && action.type === "PLAY_COUNTER" && (
-                        <kbd className="action-shortcut-badge">C</kbd>
-                      )}
-                      {keyboardShortcutsEnabled && action.type === "PLAY_INTERCEPT" && (
-                        <kbd className="action-shortcut-badge">I</kbd>
-                      )}
-                      {keyboardShortcutsEnabled && action.type === "PLAY_BURN" && (
-                        <kbd className="action-shortcut-badge">B</kbd>
-                      )}
-                      {keyboardShortcutsEnabled && action.type === "PLAY_LURE" && (
-                        <kbd className="action-shortcut-badge">U</kbd>
-                      )}
-                      {keyboardShortcutsEnabled && (
-                        action.type === "PLAY_SEPARATION" ||
-                        action.type === "PLAY_FUNCTION_SEPARATION"
-                      ) && (
-                        <kbd className="action-shortcut-badge">O</kbd>
-                      )}
-                      {keyboardShortcutsEnabled && action.type === "PLAY_DECRYPT" && (
-                        <kbd className="action-shortcut-badge">P</kbd>
+                      {keyboardShortcutsEnabled && dedicatedActionShortcut(action) && (
+                        <kbd className="action-shortcut-badge">
+                          {dedicatedActionShortcut(action)}
+                        </kbd>
                       )}
                     </button>
                   ))}

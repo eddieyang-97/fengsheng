@@ -308,6 +308,11 @@ May redirect the target of:
 - The recipient selected by a resolved 转移 may use 破译, 掉包, or another 转移 before their mandatory acceptance, provided that player is not the lock target.
 - Only the current intended recipient may use it.
 - Reveal the inspected intelligence privately only to that recipient.
+- Declaring 破译 first opens its own action-response window. If it is countered, restore the exact parent intelligence priority; another 破译 may be attempted if otherwise legal.
+- After 破译 successfully resolves, open a fresh ordinary intelligence state window anchored on the current intended recipient. Other players may then use any otherwise-legal intelligence reaction, including 调虎离山 or 掉包, before the recipient receives the final combined reaction and receipt priority.
+- A successful 破译 does not clear an existing transferred-recipient acceptance commitment.
+- The same recipient cannot use 破译 twice on the same unchanged hidden intelligence. If another action replaces the intelligence or changes its recipient, the old private inspection does not carry over to the new receipt cycle.
+- Face-up intelligence cannot be 破译.
 - It may be used only while the recipient still has a legal receipt decision or a pending mandatory acceptance after 转移.
 - It cannot be used when the current recipient is the target of a successful 锁定 because acceptance is mandatory.
 - It cannot be used by a successful interceptor because 截获 commits that player to acceptance.

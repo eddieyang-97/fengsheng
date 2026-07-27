@@ -8,6 +8,7 @@ import {
   automaticPassDelayMs,
   automaticPassCommand,
   cardVariantText,
+  dedicatedActionShortcut,
   cardArtPath,
   factionBackgroundClass,
   formatAuditEntries,
@@ -286,6 +287,23 @@ describe("keyboard action confirmation", () => {
   });
 });
 
+describe("dedicated action shortcut labels", () => {
+  it("prefers the dedicated card key over the generic Enter badge", () => {
+    expect(dedicatedActionShortcut({
+      type: "PLAY_LOCK",
+      cardId: "p1-05",
+    })).toBe("L");
+    expect(dedicatedActionShortcut({
+      type: "PLAY_REINFORCEMENT",
+      cardId: "p1-06",
+    })).toBe("F");
+    expect(dedicatedActionShortcut({
+      type: "CHOOSE_PUBLIC_TEXT_EFFECT",
+      choice: "drawOne",
+    })).toBeUndefined();
+  });
+});
+
 describe("keyboard card action shortcuts", () => {
   const lock = { type: "PLAY_LOCK" as const, cardId: "p1-02" as const };
   const firstSwap = { type: "PLAY_SWAP" as const, cardId: "p1-03" as const };
@@ -298,6 +316,10 @@ describe("keyboard card action shortcuts", () => {
   const intercept = { type: "PLAY_INTERCEPT" as const, cardId: "p1-06" as const };
   const lure = { type: "PLAY_LURE" as const, cardId: "p1-10" as const };
   const decrypt = { type: "PLAY_DECRYPT" as const, cardId: "p2-01" as const };
+  const reinforcement = {
+    type: "PLAY_REINFORCEMENT" as const,
+    cardId: "p2-02" as const,
+  };
   const burnFirstTarget = {
     type: "PLAY_BURN" as const,
     cardId: "p1-07" as const,
@@ -348,6 +370,9 @@ describe("keyboard card action shortcuts", () => {
     ).toEqual(intercept);
     expect(keyboardCardShortcutAction([lure], "PLAY_LURE")).toEqual(lure);
     expect(keyboardCardShortcutAction([decrypt], "PLAY_DECRYPT")).toEqual(decrypt);
+    expect(
+      keyboardCardShortcutAction([reinforcement], "PLAY_REINFORCEMENT"),
+    ).toEqual(reinforcement);
     expect(
       keyboardCardShortcutAction([burnFirstTarget], "PLAY_BURN"),
     ).toEqual(burnFirstTarget);
