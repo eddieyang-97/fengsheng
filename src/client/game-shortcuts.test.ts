@@ -58,6 +58,8 @@ describe("game keyboard shortcuts", () => {
     });
     expect(gameShortcutIntent("t")).toEqual({ type: "enterTransmissionPhase" });
     expect(gameShortcutIntent("T")).toEqual({ type: "enterTransmissionPhase" });
+    expect(gameShortcutIntent("k")).toEqual({ type: "openDiscardPile" });
+    expect(gameShortcutIntent("K")).toEqual({ type: "openDiscardPile" });
     expect(gameShortcutIntent("Escape")).toEqual({ type: "cancel" });
     expect(gameShortcutIntent("0")).toBeUndefined();
     expect(gameShortcutIntent("x")).toBeUndefined();

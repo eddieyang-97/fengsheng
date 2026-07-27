@@ -431,6 +431,16 @@ export function transmissionPromptDescription(
     : "确认后开始传递。";
 }
 
+export function soleSelectableTransmissionCardId(
+  hand: readonly Pick<PhysicalCard, "id">[],
+  selectableCardIds: ReadonlySet<string>,
+): string | undefined {
+  const eligibleIds = hand
+    .filter((card) => selectableCardIds.has(card.id))
+    .map((card) => card.id);
+  return eligibleIds.length === 1 ? eligibleIds[0] : undefined;
+}
+
 export function inspectedHandForProjection(
   projection: PlayerProjection,
 ): PhysicalCard[] {
@@ -1059,6 +1069,7 @@ export function GameTable({
 }: GameTableProps) {
   const [selectedCardId, setSelectedCardId] = useState<string>();
   const selectedCardContext = useRef<string | undefined>(undefined);
+  const autoSelectedTransmissionContext = useRef<string | undefined>(undefined);
   const [autoPassNoAction, setAutoPassNoAction] = useState(loadAutoPassPreference);
   const [autoPassIgnoreBurn, setAutoPassIgnoreBurn] = useState(loadAutoPassIgnoreBurnPreference);
   const [keyboardShortcutsEnabled, setKeyboardShortcutsEnabled] = useState(
@@ -1219,6 +1230,33 @@ export function GameTable({
     selectedCardContext.current = undefined;
     setSelectedCardId(undefined);
   }, [selectionContext]);
+
+  useEffect(() => {
+    if (!canStartTransmission) {
+      autoSelectedTransmissionContext.current = undefined;
+      return;
+    }
+    if (
+      autoSelectedTransmissionContext.current === selectionContext ||
+      activeSelectedCardId
+    ) {
+      return;
+    }
+    const soleCardId = soleSelectableTransmissionCardId(
+      projection.own.hand,
+      selectableCardIds,
+    );
+    if (!soleCardId) return;
+    autoSelectedTransmissionContext.current = selectionContext;
+    selectCard(soleCardId);
+  }, [
+    activeSelectedCardId,
+    canStartTransmission,
+    projection.own.hand,
+    selectCard,
+    selectableCardIds,
+    selectionContext,
+  ]);
 
   useEffect(() => {
     if (activeSelectedCardId && !selectableCardIds.has(activeSelectedCardId)) {
@@ -1430,6 +1468,19 @@ export function GameTable({
           setReactionTargetId(undefined);
           return;
         }
+      }
+
+      if (intent.type === "openDiscardPile") {
+        if (
+          !shouldHandleKeyboardShortcut(event.target, intent) ||
+          detailCard ||
+          discardPileOpen
+        ) {
+          return;
+        }
+        event.preventDefault();
+        setDiscardPileOpen(true);
+        return;
       }
 
       if (
@@ -1700,6 +1751,7 @@ export function GameTable({
                       <div><dt><kbd>1–9</kbd></dt><dd>选择手牌</dd></div>
                       <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>切换可用手牌</dd></div>
                       <div><dt><kbd>Enter</kbd></dt><dd>确认唯一主要操作</dd></div>
+                      <div><dt><kbd>K</kbd></dt><dd>打开弃牌堆</dd></div>
                       <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
                     </dl>
                   </section>

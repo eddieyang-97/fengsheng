@@ -40,6 +40,7 @@ import {
   responseFocusContextText,
   seatOrderAnchoredAtPlayer,
   shouldShowIdleFocusPanel,
+  soleSelectableTransmissionCardId,
   transmissionDirectionForSelection,
   transmissionPromptDescription,
   updateIdentityMarkers,
@@ -731,6 +732,23 @@ describe("transmission prompt", () => {
       },
       legalActions: [],
     })).toBe("秘密下达要求：请选择黑色情报");
+  });
+
+  it("identifies a sole eligible card for automatic selection", () => {
+    const hand = [{ id: "red" }, { id: "blue" }];
+
+    expect(soleSelectableTransmissionCardId(
+      hand,
+      new Set(["blue"]),
+    )).toBe("blue");
+    expect(soleSelectableTransmissionCardId(
+      hand,
+      new Set(["red", "blue"]),
+    )).toBeUndefined();
+    expect(soleSelectableTransmissionCardId(
+      hand,
+      new Set(),
+    )).toBeUndefined();
   });
 });
 

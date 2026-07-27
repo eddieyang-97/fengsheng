@@ -21,6 +21,7 @@ export const GAME_SHORTCUT_BINDINGS = {
   secretOrderWatch: "w",
   secretOrderSunset: "e",
   enterTransmissionPhase: "t",
+  openDiscardPile: "k",
   cancel: "Escape",
 } as const;
 
@@ -46,6 +47,7 @@ export type GameShortcutIntent =
   | { type: "selectSecretOrder" }
   | { type: "playSecretOrder"; word: "听风" | "看雨" | "日落" }
   | { type: "enterTransmissionPhase" }
+  | { type: "openDiscardPile" }
   | { type: "cancel" };
 
 export function shouldHandleGameShortcutFromElement<T extends { type: string }>(
@@ -141,6 +143,9 @@ export function gameShortcutIntent(key: string): GameShortcutIntent | undefined 
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.enterTransmissionPhase) {
     return { type: "enterTransmissionPhase" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.openDiscardPile) {
+    return { type: "openDiscardPile" };
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.cancel) return { type: "cancel" };
   return undefined;
