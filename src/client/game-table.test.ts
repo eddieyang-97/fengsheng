@@ -17,6 +17,7 @@ import {
   inspectedHandForProjection,
   isSecondaryPromptAction,
   keyboardConfirmAction,
+  keyboardDiscardAction,
   keyboardCardShortcutAction,
   keyboardSeparationShortcutAction,
   keyboardSecretOrderAction,
@@ -320,14 +321,37 @@ describe("dedicated action shortcut labels", () => {
       cardId: "p1-06",
     })).toBe("F");
     expect(dedicatedActionShortcut({
+      type: "PLAY_CONFIDENTIAL_FILE",
+      cardId: "p4-14",
+    })).toBe("G");
+    expect(dedicatedActionShortcut({
       type: "PLAY_SECRET_ORDER",
       cardId: "p1-07",
       word: "听风",
     })).toBe("Q");
     expect(dedicatedActionShortcut({
+      type: "DISCARD_FOR_HAND_LIMIT",
+      cardId: "p1-03",
+    })).toBe("D");
+    expect(dedicatedActionShortcut({
       type: "CHOOSE_PUBLIC_TEXT_EFFECT",
       choice: "drawOne",
     })).toBeUndefined();
+  });
+});
+
+describe("discard keyboard confirmation", () => {
+  const discardActions = [
+    { type: "DISCARD_FOR_HAND_LIMIT", cardId: "p1-01" },
+    { type: "DISCARD_FOR_HAND_LIMIT", cardId: "p1-02" },
+  ] as const;
+
+  it("uses D only for the currently selected discard card", () => {
+    expect(keyboardDiscardAction(discardActions, "p1-02")).toEqual(
+      discardActions[1],
+    );
+    expect(keyboardDiscardAction(discardActions)).toBeUndefined();
+    expect(keyboardDiscardAction(discardActions, "missing")).toBeUndefined();
   });
 });
 

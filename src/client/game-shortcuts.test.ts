@@ -40,6 +40,8 @@ describe("game keyboard shortcuts", () => {
     expect(gameShortcutIntent("P")).toEqual({ type: "playDecrypt" });
     expect(gameShortcutIntent("f")).toEqual({ type: "playReinforcement" });
     expect(gameShortcutIntent("F")).toEqual({ type: "playReinforcement" });
+    expect(gameShortcutIntent("g")).toEqual({ type: "playConfidentialFile" });
+    expect(gameShortcutIntent("G")).toEqual({ type: "playConfidentialFile" });
     expect(gameShortcutIntent("m")).toEqual({ type: "selectSecretOrder" });
     expect(gameShortcutIntent("M")).toEqual({ type: "selectSecretOrder" });
     expect(gameShortcutIntent("q")).toEqual({

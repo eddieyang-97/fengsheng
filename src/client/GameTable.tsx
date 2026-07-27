@@ -736,6 +736,13 @@ const KEYBOARD_CONFIRM_EXCLUDED_ACTIONS = new Set<ProjectedLegalAction["type"]>(
   "ENTER_TRANSMISSION_PHASE",
 ]);
 
+const DISCARD_CONFIRM_ACTION_TYPES = new Set<ProjectedLegalAction["type"]>([
+  "DISCARD_FOR_HAND_LIMIT",
+  "CHOOSE_DANGEROUS_DISCARD",
+  "CHOOSE_PROBE_DISCARD",
+  "CHOOSE_PUBLIC_TEXT_DISCARD",
+]);
+
 export function keyboardConfirmAction(
   primaryActions: readonly ProjectedLegalAction[],
 ): ProjectedLegalAction | undefined {
@@ -746,10 +753,27 @@ export function keyboardConfirmAction(
     : undefined;
 }
 
+export function keyboardDiscardAction(
+  actions: readonly ProjectedLegalAction[],
+  selectedCardId?: string,
+): ProjectedLegalAction | undefined {
+  if (!selectedCardId) return undefined;
+  const matching = actions.filter(
+    (action) =>
+      DISCARD_CONFIRM_ACTION_TYPES.has(action.type) &&
+      actionCardId(action) === selectedCardId,
+  );
+  return matching.length === 1 ? matching[0] : undefined;
+}
+
 const DEDICATED_ACTION_SHORTCUTS: Partial<
   Record<ProjectedLegalAction["type"], string>
 > = {
   ACCEPT_INTELLIGENCE: "A",
+  DISCARD_FOR_HAND_LIMIT: "D",
+  CHOOSE_DANGEROUS_DISCARD: "D",
+  CHOOSE_PROBE_DISCARD: "D",
+  CHOOSE_PUBLIC_TEXT_DISCARD: "D",
   ENTER_TRANSMISSION_PHASE: "T",
   PLAY_LOCK: "L",
   PLAY_SWAP: "R",
@@ -761,6 +785,7 @@ const DEDICATED_ACTION_SHORTCUTS: Partial<
   PLAY_FUNCTION_SEPARATION: "O",
   PLAY_DECRYPT: "P",
   PLAY_REINFORCEMENT: "F",
+  PLAY_CONFIDENTIAL_FILE: "G",
 };
 
 export function dedicatedActionShortcut(
@@ -786,7 +811,8 @@ export function keyboardCardShortcutAction(
     | "PLAY_BURN"
     | "PLAY_LURE"
     | "PLAY_DECRYPT"
-    | "PLAY_REINFORCEMENT",
+    | "PLAY_REINFORCEMENT"
+    | "PLAY_CONFIDENTIAL_FILE",
   selectedCardId?: string,
 ): ProjectedLegalAction | undefined {
   const matching = actions.filter((action) => action.type === type);
@@ -1085,6 +1111,10 @@ export function GameTable({
     (action): action is Extract<GameCommand, { type: "DECLINE_INTELLIGENCE" }> =>
       action.type === "DECLINE_INTELLIGENCE",
   );
+  const keyboardSelectedDiscardAction = keyboardDiscardAction(
+    actions,
+    activeSelectedCardId,
+  );
   const keyboardPassReactionAction = actions.find(
     (action): action is Extract<GameCommand, { type: "PASS_REACTION" }> =>
       action.type === "PASS_REACTION",
@@ -1135,6 +1165,11 @@ export function GameTable({
   const keyboardReinforcementAction = keyboardCardShortcutAction(
     actions,
     "PLAY_REINFORCEMENT",
+    activeSelectedCardId,
+  );
+  const keyboardConfidentialFileAction = keyboardCardShortcutAction(
+    actions,
+    "PLAY_CONFIDENTIAL_FILE",
     activeSelectedCardId,
   );
   const keyboardSecretOrderSelectionId = keyboardSecretOrderCardId(
@@ -1448,9 +1483,12 @@ export function GameTable({
         dispatchCommand(keyboardAcceptAction);
         return;
       }
-      if (intent.type === "declineIntelligence" && keyboardDeclineAction) {
+      if (
+        intent.type === "declineIntelligence" &&
+        (keyboardSelectedDiscardAction || keyboardDeclineAction)
+      ) {
         event.preventDefault();
-        dispatchCommand(keyboardDeclineAction);
+        dispatchCommand(keyboardSelectedDiscardAction ?? keyboardDeclineAction!);
         return;
       }
       if (
@@ -1507,6 +1545,14 @@ export function GameTable({
         return;
       }
       if (
+        intent.type === "playConfidentialFile" &&
+        keyboardConfidentialFileAction
+      ) {
+        event.preventDefault();
+        dispatchCommand(keyboardConfidentialFileAction);
+        return;
+      }
+      if (
         intent.type === "selectSecretOrder" &&
         keyboardSecretOrderSelectionId
       ) {
@@ -1550,6 +1596,7 @@ export function GameTable({
     dispatchCommand,
     keyboardAcceptAction,
     keyboardConfirmCommand,
+    keyboardConfidentialFileAction,
     keyboardDeclineAction,
     keyboardDecryptAction,
     keyboardEnterTransmissionPhaseAction,
@@ -1557,6 +1604,7 @@ export function GameTable({
     keyboardPassLockAction,
     keyboardPassReactionAction,
     keyboardReinforcementAction,
+    keyboardSelectedDiscardAction,
     keyboardSecretOrderSelectionId,
     keyboardCounterAction,
     keyboardBurnAction,
@@ -1667,7 +1715,7 @@ export function GameTable({
                     <h4>决定</h4>
                     <dl>
                       <div><dt><kbd>A</kbd></dt><dd>接受情报</dd></div>
-                      <div><dt><kbd>D</kbd></dt><dd>不接收情报</dd></div>
+                      <div><dt><kbd>D</kbd></dt><dd>不接收情报／确认弃牌</dd></div>
                     </dl>
                   </section>
                   <section className="keyboard-shortcut-group keyboard-shortcut-group--function">
@@ -1675,6 +1723,7 @@ export function GameTable({
                     <dl>
                       <div><dt><kbd>L</kbd></dt><dd>锁定</dd></div>
                       <div><dt><kbd>F</kbd></dt><dd>增援</dd></div>
+                      <div><dt><kbd>G</kbd></dt><dd>机密文件</dd></div>
                       <div><dt><kbd>R</kbd></dt><dd>掉包</dd></div>
                       <div><dt><kbd>I</kbd></dt><dd>截获</dd></div>
                       <div><dt><kbd>U</kbd></dt><dd>调虎离山</dd></div>

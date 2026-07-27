@@ -15,6 +15,7 @@ export const GAME_SHORTCUT_BINDINGS = {
   playSeparation: "o",
   playDecrypt: "p",
   playReinforcement: "f",
+  playConfidentialFile: "g",
   selectSecretOrder: "m",
   secretOrderListen: "q",
   secretOrderWatch: "w",
@@ -41,6 +42,7 @@ export type GameShortcutIntent =
   | { type: "playSeparation" }
   | { type: "playDecrypt" }
   | { type: "playReinforcement" }
+  | { type: "playConfidentialFile" }
   | { type: "selectSecretOrder" }
   | { type: "playSecretOrder"; word: "听风" | "看雨" | "日落" }
   | { type: "enterTransmissionPhase" }
@@ -121,6 +123,9 @@ export function gameShortcutIntent(key: string): GameShortcutIntent | undefined 
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.playReinforcement) {
     return { type: "playReinforcement" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playConfidentialFile) {
+    return { type: "playConfidentialFile" };
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.selectSecretOrder) {
     return { type: "selectSecretOrder" };
