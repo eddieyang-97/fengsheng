@@ -588,6 +588,28 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(lethal, createBotMemory(lethal))?.type).toBe("DECLINE_INTELLIGENCE");
   });
 
+  it("accepts safe true intelligence even when it does not match its faction", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [] },
+      transmission: transmission(redDirectCard),
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "DECLINE_INTELLIGENCE" },
+      ],
+    });
+    const memory = createBotMemory(projection);
+
+    expect(receiptUtility(
+      redDirectCard,
+      "bot",
+      projection,
+      factionBeliefs(memory, projection),
+    )).toBe(0);
+    expect(chooseBotCommand(projection, memory, { random: () => 0.99 })?.type)
+      .toBe("ACCEPT_INTELLIGENCE");
+  });
+
   it("treats a publicly observed decrypt followed by rejection as evidence of black intelligence", () => {
     const hiddenTransmission = {
       ...transmission(blackCard),

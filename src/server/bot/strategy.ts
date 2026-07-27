@@ -526,8 +526,26 @@ function scoreAction(
   const ownFaction = projection.own.faction;
   const card = "cardId" in action ? projection.own.hand.find((item) => item.id === action.cardId) : undefined;
   switch (action.type) {
-    case "ACCEPT_INTELLIGENCE":
-      return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, transmissionInference), "evaluate tactical receipt outcome");
+    case "ACCEPT_INTELLIGENCE": {
+      const receiptUtility = currentTransmissionReceiptUtility(
+        projection.own.id,
+        projection,
+        beliefs,
+        transmissionInference,
+      );
+      const safeTruePossessionBonus =
+        projection.transmission?.card &&
+        projection.transmission.card.color !== "黑"
+          ? 1
+          : 0;
+      return decision(
+        command,
+        5 + receiptUtility + safeTruePossessionBonus,
+        safeTruePossessionBonus > 0 && receiptUtility === 0
+          ? "accept safe true intelligence instead of routing it onward"
+          : "evaluate tactical receipt outcome",
+      );
+    }
     case "DECLINE_INTELLIGENCE": {
       const nextRecipientId = nextRecipientAfterDecline(projection);
       const nextReceiptUtility = currentTransmissionReceiptUtility(
