@@ -11,6 +11,7 @@ import {
   cardArtPath,
   factionBackgroundClass,
   formatAuditEntries,
+  horizontalOverflowIndicators,
   inspectedHandForProjection,
   isSecondaryPromptAction,
   keyboardConfirmAction,
@@ -277,6 +278,9 @@ describe("keyboard action confirmation", () => {
     expect(keyboardConfirmAction([
       { type: "CHOOSE_PUBLIC_TEXT_DISCARD", cardId: "p1-03" },
     ])).toBeUndefined();
+    expect(keyboardConfirmAction([
+      { type: "ENTER_TRANSMISSION_PHASE" },
+    ])).toBeUndefined();
   });
 });
 
@@ -412,6 +416,27 @@ describe("match log auto-follow", () => {
   it("follows new entries only while the reader remains near the bottom", () => {
     expect(isNearScrollBottom(468, 500, 1_000)).toBe(true);
     expect(isNearScrollBottom(400, 500, 1_000)).toBe(false);
+  });
+});
+
+describe("hand overflow indicators", () => {
+  it("shows edge fades only where more cards can be scrolled into view", () => {
+    expect(horizontalOverflowIndicators(0, 500, 500)).toEqual({
+      left: false,
+      right: false,
+    });
+    expect(horizontalOverflowIndicators(0, 500, 720)).toEqual({
+      left: false,
+      right: true,
+    });
+    expect(horizontalOverflowIndicators(80, 500, 720)).toEqual({
+      left: true,
+      right: true,
+    });
+    expect(horizontalOverflowIndicators(220, 500, 720)).toEqual({
+      left: true,
+      right: false,
+    });
   });
 });
 

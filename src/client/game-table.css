@@ -90,3 +90,25 @@
 @media (max-width:850px) {
   .card-shortcut-badge,.action-shortcut-badge { display:none; }
 }
+
+/* Keep transmission controls beside the hand when the panel itself is wide enough. */
+.own-area { container-type:inline-size; }
+.own-area__header { display:flex; align-items:center; justify-content:space-between; }
+.own-area__body { min-width:0; }
+.own-hand-scroll { position:relative; min-width:0; }
+.own-hand-scroll::before,.own-hand-scroll::after { position:absolute; top:4px; bottom:12px; z-index:6; width:24px; content:""; opacity:0; pointer-events:none; transition:opacity .15s ease; }
+.own-hand-scroll::before { left:0; background:linear-gradient(90deg,rgba(243,235,217,.98),rgba(243,235,217,0)); }
+.own-hand-scroll::after { right:0; background:linear-gradient(270deg,rgba(243,235,217,.98),rgba(243,235,217,0)); }
+.own-hand-scroll--left::before,.own-hand-scroll--right::after { opacity:1; }
+.own-hand-row { box-sizing:border-box; min-height:122px; align-items:center; }
+@container (min-width:920px) {
+  .own-area__body--composing { display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,300px); align-items:stretch; gap:16px; }
+  .own-area__body--composing .own-hand-scroll { min-width:0; }
+  .own-area__body--composing .transmission-composer { align-content:center; align-items:stretch; flex-direction:column; justify-content:center; margin:0; padding:2px 0 2px 16px; border-top:0; border-left:1px solid #d8cebc; }
+  .own-area__body--composing .transmission-composer select,.own-area__body--composing .transmission-composer button { box-sizing:border-box; width:100%; }
+  .own-area__body--composing .transmission-composer--targets { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .own-area__body--composing .transmission-composer--targets>strong,.own-area__body--composing .transmission-composer--targets>select { grid-column:1/-1; }
+}
+@media (max-width:850px) {
+  .own-hand-row { min-height:116px; }
+}

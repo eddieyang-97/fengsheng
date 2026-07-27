@@ -97,6 +97,18 @@ export function isNearScrollBottom(
   return scrollHeight - scrollTop - clientHeight <= threshold;
 }
 
+export function horizontalOverflowIndicators(
+  scrollLeft: number,
+  clientWidth: number,
+  scrollWidth: number,
+  threshold = 8,
+): { left: boolean; right: boolean } {
+  return {
+    left: scrollLeft > threshold,
+    right: scrollWidth - clientWidth - scrollLeft > threshold,
+  };
+}
+
 function loadAutoPassPreference(): boolean {
   try {
     const stored = localStorage.getItem(AUTO_PASS_STORAGE_KEY);
@@ -515,6 +527,7 @@ function CardView({
   noticeSummary = false,
   reverseProbeMapping = false,
   shortcutLabel,
+  buttonRef,
   onClick,
 }: {
   card: PhysicalCard;
@@ -524,6 +537,7 @@ function CardView({
   noticeSummary?: boolean;
   reverseProbeMapping?: boolean;
   shortcutLabel?: string;
+  buttonRef?: React.Ref<HTMLButtonElement>;
   onClick?: () => void;
 }) {
   const displayedVariantText = privateNoticeVariantText(
@@ -535,6 +549,7 @@ function CardView({
       className={`game-card game-card--${cardTone(card)}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}${inspectable ? " game-card--inspectable" : ""}`}
       disabled={!onClick}
       onClick={onClick}
+      ref={buttonRef}
       title={`${publicCardSummary(card)}${card.unburnable ? " · 不可烧毁" : ""}`}
       type="button"
     >
@@ -685,6 +700,7 @@ const KEYBOARD_CONFIRM_EXCLUDED_ACTIONS = new Set<ProjectedLegalAction["type"]>(
   "CHOOSE_DANGEROUS_DISCARD",
   "CHOOSE_PROBE_DISCARD",
   "CHOOSE_PUBLIC_TEXT_DISCARD",
+  "ENTER_TRANSMISSION_PHASE",
 ]);
 
 export function keyboardConfirmAction(
@@ -889,8 +905,11 @@ export function GameTable({
   const [auditPlayerFilter, setAuditPlayerFilter] = useState("");
   const [identityMarkers, setIdentityMarkers] = useState<Record<string, Faction>>({});
   const [reactionTargetId, setReactionTargetId] = useState<string>();
+  const [handOverflow, setHandOverflow] = useState({ left: false, right: false });
   const auditLogRef = useRef<HTMLOListElement>(null);
   const auditLogFollowsLatest = useRef(true);
+  const handRowRef = useRef<HTMLDivElement>(null);
+  const handCardRefs = useRef(new Map<string, HTMLButtonElement>());
   const settingsRef = useRef<HTMLDetailsElement>(null);
   const chatBubbles = usePlayerChatBubbles(chatMessages);
   const actions = projection.legalActions;
@@ -914,6 +933,18 @@ export function GameTable({
   const primaryPromptActions = visiblePromptActions.filter((action) => !isSecondaryPromptAction(action));
   const secondaryPromptActions = visiblePromptActions.filter(isSecondaryPromptAction);
   const keyboardPrimaryAction = keyboardConfirmAction(primaryPromptActions);
+  const keyboardDeclineAction = actions.find(
+    (action): action is Extract<GameCommand, { type: "DECLINE_INTELLIGENCE" }> =>
+      action.type === "DECLINE_INTELLIGENCE",
+  );
+  const keyboardPassReactionAction = actions.find(
+    (action): action is Extract<GameCommand, { type: "PASS_REACTION" }> =>
+      action.type === "PASS_REACTION",
+  );
+  const keyboardEnterTransmissionPhaseAction = actions.find(
+    (action): action is Extract<GameCommand, { type: "ENTER_TRANSMISSION_PHASE" }> =>
+      action.type === "ENTER_TRANSMISSION_PHASE",
+  );
   const inspectedHand = inspectedHandForProjection(projection);
   const selectedBurnActions = activeSelectedCardId
     ? (actions as readonly GameCommand[]).filter(
@@ -960,6 +991,46 @@ export function GameTable({
       setSelectedCardId(undefined);
     }
   }, [activeSelectedCardId, selectableCardIds]);
+
+  const updateHandOverflow = useCallback(() => {
+    const handRow = handRowRef.current;
+    if (!handRow) return;
+    const next = horizontalOverflowIndicators(
+      handRow.scrollLeft,
+      handRow.clientWidth,
+      handRow.scrollWidth,
+    );
+    setHandOverflow((current) =>
+      current.left === next.left && current.right === next.right
+        ? current
+        : next
+    );
+  }, []);
+
+  useEffect(() => {
+    const handRow = handRowRef.current;
+    if (!handRow) return;
+    updateHandOverflow();
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? undefined
+      : new ResizeObserver(updateHandOverflow);
+    resizeObserver?.observe(handRow);
+    window.addEventListener("resize", updateHandOverflow);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateHandOverflow);
+    };
+  }, [projection.own.hand.length, updateHandOverflow]);
+
+  useEffect(() => {
+    if (!activeSelectedCardId) return;
+    handCardRefs.current.get(activeSelectedCardId)?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+    const frame = window.requestAnimationFrame(updateHandOverflow);
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeSelectedCardId, updateHandOverflow]);
 
   const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
   const directTransmissionTargetIds = canStartTransmission && selectedCard && effectiveMethod === "直达"
@@ -1154,6 +1225,24 @@ export function GameTable({
         dispatchCommand(keyboardConfirmCommand);
         return;
       }
+      if (intent.type === "declineIntelligence" && keyboardDeclineAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardDeclineAction);
+        return;
+      }
+      if (intent.type === "passReaction" && keyboardPassReactionAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardPassReactionAction);
+        return;
+      }
+      if (
+        intent.type === "enterTransmissionPhase" &&
+        keyboardEnterTransmissionPhaseAction
+      ) {
+        event.preventDefault();
+        dispatchCommand(keyboardEnterTransmissionPhaseAction);
+        return;
+      }
       if (intent.type === "cancel" && activeSelectedCardId) {
         event.preventDefault();
         selectCard(undefined);
@@ -1170,6 +1259,9 @@ export function GameTable({
     discardPileOpen,
     dispatchCommand,
     keyboardConfirmCommand,
+    keyboardDeclineAction,
+    keyboardEnterTransmissionPhaseAction,
+    keyboardPassReactionAction,
     keyboardShortcutsEnabled,
     projection.own.hand,
     reactionTargetId,
@@ -1251,6 +1343,9 @@ export function GameTable({
                   <div><dt><kbd>1–9</kbd></dt><dd>选择手牌</dd></div>
                   <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>切换可用手牌</dd></div>
                   <div><dt><kbd>Enter</kbd></dt><dd>确认唯一主要操作</dd></div>
+                  <div><dt><kbd>D</kbd></dt><dd>不接收情报</dd></div>
+                  <div><dt><kbd>S</kbd></dt><dd>跳过反应</dd></div>
+                  <div><dt><kbd>T</kbd></dt><dd>进入情报传递阶段</dd></div>
                   <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
                 </dl>
                 <small>输入聊天消息或操作表单时，快捷键会自动停用。</small>
@@ -1546,6 +1641,9 @@ export function GameTable({
                       {keyboardShortcutsEnabled && action === keyboardPrimaryAction && (
                         <kbd className="action-shortcut-badge">Enter</kbd>
                       )}
+                      {keyboardShortcutsEnabled && action.type === "ENTER_TRANSMISSION_PHASE" && (
+                        <kbd className="action-shortcut-badge">T</kbd>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -1561,6 +1659,12 @@ export function GameTable({
                       type="button"
                     >
                       {actionDetail(action, projection, playerDisplayNames)}
+                      {keyboardShortcutsEnabled && action.type === "DECLINE_INTELLIGENCE" && (
+                        <kbd className="action-shortcut-badge">D</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && action.type === "PASS_REACTION" && (
+                        <kbd className="action-shortcut-badge">S</kbd>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -1624,54 +1728,62 @@ export function GameTable({
           )}
 
           <section className="own-area">
-            <div><h2>你的手牌</h2><span>阵营：{projection.own.faction}</span></div>
-            <div className="hand-row">
-              {projection.own.hand.length === 0 && <p className="empty-hand">暂无手牌</p>}
-              {projection.own.hand.map((card, index) => (
-                <CardView
-                  card={card}
-                  key={card.id}
-                  playable={selectableCardIds.has(card.id)}
-                  selected={activeSelectedCardId === card.id}
-                  shortcutLabel={
-                    keyboardShortcutsEnabled && index < GAME_SHORTCUT_BINDINGS.cardKeys.length
-                      ? GAME_SHORTCUT_BINDINGS.cardKeys[index]
-                      : undefined
-                  }
-                  onClick={selectableCardIds.has(card.id) ? () => selectCard(card.id === activeSelectedCardId ? undefined : card.id) : undefined}
-                />
-              ))}
-            </div>
-            {canStartTransmission && selectedCard && (
-              <div className="transmission-composer">
-                <strong>{effectiveMethod === "直达" ? "选择接收者" : "发送这张牌"}</strong>
-                {selectedCard.transmission === "任意" && (
-                  <select onChange={(event) => setTransmissionMethod(event.target.value as typeof transmissionMethod)} value={transmissionMethod}>
-                    <option value="直达">直达</option><option value="文本">文本</option><option value="密电">密电</option>
-                  </select>
-                )}
-                {projection.mode !== "duel" && selectedCard.circle && effectiveMethod !== "直达" && (
-                  <select onChange={(event) => setDirection(event.target.value as typeof direction)} value={direction}>
-                    <option value="clockwise">顺时针</option><option value="counterclockwise">逆时针</option>
-                  </select>
-                )}
-                {effectiveMethod === "直达" ? projection.players.filter((player) => player.alive && player.id !== projection.own.id).map((player) => (
-                  <button disabled={busy || !connected} key={player.id} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">
-                    {playerDisplayNames[player.id] ?? player.id}
-                    {keyboardShortcutsEnabled && keyboardTransmissionCommand?.type === "START_TRANSMISSION" && keyboardTransmissionCommand.targetId === player.id && (
-                      <kbd className="action-shortcut-badge">Enter</kbd>
-                    )}
-                  </button>
-                )) : (
-                  <button disabled={busy || !connected} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: transmissionDirectionForSelection(projection.mode, selectedCard.circle, direction) })} type="button">
-                    开始传递
-                    {keyboardShortcutsEnabled && keyboardTransmissionCommand && (
-                      <kbd className="action-shortcut-badge">Enter</kbd>
-                    )}
-                  </button>
-                )}
+            <div className="own-area__header"><h2>你的手牌</h2><span>阵营：{projection.own.faction}</span></div>
+            <div className={`own-area__body${canStartTransmission && selectedCard ? " own-area__body--composing" : ""}`}>
+              <div className={`own-hand-scroll${handOverflow.left ? " own-hand-scroll--left" : ""}${handOverflow.right ? " own-hand-scroll--right" : ""}`}>
+                <div className="hand-row own-hand-row" onScroll={updateHandOverflow} ref={handRowRef}>
+                  {projection.own.hand.length === 0 && <p className="empty-hand">暂无手牌</p>}
+                  {projection.own.hand.map((card, index) => (
+                    <CardView
+                      buttonRef={(element) => {
+                        if (element) handCardRefs.current.set(card.id, element);
+                        else handCardRefs.current.delete(card.id);
+                      }}
+                      card={card}
+                      key={card.id}
+                      playable={selectableCardIds.has(card.id)}
+                      selected={activeSelectedCardId === card.id}
+                      shortcutLabel={
+                        keyboardShortcutsEnabled && index < GAME_SHORTCUT_BINDINGS.cardKeys.length
+                          ? GAME_SHORTCUT_BINDINGS.cardKeys[index]
+                          : undefined
+                      }
+                      onClick={selectableCardIds.has(card.id) ? () => selectCard(card.id === activeSelectedCardId ? undefined : card.id) : undefined}
+                    />
+                  ))}
+                </div>
               </div>
-            )}
+              {canStartTransmission && selectedCard && (
+                <div className={`transmission-composer${effectiveMethod === "直达" ? " transmission-composer--targets" : ""}`}>
+                  <strong>{effectiveMethod === "直达" ? "选择接收者" : "发送这张牌"}</strong>
+                  {selectedCard.transmission === "任意" && (
+                    <select onChange={(event) => setTransmissionMethod(event.target.value as typeof transmissionMethod)} value={transmissionMethod}>
+                      <option value="直达">直达</option><option value="文本">文本</option><option value="密电">密电</option>
+                    </select>
+                  )}
+                  {projection.mode !== "duel" && selectedCard.circle && effectiveMethod !== "直达" && (
+                    <select onChange={(event) => setDirection(event.target.value as typeof direction)} value={direction}>
+                      <option value="clockwise">顺时针</option><option value="counterclockwise">逆时针</option>
+                    </select>
+                  )}
+                  {effectiveMethod === "直达" ? projection.players.filter((player) => player.alive && player.id !== projection.own.id).map((player) => (
+                    <button disabled={busy || !connected} key={player.id} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">
+                      {playerDisplayNames[player.id] ?? player.id}
+                      {keyboardShortcutsEnabled && keyboardTransmissionCommand?.type === "START_TRANSMISSION" && keyboardTransmissionCommand.targetId === player.id && (
+                        <kbd className="action-shortcut-badge">Enter</kbd>
+                      )}
+                    </button>
+                  )) : (
+                    <button disabled={busy || !connected} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: transmissionDirectionForSelection(projection.mode, selectedCard.circle, direction) })} type="button">
+                      开始传递
+                      {keyboardShortcutsEnabled && keyboardTransmissionCommand && (
+                        <kbd className="action-shortcut-badge">Enter</kbd>
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </section>
         </div>
 

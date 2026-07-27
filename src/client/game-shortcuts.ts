@@ -3,6 +3,9 @@ export const GAME_SHORTCUT_BINDINGS = {
   previousCard: "ArrowLeft",
   nextCard: "ArrowRight",
   confirm: "Enter",
+  declineIntelligence: "d",
+  passReaction: "s",
+  enterTransmissionPhase: "t",
   cancel: "Escape",
 } as const;
 
@@ -10,21 +13,34 @@ export type GameShortcutIntent =
   | { type: "selectCard"; index: number }
   | { type: "moveCard"; direction: -1 | 1 }
   | { type: "confirm" }
+  | { type: "declineIntelligence" }
+  | { type: "passReaction" }
+  | { type: "enterTransmissionPhase" }
   | { type: "cancel" };
 
 export function gameShortcutIntent(key: string): GameShortcutIntent | undefined {
+  const normalizedKey = key.length === 1 ? key.toLowerCase() : key;
   const cardIndex = GAME_SHORTCUT_BINDINGS.cardKeys.indexOf(
-    key as (typeof GAME_SHORTCUT_BINDINGS.cardKeys)[number],
+    normalizedKey as (typeof GAME_SHORTCUT_BINDINGS.cardKeys)[number],
   );
   if (cardIndex >= 0) return { type: "selectCard", index: cardIndex };
-  if (key === GAME_SHORTCUT_BINDINGS.previousCard) {
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.previousCard) {
     return { type: "moveCard", direction: -1 };
   }
-  if (key === GAME_SHORTCUT_BINDINGS.nextCard) {
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.nextCard) {
     return { type: "moveCard", direction: 1 };
   }
-  if (key === GAME_SHORTCUT_BINDINGS.confirm) return { type: "confirm" };
-  if (key === GAME_SHORTCUT_BINDINGS.cancel) return { type: "cancel" };
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.confirm) return { type: "confirm" };
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.declineIntelligence) {
+    return { type: "declineIntelligence" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.passReaction) {
+    return { type: "passReaction" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.enterTransmissionPhase) {
+    return { type: "enterTransmissionPhase" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.cancel) return { type: "cancel" };
   return undefined;
 }
 

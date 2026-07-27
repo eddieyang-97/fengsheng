@@ -12,9 +12,15 @@ describe("game keyboard shortcuts", () => {
     expect(gameShortcutIntent("ArrowLeft")).toEqual({ type: "moveCard", direction: -1 });
     expect(gameShortcutIntent("ArrowRight")).toEqual({ type: "moveCard", direction: 1 });
     expect(gameShortcutIntent("Enter")).toEqual({ type: "confirm" });
+    expect(gameShortcutIntent("d")).toEqual({ type: "declineIntelligence" });
+    expect(gameShortcutIntent("D")).toEqual({ type: "declineIntelligence" });
+    expect(gameShortcutIntent("s")).toEqual({ type: "passReaction" });
+    expect(gameShortcutIntent("S")).toEqual({ type: "passReaction" });
+    expect(gameShortcutIntent("t")).toEqual({ type: "enterTransmissionPhase" });
+    expect(gameShortcutIntent("T")).toEqual({ type: "enterTransmissionPhase" });
     expect(gameShortcutIntent("Escape")).toEqual({ type: "cancel" });
     expect(gameShortcutIntent("0")).toBeUndefined();
-    expect(gameShortcutIntent("s")).toBeUndefined();
+    expect(gameShortcutIntent("a")).toBeUndefined();
   });
 
   it("moves through selectable cards only and wraps at both ends", () => {
