@@ -531,7 +531,7 @@ describe("烧毁", () => {
     expect(state.players["丁"].intelligence).not.toContain(intelligence);
   });
 
-  it("烧毁目标玩家在结算前死亡时保留其情报", () => {
+  it("烧毁目标玩家在结算前死亡时由死亡结算公开弃置情报", () => {
     const state = game(709);
     const burn = findCard((card) => card.name === "烧毁");
     const intelligence = ordinaryBlack([burn]);
@@ -542,7 +542,8 @@ describe("烧毁", () => {
     resolveHostImposedDeath(state, "乙");
     passCurrentWindow(state);
 
-    expect(state.players["乙"].intelligence).toContain(intelligence);
+    expect(state.players["乙"].intelligence).not.toContain(intelligence);
+    expect(state.publicDiscard.filter((id) => id === intelligence)).toHaveLength(1);
     expect(unresolvedBurns(state)).toHaveLength(0);
   });
 
@@ -570,7 +571,8 @@ describe("烧毁", () => {
 
     expect(currentReactionWindow(state)).toBeUndefined();
     expect(unresolvedBurns(state)).toHaveLength(0);
-    expect(state.players["乙"].intelligence).toContain(outerIntelligence);
+    expect(state.players["乙"].intelligence).not.toContain(outerIntelligence);
+    expect(state.publicDiscard.filter((id) => id === outerIntelligence)).toHaveLength(1);
     expect(state.players["丙"].intelligence).not.toContain(innerIntelligence);
   });
 

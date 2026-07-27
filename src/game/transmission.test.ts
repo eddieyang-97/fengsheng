@@ -437,15 +437,32 @@ describe("接收、死亡与胜利", () => {
       used,
     );
     putCardInHand(state, "甲", fatalCard);
+    const handBeforeDeath = [...state.players[receiverId].hand];
+    const intelligenceBeforeDeath = [...state.players[receiverId].intelligence];
 
     startTransmission(state, "甲", fatalCard, { targetId: receiverId });
     acceptAfterReactions(state, receiverId);
 
     expect(state.players[receiverId].alive).toBe(false);
-    expect(state.players[receiverId].intelligence).toHaveLength(6);
+    expect(state.players[receiverId].hand).toEqual([]);
+    expect(state.players[receiverId].intelligence).toEqual([]);
+    expect(state.publicDiscard).toEqual(
+      expect.arrayContaining([
+        ...handBeforeDeath,
+        ...intelligenceBeforeDeath,
+        fatalCard,
+      ]),
+    );
     const acceptedCard = PHYSICAL_DECK.find((card) => card.id === fatalCard)!;
     expect(state.auditLog).toContain(
       `${receiverId}接收情报「${acceptedCard.name}（${acceptedCard.color} · ${acceptedCard.transmission}）」后死亡，阵营公开为特工`,
+    );
+    expect(state.auditLog).toContainEqual(
+      expect.stringContaining(
+        `${receiverId}死亡，全部手牌和情报公开弃置（${
+          handBeforeDeath.length + intelligenceBeforeDeath.length + 1
+        }张）`,
+      ),
     );
     expect(state.winner).toBeUndefined();
   });

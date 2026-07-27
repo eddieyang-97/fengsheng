@@ -126,10 +126,20 @@ describe("房主判定断线玩家死亡", () => {
     putInHand(state, "甲", reinforcement);
     playReinforcement(state, "甲", reinforcement);
     expect(currentReactionWindow(state)?.responderOrder[0]).toBe("乙");
+    const acceptedIntelligence = state.players["乙"].hand.pop();
+    if (!acceptedIntelligence) throw new Error("乙没有可用于测试的手牌");
+    state.players["乙"].intelligence.push(acceptedIntelligence);
+    const cardsBeforeDeath = [
+      ...state.players["乙"].hand,
+      ...state.players["乙"].intelligence,
+    ];
 
     resolveHostImposedDeath(state, "乙");
 
     expect(state.players["乙"]).toMatchObject({ alive: false, factionRevealed: true });
+    expect(state.players["乙"].hand).toEqual([]);
+    expect(state.players["乙"].intelligence).toEqual([]);
+    expect(state.publicDiscard).toEqual(expect.arrayContaining(cardsBeforeDeath));
     expect(currentReactionWindow(state)?.responderOrder).not.toContain("乙");
     expect(currentReactionWindow(state)?.responderOrder[currentReactionWindow(state)!.nextResponderIndex]).toBe("丙");
     expect(state.auditLog.some((entry) => entry.includes("乙被房主判定死亡"))).toBe(true);
@@ -257,7 +267,8 @@ describe("房主判定断线玩家死亡", () => {
     resolveHostImposedDeath(state, "乙");
 
     expect(state.pendingPublicTextReceipt).toBeUndefined();
-    expect(state.players["乙"].intelligence).toContain(publicText);
+    expect(state.players["乙"].intelligence).toEqual([]);
+    expect(state.publicDiscard).toContain(publicText);
     expect(state.activePlayerId).toBe("丙");
     expect(state.phase).toBe("initialized");
   });

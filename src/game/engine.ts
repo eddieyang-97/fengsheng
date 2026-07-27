@@ -1699,6 +1699,24 @@ function clearUnresolvedTurnState(
   return discardedTransmissionCardId;
 }
 
+function publiclyDiscardDeadPlayerCards(
+  state: GameState,
+  player: PlayerState,
+): void {
+  const discarded = [
+    ...player.hand.splice(0),
+    ...player.intelligence.splice(0),
+  ];
+  state.publicDiscard.push(...discarded);
+  state.auditLog.push(
+    `${player.id}死亡，全部手牌和情报公开弃置（${discarded.length}张）${
+      discarded.length > 0
+        ? `：${discarded.map(describeCardBrief).join("、")}`
+        : ""
+    }`,
+  );
+}
+
 function survivingFactionWinner(state: GameState): WinnerState | undefined {
   const survivors = state.seatOrder.filter((id) => state.players[id].alive);
   if (survivors.length === 0) return undefined;
@@ -1848,13 +1866,14 @@ export function resolveHostImposedDeath(
 
   player.alive = false;
   player.factionRevealed = true;
+  state.auditLog.push(`${playerId}被房主判定死亡，阵营公开为${player.faction}`);
+  publiclyDiscardDeadPlayerCards(state, player);
   if (wasLockedRecipient && !wasIntendedRecipient && state.transmission) {
     state.transmission.locked = false;
     state.transmission.lockedRecipientId = undefined;
   }
   prunePausedResolutionPrioritiesAfterDeath(state, playerId);
   pruneFrameResumePrioritiesAfterDeath(state, playerId);
-  state.auditLog.push(`${playerId}被房主判定死亡，阵营公开为${player.faction}`);
 
   if (finishFactionEliminationVictory(state, Boolean(state.transmission))) return;
 
@@ -3077,6 +3096,7 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
     state.auditLog.push(
       `${actorId}接收情报${describeCardBrief(transmission.cardId)}后死亡，阵营公开为${receiver.faction}`,
     );
+    publiclyDiscardDeadPlayerCards(state, receiver);
     if (finishFactionEliminationVictory(state, false)) return;
   } else {
     state.auditLog.push(`${actorId}接收情报：${describeCardBrief(transmission.cardId)}`);

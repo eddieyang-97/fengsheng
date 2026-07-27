@@ -37,7 +37,7 @@ This document is the authoritative record of confirmed gameplay rules and ruling
 - The authoritative `seatOrder` records players in clockwise table order.
 - Dead players cannot take turns or perform any game action or response.
 - Dead seats are skipped automatically when advancing clockwise.
-- A dead player cannot be selected as an intelligence recipient or other active target unless a card rule explicitly refers to intelligence already in front of dead players.
+- A dead player cannot be selected as an intelligence recipient or other active target.
 
 ---
 
@@ -236,6 +236,11 @@ Implementation note:
 - Death is checked before any on-receive effect.
 - Death is checked before victory.
 
+### Death cleanup
+
+- Whenever a player dies, reveal their faction and discard all cards in their hand and all accepted intelligence in front of them face up into the public discard pile.
+- This death cleanup is atomic and completes before faction-elimination victory or any later flow cleanup is checked.
+
 ---
 
 ### 特工 victory
@@ -252,7 +257,7 @@ Implementation note:
 - 军情 wins when any living 军情 player has at least three blue intelligence.
 - 潜伏 wins when any living 潜伏 player has at least three red intelligence.
 - A red-blue dual card satisfies either color requirement.
-- Intelligence in front of dead players remains on the table.
+- A dead player's intelligence has already been moved to the public discard pile and no longer counts as intelligence on the table.
 - Victory is checked immediately after each accepted intelligence and its on-receive effect fully resolves.
 - A single atomic resolution can add intelligence to only one receiver, who has exactly one faction.
 - Therefore two teams, or a faction and a 特工, cannot newly satisfy victory simultaneously.
@@ -317,7 +322,7 @@ May redirect the target of:
 - Targets only already accepted black intelligence in front of a living player.
 - The targeted black intelligence must not have the printed “不可烧毁” mark.
 - Authoritative physical-card mapping supplied by the owner: every black 掉包, every black 直达 锁定, and every 危险情报 is marked 不可烧毁. The manifest stores this as an explicit per-card property; runtime rules must not infer it from card family, color, or transmission method.
-- It cannot target intelligence in front of a dead player.
+- A dead player has no intelligence remaining in front of them after death cleanup.
 - It cannot target red, blue, or red-blue intelligence, including 机密文件.
 - Card eligibility is determined by the physical card's color and printed mark, not merely by its card family.
 - It cannot interrupt the atomic acceptance, death, on-receive-effect, and victory sequence.
@@ -371,7 +376,7 @@ As a function card:
 - Count physical cards, so a red-blue card counts once rather than twice.
 - Face-up or face-down state does not change whether accepted intelligence counts.
 - A face-up accepted 掉包 counts when that physical 掉包 is red or blue; a black 掉包 does not count.
-- Include intelligence in front of dead players.
+- Count only intelligence currently on the table; cards discarded when a player died are not included.
 - At least 4: draw 2.
 - At least 7: draw 3.
 
@@ -589,7 +594,7 @@ A client must not receive:
 - While any living player is disconnected, the entire game is paused and accepts no gameplay progression commands.
 - The disconnected player's seat remains reserved indefinitely for their reconnect token.
 - The host may publicly mark a currently disconnected player dead.
-- Host-imposed death uses the normal dead-player state and resolution: the player cannot act, respond, receive intelligence, or take turns; future priority and turn order skip their seat; intelligence already in front of them remains on the table.
+- Host-imposed death uses the normal dead-player state and resolution: reveal the player's faction, publicly discard their entire hand and all intelligence in front of them, prevent them from acting, responding, or receiving intelligence, and skip their seat in future priority and turn order.
 - Host-imposed death is resolved atomically by the authoritative game engine. The player's faction is revealed immediately and the death is permanently recorded in the public audit log.
 - If the dead player is the current reaction responder, their opportunity is treated as a pass and they are removed from the remaining priority order.
 - If the active sender dies, abort their turn. Any currently transmitted intelligence is discarded face up; clear unresolved turn interactions and advance clockwise to the next living player. This rule takes precedence when the sender is also the intended recipient.
