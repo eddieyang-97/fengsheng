@@ -714,6 +714,48 @@ export function keyboardConfirmAction(
     : undefined;
 }
 
+export function keyboardCardShortcutAction(
+  actions: readonly ProjectedLegalAction[],
+  type:
+    | "PLAY_LOCK"
+    | "PLAY_SWAP"
+    | "PLAY_COUNTER"
+    | "PLAY_INTERCEPT"
+    | "PLAY_BURN"
+    | "PLAY_LURE"
+    | "PLAY_DECRYPT",
+  selectedCardId?: string,
+): ProjectedLegalAction | undefined {
+  const matching = actions.filter((action) => action.type === type);
+  if (selectedCardId) {
+    const selected = matching.filter(
+      (action) => actionCardId(action) === selectedCardId,
+    );
+    if (selected.length === 1) return selected[0];
+    if (selected.length > 1) return undefined;
+  }
+  return matching.length === 1 ? matching[0] : undefined;
+}
+
+export function keyboardSeparationShortcutAction(
+  actions: readonly ProjectedLegalAction[],
+  selectedCardId?: string,
+): ProjectedLegalAction | undefined {
+  const separationActions = actions.filter(
+    (action) =>
+      action.type === "PLAY_SEPARATION" ||
+      action.type === "PLAY_FUNCTION_SEPARATION",
+  );
+  if (selectedCardId) {
+    const selected = separationActions.filter(
+      (action) => actionCardId(action) === selectedCardId,
+    );
+    if (selected.length === 1) return selected[0];
+    if (selected.length > 1) return undefined;
+  }
+  return separationActions.length === 1 ? separationActions[0] : undefined;
+}
+
 function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
@@ -949,6 +991,45 @@ export function GameTable({
   const keyboardPassLockAction = actions.find(
     (action): action is Extract<GameCommand, { type: "PASS_LOCK" }> =>
       action.type === "PASS_LOCK",
+  );
+  const keyboardLockAction = keyboardCardShortcutAction(
+    actions,
+    "PLAY_LOCK",
+    activeSelectedCardId,
+  );
+  const keyboardSwapAction = keyboardCardShortcutAction(
+    actions,
+    "PLAY_SWAP",
+    activeSelectedCardId,
+  );
+  const keyboardCounterAction = keyboardCardShortcutAction(
+    actions,
+    "PLAY_COUNTER",
+    activeSelectedCardId,
+  );
+  const keyboardInterceptAction = keyboardCardShortcutAction(
+    actions,
+    "PLAY_INTERCEPT",
+    activeSelectedCardId,
+  );
+  const keyboardBurnAction = keyboardCardShortcutAction(
+    actions,
+    "PLAY_BURN",
+    activeSelectedCardId,
+  );
+  const keyboardLureAction = keyboardCardShortcutAction(
+    actions,
+    "PLAY_LURE",
+    activeSelectedCardId,
+  );
+  const keyboardSeparationAction = keyboardSeparationShortcutAction(
+    actions,
+    activeSelectedCardId,
+  );
+  const keyboardDecryptAction = keyboardCardShortcutAction(
+    actions,
+    "PLAY_DECRYPT",
+    activeSelectedCardId,
   );
   const keyboardEnterTransmissionPhaseAction = actions.find(
     (action): action is Extract<GameCommand, { type: "ENTER_TRANSMISSION_PHASE" }> =>
@@ -1254,6 +1335,46 @@ export function GameTable({
         dispatchCommand(keyboardPassLockAction);
         return;
       }
+      if (intent.type === "playLock" && keyboardLockAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardLockAction);
+        return;
+      }
+      if (intent.type === "playSwap" && keyboardSwapAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardSwapAction);
+        return;
+      }
+      if (intent.type === "playCounter" && keyboardCounterAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardCounterAction);
+        return;
+      }
+      if (intent.type === "playIntercept" && keyboardInterceptAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardInterceptAction);
+        return;
+      }
+      if (intent.type === "playBurn" && keyboardBurnAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardBurnAction);
+        return;
+      }
+      if (intent.type === "playLure" && keyboardLureAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardLureAction);
+        return;
+      }
+      if (intent.type === "playSeparation" && keyboardSeparationAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardSeparationAction);
+        return;
+      }
+      if (intent.type === "playDecrypt" && keyboardDecryptAction) {
+        event.preventDefault();
+        dispatchCommand(keyboardDecryptAction);
+        return;
+      }
       if (
         intent.type === "enterTransmissionPhase" &&
         keyboardEnterTransmissionPhaseAction
@@ -1280,9 +1401,17 @@ export function GameTable({
     keyboardAcceptAction,
     keyboardConfirmCommand,
     keyboardDeclineAction,
+    keyboardDecryptAction,
     keyboardEnterTransmissionPhaseAction,
+    keyboardLockAction,
     keyboardPassLockAction,
     keyboardPassReactionAction,
+    keyboardCounterAction,
+    keyboardBurnAction,
+    keyboardInterceptAction,
+    keyboardLureAction,
+    keyboardSeparationAction,
+    keyboardSwapAction,
     keyboardShortcutsEnabled,
     projection.own.hand,
     reactionTargetId,
@@ -1368,6 +1497,14 @@ export function GameTable({
                   <div><dt><kbd>D</kbd></dt><dd>不接收情报</dd></div>
                   <div><dt><kbd>S</kbd></dt><dd>跳过反应</dd></div>
                   <div><dt><kbd>N</kbd></dt><dd>不锁定</dd></div>
+                  <div><dt><kbd>L</kbd></dt><dd>锁定</dd></div>
+                  <div><dt><kbd>R</kbd></dt><dd>掉包</dd></div>
+                  <div><dt><kbd>C</kbd></dt><dd>识破</dd></div>
+                  <div><dt><kbd>I</kbd></dt><dd>截获</dd></div>
+                  <div><dt><kbd>B</kbd></dt><dd>烧毁（目标唯一时）</dd></div>
+                  <div><dt><kbd>U</kbd></dt><dd>调虎离山</dd></div>
+                  <div><dt><kbd>O</kbd></dt><dd>离间（目标唯一时）</dd></div>
+                  <div><dt><kbd>P</kbd></dt><dd>破译</dd></div>
                   <div><dt><kbd>T</kbd></dt><dd>进入情报传递阶段</dd></div>
                   <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
                 </dl>
@@ -1669,6 +1806,33 @@ export function GameTable({
                       )}
                       {keyboardShortcutsEnabled && action.type === "ACCEPT_INTELLIGENCE" && (
                         <kbd className="action-shortcut-badge">A</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && action.type === "PLAY_LOCK" && (
+                        <kbd className="action-shortcut-badge">L</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && action.type === "PLAY_SWAP" && (
+                        <kbd className="action-shortcut-badge">R</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && action.type === "PLAY_COUNTER" && (
+                        <kbd className="action-shortcut-badge">C</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && action.type === "PLAY_INTERCEPT" && (
+                        <kbd className="action-shortcut-badge">I</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && action.type === "PLAY_BURN" && (
+                        <kbd className="action-shortcut-badge">B</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && action.type === "PLAY_LURE" && (
+                        <kbd className="action-shortcut-badge">U</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && (
+                        action.type === "PLAY_SEPARATION" ||
+                        action.type === "PLAY_FUNCTION_SEPARATION"
+                      ) && (
+                        <kbd className="action-shortcut-badge">O</kbd>
+                      )}
+                      {keyboardShortcutsEnabled && action.type === "PLAY_DECRYPT" && (
+                        <kbd className="action-shortcut-badge">P</kbd>
                       )}
                     </button>
                   ))}

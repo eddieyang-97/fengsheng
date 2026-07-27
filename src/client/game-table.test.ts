@@ -15,6 +15,8 @@ import {
   inspectedHandForProjection,
   isSecondaryPromptAction,
   keyboardConfirmAction,
+  keyboardCardShortcutAction,
+  keyboardSeparationShortcutAction,
   privateNoticeVariantText,
   promptDescription,
   probeIdentityNoticeText,
@@ -281,6 +283,93 @@ describe("keyboard action confirmation", () => {
     expect(keyboardConfirmAction([
       { type: "ENTER_TRANSMISSION_PHASE" },
     ])).toBeUndefined();
+  });
+});
+
+describe("keyboard card action shortcuts", () => {
+  const lock = { type: "PLAY_LOCK" as const, cardId: "p1-02" as const };
+  const firstSwap = { type: "PLAY_SWAP" as const, cardId: "p1-03" as const };
+  const secondSwap = { type: "PLAY_SWAP" as const, cardId: "p1-04" as const };
+  const counter = {
+    type: "PLAY_COUNTER" as const,
+    cardId: "p1-05" as const,
+    targetInteractionId: "interaction-1",
+  };
+  const intercept = { type: "PLAY_INTERCEPT" as const, cardId: "p1-06" as const };
+  const lure = { type: "PLAY_LURE" as const, cardId: "p1-10" as const };
+  const decrypt = { type: "PLAY_DECRYPT" as const, cardId: "p2-01" as const };
+  const burnFirstTarget = {
+    type: "PLAY_BURN" as const,
+    cardId: "p1-07" as const,
+    targetPlayerId: "乙",
+    targetIntelligenceCardId: "p1-08" as const,
+  };
+  const burnSecondTarget = {
+    ...burnFirstTarget,
+    targetPlayerId: "丙",
+    targetIntelligenceCardId: "p1-09" as const,
+  };
+  const separationFirstTarget = {
+    type: "PLAY_SEPARATION" as const,
+    cardId: "p1-11" as const,
+    targetId: "乙",
+  };
+  const separationSecondTarget = {
+    ...separationFirstTarget,
+    targetId: "丙",
+  };
+  const functionSeparation = {
+    type: "PLAY_FUNCTION_SEPARATION" as const,
+    cardId: "p1-12" as const,
+    targetId: "丁",
+  };
+
+  it("uses a sole legal card or an explicitly selected copy", () => {
+    expect(keyboardCardShortcutAction([lock], "PLAY_LOCK")).toEqual(lock);
+    expect(keyboardCardShortcutAction([firstSwap], "PLAY_SWAP")).toEqual(firstSwap);
+    expect(
+      keyboardCardShortcutAction([firstSwap, secondSwap], "PLAY_SWAP"),
+    ).toBeUndefined();
+    expect(
+      keyboardCardShortcutAction(
+        [firstSwap, secondSwap],
+        "PLAY_SWAP",
+        secondSwap.cardId,
+      ),
+    ).toEqual(secondSwap);
+    expect(
+      keyboardCardShortcutAction([counter], "PLAY_COUNTER"),
+    ).toEqual(counter);
+    expect(
+      keyboardCardShortcutAction([counter], "PLAY_COUNTER", firstSwap.cardId),
+    ).toEqual(counter);
+    expect(
+      keyboardCardShortcutAction([intercept], "PLAY_INTERCEPT"),
+    ).toEqual(intercept);
+    expect(keyboardCardShortcutAction([lure], "PLAY_LURE")).toEqual(lure);
+    expect(keyboardCardShortcutAction([decrypt], "PLAY_DECRYPT")).toEqual(decrypt);
+    expect(
+      keyboardCardShortcutAction([burnFirstTarget], "PLAY_BURN"),
+    ).toEqual(burnFirstTarget);
+    expect(
+      keyboardCardShortcutAction(
+        [burnFirstTarget, burnSecondTarget],
+        "PLAY_BURN",
+        burnFirstTarget.cardId,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("handles both 离间 command types without choosing among targets", () => {
+    expect(
+      keyboardSeparationShortcutAction([functionSeparation]),
+    ).toEqual(functionSeparation);
+    expect(
+      keyboardSeparationShortcutAction(
+        [separationFirstTarget, separationSecondTarget],
+        separationFirstTarget.cardId,
+      ),
+    ).toBeUndefined();
   });
 });
 

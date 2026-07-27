@@ -7,6 +7,14 @@ export const GAME_SHORTCUT_BINDINGS = {
   declineIntelligence: "d",
   passReaction: "s",
   passLock: "n",
+  playLock: "l",
+  playSwap: "r",
+  playCounter: "c",
+  playIntercept: "i",
+  playBurn: "b",
+  playLure: "u",
+  playSeparation: "o",
+  playDecrypt: "p",
   enterTransmissionPhase: "t",
   cancel: "Escape",
 } as const;
@@ -19,6 +27,14 @@ export type GameShortcutIntent =
   | { type: "declineIntelligence" }
   | { type: "passReaction" }
   | { type: "passLock" }
+  | { type: "playLock" }
+  | { type: "playSwap" }
+  | { type: "playCounter" }
+  | { type: "playIntercept" }
+  | { type: "playBurn" }
+  | { type: "playLure" }
+  | { type: "playSeparation" }
+  | { type: "playDecrypt" }
   | { type: "enterTransmissionPhase" }
   | { type: "cancel" };
 
@@ -46,6 +62,30 @@ export function gameShortcutIntent(key: string): GameShortcutIntent | undefined 
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.passLock) {
     return { type: "passLock" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playLock) {
+    return { type: "playLock" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playSwap) {
+    return { type: "playSwap" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playCounter) {
+    return { type: "playCounter" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playIntercept) {
+    return { type: "playIntercept" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playBurn) {
+    return { type: "playBurn" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playLure) {
+    return { type: "playLure" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playSeparation) {
+    return { type: "playSeparation" };
+  }
+  if (normalizedKey === GAME_SHORTCUT_BINDINGS.playDecrypt) {
+    return { type: "playDecrypt" };
   }
   if (normalizedKey === GAME_SHORTCUT_BINDINGS.enterTransmissionPhase) {
     return { type: "enterTransmissionPhase" };
