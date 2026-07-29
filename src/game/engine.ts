@@ -513,6 +513,8 @@ export interface PlayerProjection {
     intendedRecipientId: PlayerId;
     card?: PhysicalCard;
     returnedToSender: boolean;
+    /** True when the current recipient cannot decline (截获、转移或锁定). */
+    recipientMustAccept?: boolean;
     transferredRecipientCommitted: boolean;
     receiptStage: ReceiptStage;
     locked: boolean;
@@ -4518,6 +4520,7 @@ export function projectGameForPlayer(
           direction: transmission.direction,
           intendedRecipientId: transmission.intendedRecipientId,
           returnedToSender: transmission.returnedToSender,
+          recipientMustAccept,
           transferredRecipientCommitted: transmission.transferredRecipientCommitted,
           receiptStage: transmission.receiptStage,
           locked: transmission.locked,

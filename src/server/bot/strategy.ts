@@ -75,7 +75,8 @@ export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V5;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
-const SWAP_CARD_COST = 1;
+const SWAP_CARD_COST_FACTOR = 0.6;
+const SETTLED_RECEIPT_SWAP_THRESHOLD = 40;
 const SECRET_ORDER_CARD_COST = 4;
 const DECRYPT_REJECTION_BLACK_PROBABILITY = 0.7;
 const SECRET_ORDER_COLOR_EVIDENCE = 0.45;
@@ -643,11 +644,35 @@ function scoreAction(
           "do not replace intelligence with a color that contradicts this bot's own secret order",
         );
       }
-      return decision(
-        command,
-        PASS_REACTION_SCORE + swapImprovement(card, projection, beliefs, transmissionInference) - SWAP_CARD_COST,
-        "swap only when the replacement improves enough to justify spending the card",
-      );
+      {
+        const improvement = swapImprovement(
+          card,
+          projection,
+          beliefs,
+          transmissionInference,
+        );
+        if (
+          currentRecipientLikelyToAccept(
+            projection,
+            beliefs,
+            transmissionInference,
+          ) &&
+          improvement < SETTLED_RECEIPT_SWAP_THRESHOLD
+        ) {
+          return decision(
+            command,
+            PASS_REACTION_SCORE - 1,
+            "preserve swap when the current recipient will already accept and the replacement is only a routine improvement",
+          );
+        }
+        return decision(
+          command,
+          PASS_REACTION_SCORE +
+            improvement -
+            cardUtility(card, ownFaction) * SWAP_CARD_COST_FACTOR,
+          "swap only for a material receipt swing after accounting for the card's future value",
+        );
+      }
     case "PLAY_TRANSFER": {
       if (
         projection.transmission?.method === "直达" &&
@@ -882,7 +907,7 @@ function synthesizeTransmission(
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, targetId: target.id },
             score: policy.scoring === "baseline"
               ? helpful * targetAffinity(target.id, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
-              : receiptUtility(card, target.id, projection, beliefs) + helpful * 0.1 - cardUtility(card, projection.own.faction) * 0.15,
+              : tacticalTransmissionScore(card, method, target.id, projection, beliefs),
           });
         }
       } else {
@@ -895,7 +920,7 @@ function synthesizeTransmission(
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, direction },
             score: policy.scoring === "baseline"
               ? transmissionCardValue(card, projection.own.faction) * targetAffinity(recipient, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
-              : receiptUtility(card, recipient, projection, beliefs) - cardUtility(card, projection.own.faction) * 0.15,
+              : tacticalTransmissionScore(card, method, recipient, projection, beliefs),
           });
         }
       }
@@ -908,6 +933,99 @@ function synthesizeTransmission(
   const best = Math.max(...available.map((candidate) => candidate.score));
   const tied = available.filter((candidate) => Math.abs(candidate.score - best) < 0.0001);
   return tied[pickIndex(tied.length, random)]?.command;
+}
+
+function tacticalTransmissionScore(
+  card: PhysicalCard,
+  method: Exclude<PhysicalCard["transmission"], "任意">,
+  recipientId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const opportunityCost = cardUtility(card, projection.own.faction) * 0.15;
+  const recipientUtility = receiptUtility(
+    card,
+    recipientId,
+    projection,
+    beliefs,
+  );
+  if (card.name !== "危险情报") {
+    return recipientUtility +
+      (method === "直达"
+        ? transmissionCardValue(card, projection.own.faction) * 0.1
+        : 0) -
+      opportunityCost;
+  }
+
+  const ownReturnUtility = receiptUtility(
+    card,
+    projection.own.id,
+    projection,
+    beliefs,
+  );
+  if (method === "密电") {
+    return recipientUtility * 0.7 + 3 - opportunityCost;
+  }
+  if (method === "直达") {
+    return recipientUtility * 0.45 + ownReturnUtility * 0.55 + 1 - opportunityCost;
+  }
+
+  const visibleAcceptance = dangerousTextAcceptanceProbability(
+    recipientId,
+    projection,
+    beliefs,
+  );
+  const plans = [
+    recipientUtility * visibleAcceptance +
+      ownReturnUtility * (1 - visibleAcceptance),
+  ];
+  const lock = projection.own.hand.find((candidate) => candidate.name === "锁定");
+  if (lock) {
+    plans.push(
+      recipientUtility - cardUtility(lock, projection.own.faction) * 0.6,
+    );
+  }
+  const transfer = projection.own.hand.find(
+    (candidate) => candidate.name === "转移",
+  );
+  if (transfer) {
+    const bestCommittedTarget = Math.max(
+      ...projection.players
+        .filter((player) => player.alive && player.id !== projection.own.id)
+        .map((player) =>
+          receiptUtility(card, player.id, projection, beliefs)
+        ),
+    );
+    plans.push(
+      bestCommittedTarget -
+        cardUtility(transfer, projection.own.faction) * 0.6,
+    );
+  }
+  for (const swap of projection.own.hand.filter(
+    (candidate) => candidate.name === "掉包",
+  )) {
+    plans.push(
+      receiptUtility(swap, projection.own.id, projection, beliefs) -
+        cardUtility(swap, projection.own.faction) * 0.6,
+    );
+  }
+  return Math.max(...plans) - opportunityCost;
+}
+
+function dangerousTextAcceptanceProbability(
+  recipientId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (!recipientId) return 0;
+  const recipient = projection.players.find((player) => player.id === recipientId);
+  if (!recipient) return 0;
+  const counts = countIntelligence(recipient.intelligence);
+  const agentProbability = beliefs[recipientId]?.特工 ?? 1 / 3;
+  if (counts.black >= 2) return 0.01;
+  return counts.physical >= 5
+    ? 0.01 + agentProbability * 0.97
+    : 0.01 + agentProbability * 0.14;
 }
 
 function intelligenceValue(card: PhysicalCard | undefined, faction: Faction, blackCount: number): number {
@@ -1102,6 +1220,32 @@ function swapImprovement(
   const recipient = projection.transmission?.intendedRecipientId;
   return receiptUtility(replacement, recipient, projection, beliefs)
     - currentTransmissionReceiptUtility(recipient, projection, beliefs, transmissionInference);
+}
+
+function currentRecipientLikelyToAccept(
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  transmissionInference?: BotMemory["transmissionInference"],
+): boolean {
+  const transmission = projection.transmission;
+  if (!transmission) return false;
+  if (
+    transmission.recipientMustAccept ||
+    transmission.transferredRecipientCommitted ||
+    transmission.lockedRecipientId === transmission.intendedRecipientId ||
+    transmission.returnedToSender
+  ) {
+    return true;
+  }
+  if (transmission.card?.color !== undefined && transmission.card.color !== "黑") {
+    return true;
+  }
+  return currentTransmissionRecipientUtility(
+    transmission.intendedRecipientId,
+    projection,
+    beliefs,
+    transmissionInference,
+  ) > 0;
 }
 
 function activeFunctionTargetUtility(

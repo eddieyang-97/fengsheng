@@ -1226,6 +1226,8 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     playIntercept(state, "丙", intercept);
     passUntilReactionTurn(state, "丙");
 
+    expect(projectGameForPlayer(state, "甲").transmission?.recipientMustAccept)
+      .toBe(true);
     expect(projectGameForPlayer(state, "丙").legalActions).toEqual([
       { type: "ACCEPT_INTELLIGENCE" },
     ]);
@@ -1593,6 +1595,8 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     finishCurrentReactionWindow(state);
 
     expect(state.transmission?.transferredRecipientCommitted).toBe(true);
+    expect(projectGameForPlayer(state, "戊").transmission?.recipientMustAccept)
+      .toBe(true);
     passUntilReactionTurn(state, "丁");
     expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
       { type: "ACCEPT_INTELLIGENCE" },

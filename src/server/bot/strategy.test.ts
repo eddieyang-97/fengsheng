@@ -26,8 +26,10 @@ const blackCard = cardWhere((card) => card.color === "黑");
 const secondBlackCard = cardWhere(
   (card) => card.color === "黑" && card.id !== blackCard.id,
 );
+const dangerousCard = cardWhere((card) => card.name === "危险情报");
 const burnCard = cardWhere((card) => card.name === "烧毁");
 const reinforcementCard = cardWhere((card) => card.name === "增援");
+const lockCard = cardWhere((card) => card.name === "锁定");
 const counterCard = cardWhere((card) => card.name === "识破");
 const interceptCard = cardWhere((card) => card.name === "截获");
 const decryptCard = cardWhere((card) => card.name === "破译");
@@ -948,16 +950,27 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(selfOnly, createBotMemory(selfOnly))?.type).toBe("PASS_REACTION");
   });
 
-  it("uses swap only when the replacement materially improves the pending intelligence", () => {
+  it("preserves swap for routine upgrades to intelligence the recipient will accept", () => {
     const players = makeProjection().players.map((player) =>
       player.id === "b" ? { ...player, faction: "军情" as Faction } : player
     );
-    const chooseSwap = (currentCard: PhysicalCard, replacement: PhysicalCard) => {
+    const chooseSwap = (
+      currentCard: PhysicalCard,
+      replacement: PhysicalCard,
+      intelligence: PhysicalCard[] = [],
+      committed = false,
+    ) => {
       const projection = makeProjection({
         phase: "transmitting",
-        players,
+        players: players.map((player) =>
+          player.id === "b" ? { ...player, intelligence } : player
+        ),
         own: { id: "bot", faction: "军情", hand: [replacement] },
-        transmission: { ...transmission(currentCard), intendedRecipientId: "b" },
+        transmission: {
+          ...transmission(currentCard),
+          intendedRecipientId: "b",
+          recipientMustAccept: committed,
+        },
         legalActions: [
           { type: "PASS_REACTION" },
           { type: "PLAY_SWAP", cardId: replacement.id as PhysicalCardId },
@@ -968,7 +981,51 @@ describe("bot strategy", () => {
 
     expect(chooseSwap(redDirectCard, redSwapCard)?.type).toBe("PASS_REACTION");
     expect(chooseSwap(blueDirectCard, redSwapCard)?.type).toBe("PASS_REACTION");
-    expect(chooseSwap(redDirectCard, blueSwapCard)?.type).toBe("PLAY_SWAP");
+    expect(chooseSwap(redDirectCard, blueSwapCard)?.type).toBe("PASS_REACTION");
+    expect(chooseSwap(redDirectCard, blueSwapCard, [], true)?.type)
+      .toBe("PASS_REACTION");
+
+    expect(
+      chooseSwap(
+        redDirectCard,
+        blueSwapCard,
+        [blueCard, { ...blueCard, id: "ally-second-blue" }],
+        true,
+      )?.type,
+    ).toBe("PLAY_SWAP");
+  });
+
+  it("still swaps to prevent a committed enemy receipt from winning", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? {
+              ...player,
+              faction: "军情" as Faction,
+              intelligence: [
+                blueCard,
+                { ...blueCard, id: "enemy-second-blue" },
+              ],
+            }
+          : player
+      ),
+      own: { id: "bot", faction: "潜伏", hand: [redSwapCard] },
+      transmission: {
+        ...transmission(blueDirectCard),
+        intendedRecipientId: "b",
+        recipientMustAccept: true,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        { type: "PLAY_SWAP", cardId: redSwapCard.id as PhysicalCardId },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))).toMatchObject({
+      type: "PLAY_SWAP",
+      cardId: redSwapCard.id,
+    });
   });
 
   it("uses a draw probe on a likely ally when its printed draw faction matches", () => {
@@ -1473,6 +1530,107 @@ describe("bot strategy", () => {
       cardId: redDirectCard.id,
       method: "直达",
       targetId: "b",
+    });
+  });
+
+  it("prefers concealed 危险情报 over unplanned visible 文本", () => {
+    const projection = makeProjection({
+      phase: "preTransmission",
+      own: { id: "bot", faction: "军情", hand: [dangerousCard] },
+      legalActions: [],
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection),
+      { random: () => 0 },
+    )).toMatchObject({
+      type: "START_TRANSMISSION",
+      cardId: dangerousCard.id,
+      method: "密电",
+    });
+  });
+
+  it("uses visible 危险情报 when 锁定 can force a lethal first receipt", () => {
+    const projection = makeProjection({
+      phase: "preTransmission",
+      own: { id: "bot", faction: "军情", hand: [dangerousCard, lockCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? { ...player, intelligence: [blackCard, secondBlackCard] }
+          : player
+      ),
+      legalActions: [],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))).toMatchObject({
+      type: "START_TRANSMISSION",
+      cardId: dangerousCard.id,
+      method: "文本",
+      direction: "clockwise",
+    });
+  });
+
+  it("uses visible 危险情报 to set up a committed return-transfer", () => {
+    const projection = makeProjection({
+      phase: "preTransmission",
+      own: { id: "bot", faction: "军情", hand: [dangerousCard, transferCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "c"
+          ? { ...player, intelligence: [blackCard, secondBlackCard] }
+          : player
+      ),
+      legalActions: [],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))).toMatchObject({
+      type: "START_TRANSMISSION",
+      cardId: dangerousCard.id,
+      method: "文本",
+    });
+  });
+
+  it("uses visible 危险情报 for a safe 特工 return or winning 掉包 replacement", () => {
+    const fiveTrueCards = Array.from({ length: 5 }, (_, index) => ({
+      ...blueCard,
+      id: `agent-true-${index}`,
+    }));
+    const agent = makeProjection({
+      phase: "preTransmission",
+      own: { id: "bot", faction: "特工", hand: [dangerousCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: fiveTrueCards }
+          : player
+      ),
+      legalActions: [],
+    });
+    expect(chooseBotCommand(agent, createBotMemory(agent))).toMatchObject({
+      type: "START_TRANSMISSION",
+      cardId: dangerousCard.id,
+      method: "文本",
+    });
+
+    const swapWin = makeProjection({
+      phase: "preTransmission",
+      own: { id: "bot", faction: "军情", hand: [dangerousCard, blueSwapCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? {
+              ...player,
+              intelligence: [
+                blueCard,
+                { ...blueCard, id: "second-own-blue" },
+              ],
+            }
+          : player
+      ),
+      legalActions: [],
+    });
+    expect(chooseBotCommand(swapWin, createBotMemory(swapWin))).toMatchObject({
+      type: "START_TRANSMISSION",
+      cardId: dangerousCard.id,
+      method: "文本",
     });
   });
 
