@@ -497,7 +497,11 @@ function scoreBaselineAction(
     case "PLAY_SEPARATION":
     case "PLAY_FUNCTION_SEPARATION":
       return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 8 + 8, "baseline ally redirect");
-    case "PLAY_BURN": return decision(command, targetAffinity(action.targetPlayerId, ownFaction, beliefs) * 12 + 8, "baseline ally burn");
+    case "PLAY_BURN":
+      if (hasPlayableReinforcement(projection)) {
+        return decision(command, -100_000, "play reinforcement before considering burn");
+      }
+      return decision(command, targetAffinity(action.targetPlayerId, ownFaction, beliefs) * 12 + 8, "baseline ally burn");
     case "PLAY_PUBLIC_TEXT": return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 5 + 8, "baseline public text");
     case "PLAY_DANGEROUS_INTELLIGENCE": return decision(command, -targetAffinity(action.targetId, ownFaction, beliefs) * 8 + 10, "baseline dangerous intelligence");
     case "PLAY_PROBE": return decision(command, informationUncertainty(action.targetId, beliefs) * 8 + 8, "baseline probe");
@@ -694,6 +698,13 @@ function scoreAction(
       );
     }
     case "PLAY_BURN":
+      if (hasPlayableReinforcement(projection)) {
+        return decision(
+          command,
+          -100_000,
+          "play reinforcement before reconsidering whether burn is still useful",
+        );
+      }
       if (shouldDeferBurnUntilAfterReceipt(action.targetPlayerId, projection)) {
         return decision(
           command,
@@ -1144,6 +1155,12 @@ function shouldDeferBurnUntilAfterReceipt(
 
   const incoming = projection.transmission?.card;
   return incoming !== undefined && incoming.color !== "黑";
+}
+
+function hasPlayableReinforcement(projection: PlayerProjection): boolean {
+  return projection.legalActions.some(
+    (action) => action.type === "PLAY_REINFORCEMENT",
+  );
 }
 
 function pendingInteractionUtility(

@@ -20,8 +20,6 @@ describe("game keyboard shortcuts", () => {
     expect(gameShortcutIntent("D")).toEqual({ type: "declineIntelligence" });
     expect(gameShortcutIntent("s")).toEqual({ type: "passWindow" });
     expect(gameShortcutIntent("S")).toEqual({ type: "passWindow" });
-    expect(gameShortcutIntent("n")).toBeUndefined();
-    expect(gameShortcutIntent("N")).toBeUndefined();
     expect(gameShortcutIntent("l")).toEqual({ type: "playLock" });
     expect(gameShortcutIntent("L")).toEqual({ type: "playLock" });
     expect(gameShortcutIntent("r")).toEqual({ type: "playSwap" });
@@ -58,8 +56,10 @@ describe("game keyboard shortcuts", () => {
     });
     expect(gameShortcutIntent("t")).toEqual({ type: "enterTransmissionPhase" });
     expect(gameShortcutIntent("T")).toEqual({ type: "enterTransmissionPhase" });
-    expect(gameShortcutIntent("k")).toEqual({ type: "openDiscardPile" });
-    expect(gameShortcutIntent("K")).toEqual({ type: "openDiscardPile" });
+    expect(gameShortcutIntent("k")).toEqual({ type: "toggleDiscardPile" });
+    expect(gameShortcutIntent("K")).toEqual({ type: "toggleDiscardPile" });
+    expect(gameShortcutIntent("n")).toEqual({ type: "togglePrivateNotices" });
+    expect(gameShortcutIntent("N")).toEqual({ type: "togglePrivateNotices" });
     expect(gameShortcutIntent("Escape")).toEqual({ type: "cancel" });
     expect(gameShortcutIntent("0")).toBeUndefined();
     expect(gameShortcutIntent("x")).toBeUndefined();

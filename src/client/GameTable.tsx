@@ -1470,16 +1470,29 @@ export function GameTable({
         }
       }
 
-      if (intent.type === "openDiscardPile") {
+      if (intent.type === "toggleDiscardPile") {
         if (
           !shouldHandleKeyboardShortcut(event.target, intent) ||
-          detailCard ||
-          discardPileOpen
+          detailCard
         ) {
           return;
         }
         event.preventDefault();
-        setDiscardPileOpen(true);
+        setDiscardPileOpen((open) => !open);
+        return;
+      }
+
+      if (intent.type === "togglePrivateNotices") {
+        if (
+          !shouldHandleKeyboardShortcut(event.target, intent) ||
+          detailCard ||
+          discardPileOpen ||
+          projection.privateNotices.length === 0
+        ) {
+          return;
+        }
+        event.preventDefault();
+        setPrivateNoticesCollapsed((collapsed) => !collapsed);
         return;
       }
 
@@ -1669,6 +1682,7 @@ export function GameTable({
     selectedCard,
     actions,
     projection.own.hand,
+    projection.privateNotices.length,
     reactionTargetId,
     selectCard,
     selectableCardIds,
@@ -1751,7 +1765,8 @@ export function GameTable({
                       <div><dt><kbd>1–9</kbd></dt><dd>选择手牌</dd></div>
                       <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>切换可用手牌</dd></div>
                       <div><dt><kbd>Enter</kbd></dt><dd>确认唯一主要操作</dd></div>
-                      <div><dt><kbd>K</kbd></dt><dd>打开弃牌堆</dd></div>
+                      <div><dt><kbd>K</kbd></dt><dd>打开／关闭弃牌堆</dd></div>
+                      <div><dt><kbd>N</kbd></dt><dd>展开／收起私人通知</dd></div>
                       <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
                     </dl>
                   </section>
@@ -2222,6 +2237,9 @@ export function GameTable({
                   type="button"
                 >
                   {privateNoticesCollapsed ? "展开" : "收起"}
+                  {keyboardShortcutsEnabled && (
+                    <kbd className="action-shortcut-badge">N</kbd>
+                  )}
                 </button>
               </header>
               {!privateNoticesCollapsed && projection.privateNotices.map((notice, index) => (

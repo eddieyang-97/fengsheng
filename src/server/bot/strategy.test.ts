@@ -27,6 +27,7 @@ const secondBlackCard = cardWhere(
   (card) => card.color === "黑" && card.id !== blackCard.id,
 );
 const burnCard = cardWhere((card) => card.name === "烧毁");
+const reinforcementCard = cardWhere((card) => card.name === "增援");
 const counterCard = cardWhere((card) => card.name === "识破");
 const interceptCard = cardWhere((card) => card.name === "截获");
 const decryptCard = cardWhere((card) => card.name === "破译");
@@ -1218,6 +1219,43 @@ describe("bot strategy", () => {
 
     expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
       .toBe("ACCEPT_INTELLIGENCE");
+  });
+
+  it("uses 增援 before considering 烧毁 during its function-card phase", () => {
+    const projection = makeProjection({
+      phase: "initialized",
+      own: {
+        id: "bot",
+        faction: "军情",
+        hand: [reinforcementCard, burnCard],
+      },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: [blackCard] }
+          : player
+      ),
+      legalActions: [
+        {
+          type: "PLAY_REINFORCEMENT",
+          cardId: reinforcementCard.id as PhysicalCardId,
+        },
+        {
+          type: "PLAY_BURN",
+          cardId: burnCard.id as PhysicalCardId,
+          targetPlayerId: "bot",
+          targetIntelligenceCardId: blackCard.id as PhysicalCardId,
+        },
+        { type: "ENTER_TRANSMISSION_PHASE" },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
+      .toBe("PLAY_REINFORCEMENT");
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection),
+      { policy: BASELINE_V1 },
+    )?.type).toBe("PLAY_REINFORCEMENT");
   });
 
   it("may use 烧毁 before a forced receipt when it prevents immediate black death", () => {
