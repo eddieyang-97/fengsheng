@@ -19,6 +19,7 @@ import {
   keyboardConfirmAction,
   keyboardDiscardAction,
   keyboardCardShortcutAction,
+  keyboardPromptOptionAction,
   keyboardSeparationShortcutAction,
   keyboardSecretOrderAction,
   keyboardSecretOrderCardId,
@@ -341,7 +342,46 @@ describe("dedicated action shortcut labels", () => {
     expect(dedicatedActionShortcut({
       type: "CHOOSE_PUBLIC_TEXT_EFFECT",
       choice: "drawOne",
-    })).toBeUndefined();
+    })).toBe("Q");
+    expect(dedicatedActionShortcut({
+      type: "CHOOSE_PUBLIC_TEXT_EFFECT",
+      choice: "drawTwo",
+    })).toBe("W");
+    expect(dedicatedActionShortcut({
+      type: "CHOOSE_PUBLIC_TEXT_EFFECT",
+      choice: "discardOne",
+    })).toBe("W");
+    expect(dedicatedActionShortcut({
+      type: "CHOOSE_PROBE_IDENTITY",
+      choice: "announce",
+    })).toBe("Q");
+    expect(dedicatedActionShortcut({
+      type: "CHOOSE_PROBE_IDENTITY",
+      choice: "giveRandom",
+    })).toBe("W");
+  });
+});
+
+describe("keyboard prompt option shortcuts", () => {
+  const actions = [
+    { type: "CHOOSE_PUBLIC_TEXT_EFFECT" as const, choice: "drawOne" as const },
+    { type: "CHOOSE_PUBLIC_TEXT_EFFECT" as const, choice: "drawTwo" as const },
+  ];
+
+  it("maps Q/W to the visible multi-choice prompt", () => {
+    expect(keyboardPromptOptionAction(actions, "q")).toEqual(actions[0]);
+    expect(keyboardPromptOptionAction(actions, "W")).toEqual(actions[1]);
+    expect(keyboardPromptOptionAction(actions, "e")).toBeUndefined();
+  });
+
+  it("uses the same layout for the two 试探 identity choices", () => {
+    const probeActions = [
+      { type: "CHOOSE_PROBE_IDENTITY" as const, choice: "announce" as const },
+      { type: "CHOOSE_PROBE_IDENTITY" as const, choice: "giveRandom" as const },
+    ];
+
+    expect(keyboardPromptOptionAction(probeActions, "Q")).toEqual(probeActions[0]);
+    expect(keyboardPromptOptionAction(probeActions, "w")).toEqual(probeActions[1]);
   });
 });
 

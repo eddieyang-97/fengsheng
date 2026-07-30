@@ -722,6 +722,12 @@ const DEDICATED_ACTION_SHORTCUTS: Partial<
 export function dedicatedActionShortcut(
   action: ProjectedLegalAction,
 ): string | undefined {
+  if (action.type === "CHOOSE_PROBE_IDENTITY") {
+    return action.choice === "announce" ? "Q" : "W";
+  }
+  if (action.type === "CHOOSE_PUBLIC_TEXT_EFFECT") {
+    return action.choice === "drawOne" ? "Q" : "W";
+  }
   if (action.type === "PLAY_SECRET_ORDER") {
     return {
       听风: "Q",
@@ -730,6 +736,21 @@ export function dedicatedActionShortcut(
     }[action.word];
   }
   return DEDICATED_ACTION_SHORTCUTS[action.type];
+}
+
+export function keyboardPromptOptionAction(
+  actions: readonly ProjectedLegalAction[],
+  key: string,
+): ProjectedLegalAction | undefined {
+  const normalizedKey = key.length === 1 ? key.toUpperCase() : key;
+  return actions.find(
+    (action) =>
+      (
+        action.type === "CHOOSE_PROBE_IDENTITY" ||
+        action.type === "CHOOSE_PUBLIC_TEXT_EFFECT"
+      ) &&
+      dedicatedActionShortcut(action) === normalizedKey,
+  );
 }
 
 export function keyboardCardShortcutAction(
@@ -1425,8 +1446,11 @@ export function GameTable({
       const transmissionTargetId = transmissionOptionIndex === undefined
         ? undefined
         : directTransmissionTargetIds[transmissionOptionIndex];
+      const promptOptionAction = keyboardPromptOptionAction(actions, event.key);
       const intent = transmissionTargetId
         ? { type: "chooseTransmissionRecipient", targetId: transmissionTargetId } as const
+        : promptOptionAction
+          ? { type: "choosePromptOption", action: promptOptionAction } as const
         : gameShortcutIntent(event.key);
       if (!intent) return;
 
@@ -1503,6 +1527,11 @@ export function GameTable({
           method: effectiveMethod,
           targetId: intent.targetId,
         });
+        return;
+      }
+      if (intent.type === "choosePromptOption") {
+        event.preventDefault();
+        dispatchCommand(intent.action);
         return;
       }
 
@@ -1764,6 +1793,7 @@ export function GameTable({
                         <dl>
                           <div><dt><kbd>A</kbd></dt><dd>接受情报</dd></div>
                           <div><dt><kbd>D</kbd></dt><dd>不接收情报／确认弃牌</dd></div>
+                          <div><dt><kbd>Q</kbd><kbd>W</kbd></dt><dd>选择公开文本／试探选项</dd></div>
                         </dl>
                       </section>
                       <section className="keyboard-shortcut-group keyboard-shortcut-group--function">
