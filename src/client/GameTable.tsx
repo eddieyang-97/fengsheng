@@ -14,6 +14,7 @@ import { CardArtwork, cardArtPath } from "./CardArtwork";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import { FinalHandsPanel } from "./FinalHandsPanel";
+import { GameEventAnimationLayer } from "./GameEventAnimationLayer";
 import {
   GAME_SHORTCUT_BINDINGS,
   gameShortcutIntent,
@@ -307,6 +308,7 @@ function ResponsePanel({
     <section
       className="table-focus-panel table-focus-panel--response response-panel"
       aria-label="当前响应"
+      data-game-animation-anchor="response"
       ref={panelRef}
       style={{ "--response-offset-x": `${offset.x}px`, "--response-offset-y": `${offset.y}px` } as React.CSSProperties}
     >
@@ -1718,8 +1720,10 @@ export function GameTable({
             <span>{projection.mode === "duel" ? "双人模式" : "标准模式"}</span>
           </div>
           <div className="game-round-meta">
-            <span>牌堆 <b>{projection.drawPileCount}</b></span>
-            <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
+            <span data-game-animation-anchor="deck">牌堆 <b>{projection.drawPileCount}</b></span>
+            <span data-game-animation-anchor="discard">
+              <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
+            </span>
           </div>
         </div>
         <div className="game-status">
@@ -1916,7 +1920,7 @@ export function GameTable({
 
       <section className="game-layout">
         <div className="table-area">
-          <div className="player-ring">
+          <div className="player-ring" data-game-animation-anchor="table">
             {displaySeatOrder.map((id, index) => {
               const player = projection.players.find((candidate) => candidate.id === id)!;
               const isOwn = id === projection.own.id;
@@ -1924,6 +1928,7 @@ export function GameTable({
               return (
                 <article
                   className={`table-player${isOwn ? " table-player--own" : ""}${player.alive ? "" : " table-player--dead"}${projection.activePlayerId === id ? " table-player--active" : ""}${projection.reactionWindow?.currentResponderId === id ? " table-player--responder" : ""}`}
+                  data-game-animation-player-id={id}
                   key={id}
                   style={{ "--player-index": index, "--player-count": displaySeatOrder.length } as React.CSSProperties}
                 >
@@ -1986,6 +1991,7 @@ export function GameTable({
                   <div
                     className={`intel-row${player.intelligence.length > 4 ? " intel-row--dense" : ""}`}
                     aria-label={`${playerDisplayNames[id] ?? id} 的情报`}
+                    data-game-animation-intelligence-player-id={id}
                   >
                     {player.intelligence.map((card) => {
                       const burnAction = selectedBurnActions.find(
@@ -2015,6 +2021,7 @@ export function GameTable({
               <div
                 aria-label="待传递情报"
                 className="transmission-card-slot"
+                data-transmission-recipient-id={projection.transmission.intendedRecipientId}
                 style={{
                   "--player-index": transmissionRecipientIndex,
                   "--player-count": displaySeatOrder.length,
@@ -2038,6 +2045,7 @@ export function GameTable({
                       <CardView
                         card={projection.transmission.card}
                         inspectable={projection.transmission.card.name === "公开文本"}
+                        key={projection.transmission.card.id}
                         onClick={projection.transmission.card.name === "公开文本"
                           ? () => setDetailCard(projection.transmission!.card)
                           : undefined}
@@ -2282,7 +2290,12 @@ export function GameTable({
             <div className="own-area__header"><h2>你的手牌</h2><span>阵营：{projection.own.faction}</span></div>
             <div className="own-area__body">
               <div className={`own-hand-scroll${handOverflow.left ? " own-hand-scroll--left" : ""}${handOverflow.right ? " own-hand-scroll--right" : ""}`}>
-                <div className="hand-row own-hand-row" onScroll={updateHandOverflow} ref={handRowRef}>
+                <div
+                  className="hand-row own-hand-row"
+                  data-game-animation-anchor="own-hand"
+                  onScroll={updateHandOverflow}
+                  ref={handRowRef}
+                >
                   {projection.own.hand.length === 0 && <p className="empty-hand">暂无手牌</p>}
                   {projection.own.hand.map((card, index) => (
                     <CardView
@@ -2362,6 +2375,11 @@ export function GameTable({
         events={playerReactions}
         playerDisplayNames={playerDisplayNames}
         soundEnabled={soundEnabled}
+      />
+      <GameEventAnimationLayer
+        auditEntries={mergedAuditEntries}
+        ownPlayerId={projection.own.id}
+        playerIds={projection.players.map((player) => player.id)}
       />
     </main>
   );
