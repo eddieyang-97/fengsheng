@@ -1,7 +1,7 @@
 import type { Ref } from "react";
 
 import type { PhysicalCard } from "../game/cards";
-import { CardArtwork } from "./CardArtwork";
+import { AcceptedIntelligenceArtwork, CardArtwork } from "./CardArtwork";
 
 export function cardTone(card: PhysicalCard): string {
   return card.color === "红"
@@ -64,6 +64,7 @@ export interface GameCardProps {
   inspectable?: boolean;
   noticeSummary?: boolean;
   reverseProbeMapping?: boolean;
+  artwork?: "card" | "accepted";
   shortcutLabel?: string;
   buttonRef?: Ref<HTMLButtonElement>;
   onClick?: () => void;
@@ -77,6 +78,7 @@ export function GameCard({
   inspectable,
   noticeSummary = false,
   reverseProbeMapping = false,
+  artwork = "card",
   shortcutLabel,
   buttonRef,
   onClick,
@@ -94,7 +96,9 @@ export function GameCard({
       title={`${publicCardSummary(card)}${card.unburnable ? " · 不可烧毁" : ""}`}
       type="button"
     >
-      <CardArtwork cardName={card.name} />
+      {artwork === "accepted"
+        ? <AcceptedIntelligenceArtwork />
+        : <CardArtwork cardName={card.name} />}
       {shortcutLabel && <kbd className="card-shortcut-badge">{shortcutLabel}</kbd>}
       <strong>{card.name}</strong>
       <span

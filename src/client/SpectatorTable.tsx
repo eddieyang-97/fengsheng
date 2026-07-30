@@ -4,6 +4,11 @@ import type { PhysicalCard } from "../game/cards";
 import type { SpectatorProjection } from "../game/engine";
 import type { ChatMessageSnapshot, PublicAuditEvent } from "../room";
 import type { PlayerReactionEvent } from "../social-reactions";
+import {
+  AcceptedIntelligenceArtwork,
+  CardArtwork,
+  HiddenIntelligenceArtwork,
+} from "./CardArtwork";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { formatAuditEntries, mergeAuditLogs, publicCardSummary } from "./GameTable";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
@@ -30,13 +35,22 @@ function cardTone(card: PhysicalCard): string {
   return card.color === "红" ? "red" : card.color === "蓝" ? "blue" : card.color === "红蓝" ? "dual" : "black";
 }
 
-function PublicCard({ card }: { card: PhysicalCard }) {
+function PublicCard({
+  accepted = false,
+  card,
+}: {
+  accepted?: boolean;
+  card: PhysicalCard;
+}) {
   return (
     <div
       aria-label={publicCardSummary(card)}
       className={`game-card game-card--${cardTone(card)}`}
       title={publicCardSummary(card)}
     >
+      {accepted
+        ? <AcceptedIntelligenceArtwork />
+        : <CardArtwork cardName={card.name} />}
       <strong>{card.name}</strong>
       <span className="game-card__meta">{card.color} · {card.transmission}</span>
       {card.color === "黑" && card.unburnable && <small className="unburnable-badge">不可烧毁</small>}
@@ -126,7 +140,9 @@ export function SpectatorTable({
                     {player.faction && <span className="faction-badge">{player.faction}</span>}
                   </button>
                   <div className={`intel-row${player.intelligence.length > 4 ? " intel-row--dense" : ""}`}>
-                    {player.intelligence.map((card) => <PublicCard card={card} key={card.id} />)}
+                    {player.intelligence.map((card) => (
+                      <PublicCard accepted card={card} key={card.id} />
+                    ))}
                     {player.intelligence.length === 0 && <span>暂无情报</span>}
                   </div>
                 </article>
@@ -137,7 +153,18 @@ export function SpectatorTable({
                 <>
                   <p className="table-center__eyebrow">情报传递</p>
                   <strong>{playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId} → {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}</strong>
-                  {projection.transmission.card && <PublicCard card={projection.transmission.card} />}
+                  {projection.transmission.card
+                    ? <PublicCard card={projection.transmission.card} />
+                    : (
+                        <div
+                          aria-label={projection.transmission.method === "密电" ? "未公开密电" : "未公开情报"}
+                          className="hidden-card"
+                          role="img"
+                          title={projection.transmission.method === "密电" ? "未公开密电" : "未公开情报"}
+                        >
+                          <HiddenIntelligenceArtwork method={projection.transmission.method} />
+                        </div>
+                      )}
                 </>
               ) : (
                 <><p className="table-center__eyebrow">当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>

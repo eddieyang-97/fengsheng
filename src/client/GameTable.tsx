@@ -2008,6 +2008,7 @@ export function GameTable({
                       );
                       return (
                         <CardView
+                          artwork="accepted"
                           card={card}
                           key={card.id}
                           playable={Boolean(burnAction)}
@@ -2069,12 +2070,12 @@ export function GameTable({
                       </>
                     : (
                         <div
-                          aria-label="未公开情报"
+                          aria-label={projection.transmission.method === "密电" ? "未公开密电" : "未公开情报"}
                           className="hidden-card"
                           role="img"
-                          title="未公开情报"
+                          title={projection.transmission.method === "密电" ? "未公开密电" : "未公开情报"}
                         >
-                          <HiddenIntelligenceArtwork />
+                          <HiddenIntelligenceArtwork method={projection.transmission.method} />
                         </div>
                       )}
                 </div>

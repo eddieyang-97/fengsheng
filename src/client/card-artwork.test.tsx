@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 import type { PhysicalCard } from "../game/cards";
 import type { PublicPlayerProjection } from "../game/engine";
 import {
+  ACCEPTED_INTELLIGENCE_ART_PATH,
+  AcceptedIntelligenceArtwork,
   HIDDEN_INTELLIGENCE_ART_PATH,
+  HIDDEN_SECRET_INTELLIGENCE_ART_PATH,
   HiddenIntelligenceArtwork,
 } from "./CardArtwork";
 import { DiscardPileDialog } from "./DiscardPile";
@@ -28,6 +31,24 @@ describe("shared card artwork", () => {
     expect(markup).toContain(HIDDEN_INTELLIGENCE_ART_PATH);
     expect(markup).toContain("hidden-card__art");
     expect(markup).not.toContain("未公开情报");
+  });
+
+  it("uses distinct neutral artwork for concealed 密电 without leaking card metadata", () => {
+    const markup = renderToStaticMarkup(
+      <HiddenIntelligenceArtwork method="密电" />,
+    );
+
+    expect(markup).toContain(HIDDEN_SECRET_INTELLIGENCE_ART_PATH);
+    expect(markup).toContain("hidden-card__art--secret");
+    expect(markup).not.toContain("红");
+    expect(markup).not.toContain("蓝");
+  });
+
+  it("uses shared archived artwork for accepted intelligence", () => {
+    const markup = renderToStaticMarkup(<AcceptedIntelligenceArtwork />);
+
+    expect(markup).toContain(ACCEPTED_INTELLIGENCE_ART_PATH);
+    expect(markup).toContain("game-card__art--accepted");
   });
 
   it("renders artwork in 弃牌堆", () => {

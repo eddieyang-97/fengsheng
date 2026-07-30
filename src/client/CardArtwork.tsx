@@ -1,4 +1,5 @@
 import type { PhysicalCard } from "../game/cards";
+import type { FixedTransmissionMethod } from "../game/engine";
 
 const CARD_ART_SLUGS: Record<PhysicalCard["name"], string> = {
   公开文本: "public-text",
@@ -23,6 +24,10 @@ export function cardArtPath(cardName: PhysicalCard["name"]): string {
 }
 
 export const HIDDEN_INTELLIGENCE_ART_PATH = "/card-art/hidden-intelligence.png";
+export const HIDDEN_SECRET_INTELLIGENCE_ART_PATH =
+  "/card-art/hidden-secret-intelligence.png";
+export const ACCEPTED_INTELLIGENCE_ART_PATH =
+  "/card-art/accepted-intelligence.png";
 
 export function CardArtwork({ cardName }: { cardName: PhysicalCard["name"] }) {
   return (
@@ -34,12 +39,34 @@ export function CardArtwork({ cardName }: { cardName: PhysicalCard["name"] }) {
   );
 }
 
-export function HiddenIntelligenceArtwork() {
+export function AcceptedIntelligenceArtwork() {
   return (
     <span
       aria-hidden="true"
-      className="hidden-card__art"
-      style={{ backgroundImage: `url("${HIDDEN_INTELLIGENCE_ART_PATH}")` }}
+      className="game-card__art game-card__art--accepted"
+      style={{ backgroundImage: `url("${ACCEPTED_INTELLIGENCE_ART_PATH}")` }}
+    />
+  );
+}
+
+export function hiddenIntelligenceArtPath(
+  method?: FixedTransmissionMethod,
+): string {
+  return method === "密电"
+    ? HIDDEN_SECRET_INTELLIGENCE_ART_PATH
+    : HIDDEN_INTELLIGENCE_ART_PATH;
+}
+
+export function HiddenIntelligenceArtwork({
+  method,
+}: {
+  method?: FixedTransmissionMethod;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`hidden-card__art${method === "密电" ? " hidden-card__art--secret" : ""}`}
+      style={{ backgroundImage: `url("${hiddenIntelligenceArtPath(method)}")` }}
     />
   );
 }
