@@ -12,27 +12,41 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v7`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v8`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
 accepting recipient would receive only a routine upgrade. V7 adds
 confidence-adjusted conservation for targeted 公开文本, 危险情报, and 秘密下达
 while leaving information-gathering 试探 and self-benefit 增援/机密文件
-unpenalized. `tactical-v6` remains the immediate rollback and A/B policy.
+unpenalized. V8 scores the forced return to the sender when declining 直达,
+allowing a bot to take a safe card instead of returning harmful intelligence
+to an ally, or to return a winning card to an ally immediately.
 
-Historical and candidate policies remain available for explicit evaluation and
-rollback. `candidate-v8` is the earlier incremental 调虎离山 experiment without
-the voluntary-rejection check. `candidate-v7` remains available as the earlier
-incremental 转移 experiment. `candidate-v9` combines `tactical-v4` with
-incremental 转移 scoring. `candidate-v10` layers that 转移 experiment over live
-`tactical-v5`. `candidate-v11` adds weak faction evidence when a completed,
-non-redirected function action measurably helps or harms the bot's own hand. It
-ignores self-actions, neutral outcomes, and all such inference for 特工. It is
-the default evaluation candidate but is not live.
+V9 remains evaluation-only. It adds
+假情报-only 直达 faction evidence and strong opposing-faction evidence when a
+knowingly lethal 锁定 resolves without 掉包 or 离间 changing responsibility.
+危险情报 discard selection reads the privately inspected target hand and uses
+conservative color denial, favoring enemy faction colors such as 红 cards for a
+军情 bot while preserving useful cards when the target is likely an ally.
+The independent 500-pair result did not establish an improvement over V8, so
+these changes are not part of the production policy.
 
-`candidate-v12` isolates the method-aware 危险情报 change over `tactical-v5`.
-`candidate-v13` isolates the conservative 掉包 change over `tactical-v5`.
+The selectable policy registry retains tactical versions for rollback and only
+the active experimental candidates v14-v17 and v19-v24. Historical candidates
+v3-v13 were retired after their results were recorded below; their
+implementations remain available through Git history.
+
+> Historical measurement notice: the original mixed-policy harness executed
+> policies by stable player ID but attributed final policy labels by shuffled
+> seat order. This made pre-fix candidate/baseline win rates and their faction
+> and seat breakdowns unreliable. The figures below are retained as experiment
+> history, not promotion evidence. Any surviving candidate must be revalidated
+> with the source-bound schema-v3 harness before promotion. The narrow
+> tactical-v8 forced-return behavior remains live because it was promoted from
+> direct decision review and deterministic tactical dominance rather than its
+> aggregate paired result.
+
 `candidate-v14` applies passive-route acceptance modeling to card, method, and
 direction selection. It changed 607 decisions in a 100-game disagreement sample
 and scored 35.8% versus tactical-v6's 36.4% in 100 five-player pairs, so it was
@@ -47,6 +61,68 @@ completed all 1,000 games without stalls or rejected commands. Candidate-v16
 scored 37.12% versus tactical-v6's 37.20% (-0.08 percentage points, 95% CI
 [-2.72, +2.56]). It remains evaluation-only because the result was neutral and
 inconclusive.
+
+`candidate-v17` evaluates declining intelligence by the expected utility of
+the next player's receipt instead of treating every non-terminal decline as
+equivalent. A declined 直达 is a forced return to its sender; voluntary receipts
+after 文本 or 密电 are acceptance-weighted. In 100 five-player pairs (seeds
+7001-7100), candidate-v17 scored 37.0% versus tactical-v7's 38.0% (-1.0
+percentage point, 95% CI [-2.17, +0.17]). The matching two-player run scored
+51.0% versus 49.0% (+2.0 points, 95% CI [-0.76, +4.76]). Both results are
+inconclusive, so the policy remains evaluation-only.
+
+`candidate-v19` treats visible 直达 transmissions targeting the observing bot
+as stronger intentional faction evidence for both 真情报 and 假情报, discounting
+the signal when 秘密下达 forced the color. A 500-pair five-player run (seeds
+12001-12500) scored 37.04% versus tactical-v8's 37.84% (-0.80 percentage
+points, 95% CI [-2.62, +1.02]) and slightly worsened belief calibration, so it
+was not promoted.
+
+`candidate-v20` isolates the requested 假情报 signal and leaves 直达真情报
+uninferred when the bot itself is the private target. An initial 100-pair run
+(seeds 13001-13100) scored 38.6% versus 36.0% (+2.6 points, 95% CI
+[+0.13, +5.07]). An independent 500-pair confirmation (seeds 14001-14500)
+regressed toward neutral: 37.20% versus 36.84% (+0.36 points, 95% CI
+[-1.03, +1.75]). Its belief calibration improved slightly (Brier 0.1936 versus
+0.1950; top-choice accuracy 84.47% versus 84.31%). The narrow inference was
+combined with conscious lethal-lock inference in tactical-v9; candidate-v20
+remains available to isolate the transmission-only contribution.
+
+A 100-pair five-player comparison of tactical-v9 against tactical-v8 (seeds
+16001-16100) was neutral in gameplay: 38.0% versus 38.2% (-0.2 percentage
+points, 95% CI [-3.12, +2.72]). Belief calibration improved in this sample:
+Brier 0.1929 versus 0.2063 and top-choice accuracy 84.7% versus 82.6%. The
+lethal-lock inference is intentionally restricted to an original, successfully
+resolved lock whose card was not replaced and whose target was not redirected.
+
+An independent 500-pair tactical-v9 versus tactical-v8 run (seeds 19001-19500)
+scored 36.96% versus 37.80% (-0.84 percentage points, 95% CI
+[-2.52, +0.84]). Candidate-v21 reduced lethal-lock evidence from 2.5 to 1.2;
+100-pair isolated samples were inconclusive both against no lock inference
+(+0.4 points) and the stronger live weight (-0.6 points), so it was not
+promoted.
+
+Candidate-v22 isolates broad target-value 危险情报 discard scoring, while
+candidate-v23 narrows the choice to faction-color denial. Their original
+results were invalidated by the historical policy-attribution bug. Corrected
+100-pair development runs on seeds 30001-30100 were inconclusive:
+
+- v22: focal-seat +2.0 points, mixed-seats -0.6, population -0.2;
+- v23: focal-seat +1.0 point, mixed-seats -1.0, population -0.2.
+
+Across 100 development games, v23 changed 60 decisions from tactical-v8 and v22
+differed from v23 38 times. The behavior is common enough for aggregate
+evaluation, but neither model consistently improved across evaluation modes.
+Both remain experimental and tactical-v8 retains random 危险情报 discard choice
+until a stronger candidate is developed.
+
+The forced-return-only subset of candidate-v17 changed just three decisions in
+a 100-game five-player disagreement sample (seeds 9001-9100). All three avoided
+a weaker self-receipt or unnecessary 破译 in favor of a strategically better
+forced return. A paired 100-game sample had identical aggregate outcomes because
+the states were rare. The narrow rule was promoted as tactical-v8 based on the
+direct tactical dominance, while the broader acceptance-weighted routing remains
+evaluation-only as candidate-v17.
 
 A 100-pair five-player comparison (seeds 2001-2100) of the refined
 `tactical-v6` against `tactical-v5` completed all 200 games without stalls or
@@ -76,7 +152,7 @@ disagreements with `tactical-v4`. In 35 cases, the live policy spent 转移 whil
 swapped-seat comparison completed all 200 games without stalls or rejected
 commands: candidate-v9 36.4% versus tactical-v4 36.8%, paired difference -0.4
 percentage points with a 95% confidence interval of [-3.1, +2.3]. This is
-inconclusive, so candidate-v9 is retained for analysis but not promoted.
+inconclusive, so candidate-v9 was not promoted and has since been retired.
 
 The next 转移 hypothesis should compare a redirect against the best free legal
 alternative, including declining to the next recipient, rather than comparing
@@ -95,7 +171,7 @@ Belief calibration is reported from each bot's final pre-reveal beliefs. The
 multiclass Brier score measures probability quality (lower is better), while
 top-choice accuracy measures whether the most likely faction is correct.
 
-For candidate-v11, a 100-pair five-player comparison against tactical-v5
+For the retired candidate-v11, a 100-pair five-player comparison against tactical-v5
 completed all 200 games without stalls or rejected commands. Candidate win rate
 was 38.6% versus 36.6% (+2.0 percentage points, 95% CI [-0.8, +4.8]), which was
 inconclusive. Belief calibration did not improve: Brier score was 0.1951 versus
@@ -106,10 +182,43 @@ signal is too noisy in its current form.
 For a large five-player comparison, save an atomic checkpoint after each chunk:
 
 ```powershell
-npm run ai:campaign -- 5 5000 1 --candidate candidate-v11 --baseline tactical-v5 --chunk-size 100 --checkpoint .ai-results/v11-v5.json
+npm run ai:campaign -- 5 5000 1 --candidate tactical-v9 --baseline tactical-v8 --chunk-size 100 --checkpoint .ai-results/v9-v8.json
 ```
 
 If the process stops, repeat the command with `--resume`. A checkpoint is only
-accepted when player count, policies, target pairs, and seed range all match.
-Calibration-aware checkpoints use schema version 2; older checkpoints are not
+accepted when player count, policies, evaluation mode, target pairs, seed
+range, and the runtime-source fingerprint all match. The campaign also checks
+the fingerprint before and after every chunk; if another task changes source
+during a chunk, that chunk is discarded rather than mixed into the result.
+Source-bound checkpoints use schema version 3; older checkpoints are not
 resumable.
+
+Use all three evaluation modes before promoting a candidate:
+
+```powershell
+npm run ai:campaign -- 5 1000 40001 --candidate candidate-v23 --baseline tactical-v8 --mode focal-seat --checkpoint .ai-results/v23-v8-focal.json
+npm run ai:campaign -- 5 1000 40001 --candidate candidate-v23 --baseline tactical-v8 --mode mixed-seats --checkpoint .ai-results/v23-v8-mixed.json
+npm run ai:campaign -- 5 1000 40001 --candidate candidate-v23 --baseline tactical-v8 --mode population --checkpoint .ai-results/v23-v8-population.json
+```
+
+`focal-seat` replaces one rotating baseline seat with the candidate and compares
+that player with the same seat in an all-baseline game. All opponents remain
+baseline, so this is the cleanest measurement of the candidate's individual
+effect. `mixed-seats` puts both policies in each game and swaps their seats in the
+matching leg. `population` runs an all-candidate game and an all-baseline game
+with the same seed, seats, and factions. Confidence intervals are clustered by
+the seed pair rather than treating correlated player entries as independent.
+
+Future candidate development uses fixed, non-overlapping seed ranges (earlier
+ranges were already consumed while developing v14-v23):
+
+- development: 30001-39999, for disagreement inspection and tuning;
+- validation: 40001-49999, for confirming a frozen candidate;
+- holdout: 50001-59999, used once for a promotion decision.
+
+A policy is promoted only after deterministic scenario tests pass, both
+evaluation modes show no important faction or player-count regression, an
+independent validation is positive, and the final holdout interval is positive
+or the change is justified by a narrow rules-level dominance case. Rare
+decisions should additionally report how often they trigger and be reviewed
+directly; aggregate win rate alone is not sufficient.

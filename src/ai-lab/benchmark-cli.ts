@@ -1,5 +1,5 @@
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V11, evaluationPolicyById } from "./policies";
+import { CANDIDATE_V24, evaluationPolicyById } from "./policies";
 import { LIVE_BOT_POLICY } from "../server/bot/strategy";
 
 const mode = process.argv[2] === "ab"
@@ -17,17 +17,20 @@ if (mode === "ab") {
     playerCount,
     pairs: games,
     startSeed,
-    candidatePolicy: CANDIDATE_V11,
+    candidatePolicy: CANDIDATE_V24,
   });
   console.log(`AI A/B: ${result.pairs} pairs (${result.games} games), ${result.playerCount} players`);
-  console.log(`completed=${result.completed} stalled=${result.stalled} commandLimit=${result.commandLimited}`);
+  console.log(
+    `completed=${result.completed} stalled=${result.stalled} `
+    + `commandLimit=${result.commandLimited} rejected=${result.rejectedCommands}`,
+  );
   console.log(`candidate=${result.candidate.wins}/${result.candidate.entries} (${percent(result.candidate.winRate)}) baseline=${result.baseline.wins}/${result.baseline.entries} (${percent(result.baseline.winRate)})`);
   console.log(`candidate beliefs=brier ${result.candidate.beliefCalibration.brierScore.toFixed(4)}, top-choice ${percent(result.candidate.beliefCalibration.topChoiceAccuracy)}`);
   console.log(`baseline beliefs=brier ${result.baseline.beliefCalibration.brierScore.toFixed(4)}, top-choice ${percent(result.baseline.beliefCalibration.topChoiceAccuracy)}`);
   console.log(`paired difference=${percent(result.pairedWinRateDifference)} 95% CI=[${percent(result.confidence95.low)}, ${percent(result.confidence95.high)}] verdict=${result.verdict}`);
 } else if (mode === "disagreements") {
   const firstPolicy = evaluationPolicyById(process.argv[6] ?? LIVE_BOT_POLICY.id);
-  const secondPolicy = evaluationPolicyById(process.argv[7] ?? CANDIDATE_V11.id);
+  const secondPolicy = evaluationPolicyById(process.argv[7] ?? CANDIDATE_V24.id);
   const results = Array.from({ length: games }, (_, index) => runSelfPlayGame({
     playerCount,
     seed: startSeed + index,

@@ -5,7 +5,7 @@ import {
 } from "../game/engine";
 import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, LIVE_BOT_POLICY, type BotDecision, type BotMemory, type BotPolicy, type FactionBelief } from "../server/bot/strategy";
 import { GameSessionService, type GameCommand } from "../server/game-session";
-import { CANDIDATE_V11 } from "./policies";
+import { CANDIDATE_V24 } from "./policies";
 
 export interface SelfPlayGameOptions {
   playerCount: 2 | 5 | 6 | 7 | 8;
@@ -97,15 +97,20 @@ export interface PairedTournamentOptions {
   maxCommandsPerGame?: number;
   candidatePolicy?: BotPolicy;
   baselinePolicy?: BotPolicy;
+  mode?: TournamentMode;
 }
+
+export type TournamentMode = "focal-seat" | "mixed-seats" | "population";
 
 export interface PairedTournamentResult {
   playerCount: number;
+  mode: TournamentMode;
   pairs: number;
   games: number;
   completed: number;
   stalled: number;
   commandLimited: number;
+  rejectedCommands: number;
   candidate: PolicyPerformanceSummary;
   baseline: PolicyPerformanceSummary;
   pairedWinRateDifference: number;
@@ -146,6 +151,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
   const games = new GameSessionService();
   games.create(roomCode, ids, options.seed);
   const memories = new Map<string, BotMemory>();
+  const comparisonMemories = new Map<string, [BotMemory, BotMemory]>();
   const randoms = new Map(ids.map((id, index) => [id, createSeededBotRandom(options.seed * 131 + index + 1)]));
   const rejectedByState = new Map<string, GameCommand[]>();
   const maxCommands = options.maxCommands ?? 10_000;
@@ -159,23 +165,30 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
     let attempted = false;
     for (const [index, id] of ids.entries()) {
       const projection = games.project(roomCode, id);
-      const memory = memories.get(id) ?? createBotMemory(projection);
+      const memory = memories.get(id) ?? createBotMemory(projection, policies[index]);
       memories.set(id, memory);
       const stateKey = decisionStateKey(id, projection);
       const rejected = rejectedByState.get(stateKey) ?? [];
       if (options.comparePolicies) {
-        const decisions = options.comparePolicies.map((policy) => chooseBotDecision(
-          projection,
-          structuredClone(memory),
-          {
-            policy,
-            random: () => 0,
-            excludedCommands: rejected,
-            excludedTransmissionCardIds: rejected
-              .filter((item): item is Extract<GameCommand, { type: "START_TRANSMISSION" }> => item.type === "START_TRANSMISSION")
-              .map((item) => item.cardId),
-          },
-        )) as [BotDecision | undefined, BotDecision | undefined];
+        const policyMemories = comparisonMemories.get(id) ?? [
+          createBotMemory(projection, options.comparePolicies[0]),
+          createBotMemory(projection, options.comparePolicies[1]),
+        ];
+        comparisonMemories.set(id, policyMemories);
+        const decisions = options.comparePolicies.map((policy, policyIndex) =>
+          chooseBotDecision(
+            projection,
+            policyMemories[policyIndex]!,
+            {
+              policy,
+              random: () => 0,
+              excludedCommands: rejected,
+              excludedTransmissionCardIds: rejected
+                .filter((item): item is Extract<GameCommand, { type: "START_TRANSMISSION" }> => item.type === "START_TRANSMISSION")
+                .map((item) => item.cardId),
+            },
+          )
+        ) as [BotDecision | undefined, BotDecision | undefined];
         if (JSON.stringify(decisions[0]?.command) !== JSON.stringify(decisions[1]?.command)) {
           disagreements.push(describeDisagreement(
             options.seed,
@@ -183,7 +196,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
             projection,
             options.comparePolicies,
             decisions,
-            memory,
+            policyMemories,
           ));
         }
       }
@@ -243,20 +256,31 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
 export function runPairedTournament(options: PairedTournamentOptions): PairedTournamentResult {
   if (!Number.isInteger(options.pairs) || options.pairs < 1) throw new Error("pairs must be a positive integer");
   factionsForPlayerCount(options.playerCount);
-  const firstLeg = Array.from({ length: options.playerCount }, (_, index): BotPolicy =>
-    index % 2 === 0 ? (options.candidatePolicy ?? CANDIDATE_V11) : (options.baselinePolicy ?? LIVE_BOT_POLICY)
-  );
-  const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V11;
+  const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V24;
   const baselinePolicy = options.baselinePolicy ?? LIVE_BOT_POLICY;
-  const secondLeg = firstLeg.map((policy): BotPolicy =>
-    policy.id === candidatePolicy.id ? baselinePolicy : candidatePolicy
-  );
+  const mode = options.mode ?? "mixed-seats";
   const startSeed = options.startSeed ?? 1;
   const results: SelfPlayGameResult[] = [];
   const pairDifferences: number[] = [];
+  const candidateEntries: SelfPlayGameResult["participants"] = [];
+  const baselineEntries: SelfPlayGameResult["participants"] = [];
 
   for (let index = 0; index < options.pairs; index += 1) {
     const seed = startSeed + index;
+    const focalSeatIndex = seed % options.playerCount;
+    const firstLeg = policiesForFirstLeg(
+      mode,
+      options.playerCount,
+      focalSeatIndex,
+      candidatePolicy,
+      baselinePolicy,
+    );
+    const secondLeg = policiesForSecondLeg(
+      mode,
+      firstLeg,
+      candidatePolicy,
+      baselinePolicy,
+    );
     const pair = [firstLeg, secondLeg].map((policies) => runSelfPlayGame({
       playerCount: options.playerCount,
       seed,
@@ -264,15 +288,18 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
       maxCommands: options.maxCommandsPerGame,
     }));
     results.push(...pair);
-    const participants = pair.flatMap((result) => result.participants);
+    const participants = mode === "focal-seat"
+      ? focalParticipants(pair, candidatePolicy.id)
+      : pair.flatMap((result) => result.participants);
+    candidateEntries.push(...participants.filter((entry) => entry.policy === candidatePolicy.id));
+    baselineEntries.push(...participants.filter((entry) => entry.policy === baselinePolicy.id));
     pairDifferences.push(
       winRateFor(participants, candidatePolicy.id) - winRateFor(participants, baselinePolicy.id),
     );
   }
 
-  const participants = results.flatMap((result) => result.participants);
-  const candidate = policySummary(participants, candidatePolicy.id);
-  const baseline = policySummary(participants, baselinePolicy.id);
+  const candidate = policySummary(candidateEntries, candidatePolicy.id);
+  const baseline = policySummary(baselineEntries, baselinePolicy.id);
   const difference = average(pairDifferences);
   const standardError = pairDifferences.length > 1
     ? Math.sqrt(pairDifferences.reduce((sum, value) => sum + (value - difference) ** 2, 0) / (pairDifferences.length - 1)) / Math.sqrt(pairDifferences.length)
@@ -283,11 +310,13 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
   };
   return {
     playerCount: options.playerCount,
+    mode,
     pairs: options.pairs,
     games: results.length,
     completed: results.filter((result) => result.status === "completed").length,
     stalled: results.filter((result) => result.status === "stalled").length,
     commandLimited: results.filter((result) => result.status === "commandLimit").length,
+    rejectedCommands: results.reduce((sum, result) => sum + result.rejectedCommands, 0),
     candidate,
     baseline,
     pairedWinRateDifference: difference,
@@ -300,6 +329,57 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
     },
     results,
   };
+}
+
+function focalParticipants(
+  pair: readonly [SelfPlayGameResult, SelfPlayGameResult] | readonly SelfPlayGameResult[],
+  candidatePolicyId: string,
+): SelfPlayGameResult["participants"] {
+  const candidate = pair[0]?.participants.find(
+    (participant) => participant.policy === candidatePolicyId,
+  );
+  if (!candidate) throw new Error("focal candidate participant is missing");
+  const baseline = pair[1]?.participants.find(
+    (participant) => participant.id === candidate.id,
+  );
+  if (!baseline) throw new Error("matching focal baseline participant is missing");
+  return [candidate, baseline];
+}
+
+function policiesForFirstLeg(
+  mode: TournamentMode,
+  playerCount: number,
+  focalSeatIndex: number,
+  candidatePolicy: BotPolicy,
+  baselinePolicy: BotPolicy,
+): BotPolicy[] {
+  if (mode === "population") {
+    return Array.from({ length: playerCount }, () => candidatePolicy);
+  }
+  if (mode === "focal-seat") {
+    return Array.from(
+      { length: playerCount },
+      (_, index) => index === focalSeatIndex ? candidatePolicy : baselinePolicy,
+    );
+  }
+  return Array.from(
+    { length: playerCount },
+    (_, index) => index % 2 === 0 ? candidatePolicy : baselinePolicy,
+  );
+}
+
+function policiesForSecondLeg(
+  mode: TournamentMode,
+  firstLeg: readonly BotPolicy[],
+  candidatePolicy: BotPolicy,
+  baselinePolicy: BotPolicy,
+): BotPolicy[] {
+  if (mode === "population" || mode === "focal-seat") {
+    return Array.from({ length: firstLeg.length }, () => baselinePolicy);
+  }
+  return firstLeg.map((policy): BotPolicy =>
+    policy.id === candidatePolicy.id ? baselinePolicy : candidatePolicy
+  );
 }
 
 export function runSelfPlayBenchmark(options: SelfPlayBenchmarkOptions): SelfPlayBenchmarkResult {
@@ -345,6 +425,9 @@ function summarizeGame(
 ): SelfPlayGameResult {
   const state = games.getState(roomCode);
   const reactionWindow = currentReactionWindow(state);
+  const policyByPlayerId = new Map<string, BotPolicy>(
+    policies.map((policy, index) => [`bot-${index + 1}`, policy] as const),
+  );
   return {
     seed: options.seed,
     playerCount: options.playerCount,
@@ -360,20 +443,24 @@ function summarizeGame(
       ?? state.activePlayerId,
     lastPublicEvent: state.auditLog.at(-1),
     lastRejection,
-    participants: state.seatOrder.map((id, index) => ({
-      id,
-      seat: index + 1,
-      faction: state.players[id].faction,
-      policy: policies[index]!.id,
-      won: didPlayerWin(state.winner, id, state.players[id].faction),
-      beliefCalibration: beliefCalibrationForObserver(
-        games,
-        roomCode,
+    participants: state.seatOrder.map((id, index) => {
+      const policy = policyByPlayerId.get(id);
+      if (!policy) throw new Error(`missing policy assignment for ${id}`);
+      return {
         id,
-        policies[index]!,
-        memories.get(id),
-      ),
-    })),
+        seat: index + 1,
+        faction: state.players[id].faction,
+        policy: policy.id,
+        won: didPlayerWin(state.winner, id, state.players[id].faction),
+        beliefCalibration: beliefCalibrationForObserver(
+          games,
+          roomCode,
+          id,
+          policy,
+          memories.get(id),
+        ),
+      };
+    }),
     disagreements,
   };
 }
@@ -384,7 +471,7 @@ function describeDisagreement(
   projection: ReturnType<GameSessionService["project"]>,
   policies: readonly [BotPolicy, BotPolicy],
   decisions: readonly [BotDecision | undefined, BotDecision | undefined],
-  memory: BotMemory,
+  memories: readonly [BotMemory, BotMemory],
 ): BotDisagreement {
   return {
     seed,
@@ -419,7 +506,9 @@ function describeDisagreement(
       summarizeDecisionCard(decisions[0], projection),
       summarizeDecisionCard(decisions[1], projection),
     ],
-    beliefs: policies.map((policy) => factionBeliefsForPolicy(memory, projection, policy)) as [
+    beliefs: policies.map((policy, index) =>
+      factionBeliefsForPolicy(memories[index]!, projection, policy)
+    ) as [
       Record<string, FactionBelief>,
       Record<string, FactionBelief>,
     ],
@@ -433,7 +522,10 @@ function summarizeDecisionCard(
 ): BotDisagreement["decisionCards"][number] {
   const command = decision?.command;
   if (!command || !("cardId" in command)) return undefined;
-  const card = projection.own.hand.find((held) => held.id === command.cardId);
+  const card = projection.own.hand.find((held) => held.id === command.cardId) ??
+    projection.activeFunctionAction?.inspectedHand?.find(
+      (held) => held.id === command.cardId,
+    );
   return card
     ? {
         name: card.name,

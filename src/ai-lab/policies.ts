@@ -1,82 +1,4 @@
-import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, type BotPolicy } from "../server/bot/strategy";
-
-export const CANDIDATE_V3: BotPolicy = {
-  id: "candidate-v3",
-  beliefModel: "exact",
-  scoring: "tactical",
-  burnBase: 7,
-  reactionConservation: 0,
-  incrementalTransfer: false,
-  incrementalLure: false,
-  lureRequiresLikelyAcceptance: false,
-  lockRequiresLikelyDecline: false,
-  methodAwareDangerousTransmission: false,
-  conservativeSwap: false,
-  routeAwareTransmission: false,
-  routeAwareTransmissionCardChoice: false,
-  routeAwareTransmissionMethodChoice: false,
-  targetedFunctionConservation: false,
-  inferResolvedActionAffinity: false,
-};
-
-export const CANDIDATE_V4: BotPolicy = {
-  ...CANDIDATE_V3,
-  id: "candidate-v4",
-  burnBase: 4,
-};
-
-export const CANDIDATE_V5: BotPolicy = {
-  ...TACTICAL_V3,
-  id: "candidate-v5",
-};
-
-export const CANDIDATE_V6: BotPolicy = {
-  ...CANDIDATE_V5,
-  id: "candidate-v6",
-  reactionConservation: 0.75,
-};
-
-export const CANDIDATE_V7: BotPolicy = {
-  ...CANDIDATE_V5,
-  id: "candidate-v7",
-  incrementalTransfer: true,
-};
-
-export const CANDIDATE_V8: BotPolicy = {
-  ...CANDIDATE_V5,
-  id: "candidate-v8",
-  incrementalLure: true,
-};
-
-export const CANDIDATE_V9: BotPolicy = {
-  ...TACTICAL_V4,
-  id: "candidate-v9",
-  incrementalTransfer: true,
-};
-
-export const CANDIDATE_V10: BotPolicy = {
-  ...TACTICAL_V5,
-  id: "candidate-v10",
-  incrementalTransfer: true,
-};
-
-export const CANDIDATE_V11: BotPolicy = {
-  ...TACTICAL_V5,
-  id: "candidate-v11",
-  inferResolvedActionAffinity: true,
-};
-
-export const CANDIDATE_V12: BotPolicy = {
-  ...TACTICAL_V5,
-  id: "candidate-v12",
-  methodAwareDangerousTransmission: true,
-};
-
-export const CANDIDATE_V13: BotPolicy = {
-  ...TACTICAL_V5,
-  id: "candidate-v13",
-  conservativeSwap: true,
-};
+import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, TACTICAL_V8, TACTICAL_V9, type BotPolicy } from "../server/bot/strategy";
 
 export const CANDIDATE_V14: BotPolicy = {
   ...TACTICAL_V6,
@@ -102,6 +24,48 @@ export const CANDIDATE_V16: BotPolicy = {
   routeAwareTransmissionMethodChoice: false,
 };
 
+export const CANDIDATE_V17: BotPolicy = {
+  ...TACTICAL_V7,
+  id: "candidate-v17",
+  declineRouting: "acceptance-weighted",
+};
+
+export const CANDIDATE_V19: BotPolicy = {
+  ...TACTICAL_V8,
+  id: "candidate-v19",
+  directTransmissionEvidence: "all",
+};
+
+export const CANDIDATE_V20: BotPolicy = {
+  ...TACTICAL_V8,
+  id: "candidate-v20",
+  directTransmissionEvidence: "black-only",
+};
+
+export const CANDIDATE_V21: BotPolicy = {
+  ...TACTICAL_V9,
+  id: "candidate-v21",
+  lethalLockEvidence: 1.2,
+};
+
+export const CANDIDATE_V22: BotPolicy = {
+  ...TACTICAL_V8,
+  id: "candidate-v22",
+  dangerousDiscardStrategy: "target-value",
+};
+
+export const CANDIDATE_V23: BotPolicy = {
+  ...TACTICAL_V8,
+  id: "candidate-v23",
+  dangerousDiscardStrategy: "color-denial",
+};
+
+export const CANDIDATE_V24: BotPolicy = {
+  ...TACTICAL_V8,
+  id: "candidate-v24",
+  dangerousDiscardStrategy: "color-then-function",
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
@@ -109,20 +73,18 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V5,
   TACTICAL_V6,
   TACTICAL_V7,
-  CANDIDATE_V3,
-  CANDIDATE_V4,
-  CANDIDATE_V5,
-  CANDIDATE_V6,
-  CANDIDATE_V7,
-  CANDIDATE_V8,
-  CANDIDATE_V9,
-  CANDIDATE_V10,
-  CANDIDATE_V11,
-  CANDIDATE_V12,
-  CANDIDATE_V13,
+  TACTICAL_V8,
+  TACTICAL_V9,
   CANDIDATE_V14,
   CANDIDATE_V15,
   CANDIDATE_V16,
+  CANDIDATE_V17,
+  CANDIDATE_V19,
+  CANDIDATE_V20,
+  CANDIDATE_V21,
+  CANDIDATE_V22,
+  CANDIDATE_V23,
+  CANDIDATE_V24,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

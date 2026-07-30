@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V7, CANDIDATE_V11 } from "./policies";
-import { LIVE_BOT_POLICY, TACTICAL_V2 } from "../server/bot/strategy";
+import { CANDIDATE_V23, CANDIDATE_V24 } from "./policies";
+import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3 } from "../server/bot/strategy";
+
+const INCREMENTAL_TRANSFER_POLICY = {
+  ...TACTICAL_V3,
+  id: "test-incremental-transfer",
+  incrementalTransfer: true,
+};
 
 describe("AI self-play benchmark", () => {
   it("completes a live-policy smoke sample without rejected projected commands", () => {
@@ -37,6 +43,7 @@ describe("AI self-play benchmark", () => {
     expect(first.games).toBe(10);
     expect(first.completed).toBe(10);
     expect(first.stalled).toBe(0);
+    expect(first.rejectedCommands).toBe(0);
     expect(first.candidate.entries).toBe(10);
     expect(first.baseline.entries).toBe(10);
     expect(first.candidate.beliefCalibration.observations).toBe(10);
@@ -55,9 +62,77 @@ describe("AI self-play benchmark", () => {
       );
       expect(firstLeg.participants.map((entry) => entry.policy)).toEqual(
         secondLeg.participants.map((entry) =>
-          entry.policy === CANDIDATE_V11.id ? LIVE_BOT_POLICY.id : CANDIDATE_V11.id
+          entry.policy === CANDIDATE_V24.id ? LIVE_BOT_POLICY.id : CANDIDATE_V24.id
         ),
       );
+    }
+  });
+
+  it("compares whole-policy populations on matching seeds and factions", () => {
+    const result = runPairedTournament({
+      playerCount: 5,
+      pairs: 2,
+      startSeed: 41,
+      candidatePolicy: CANDIDATE_V23,
+      baselinePolicy: TACTICAL_V3,
+      mode: "population",
+    });
+
+    expect(result.mode).toBe("population");
+    expect(result.pairDifferenceMoments.count).toBe(2);
+    for (let index = 0; index < result.results.length; index += 2) {
+      const candidateGame = result.results[index]!;
+      const baselineGame = result.results[index + 1]!;
+      expect(candidateGame.seed).toBe(baselineGame.seed);
+      expect(candidateGame.participants.map((entry) => entry.faction)).toEqual(
+        baselineGame.participants.map((entry) => entry.faction),
+      );
+      expect(new Set(candidateGame.participants.map((entry) => entry.policy))).toEqual(
+        new Set([CANDIDATE_V23.id]),
+      );
+      expect(new Set(baselineGame.participants.map((entry) => entry.policy))).toEqual(
+        new Set([TACTICAL_V3.id]),
+      );
+    }
+  });
+
+  it("compares a rotating focal seat against fixed baseline opponents", () => {
+    const result = runPairedTournament({
+      playerCount: 5,
+      pairs: 6,
+      startSeed: 51,
+      candidatePolicy: CANDIDATE_V23,
+      baselinePolicy: TACTICAL_V3,
+      mode: "focal-seat",
+    });
+
+    expect(result.mode).toBe("focal-seat");
+    expect(result.candidate.entries).toBe(6);
+    expect(result.baseline.entries).toBe(6);
+    expect(result.pairDifferenceMoments.count).toBe(6);
+    for (let index = 0; index < result.results.length; index += 2) {
+      const candidateGame = result.results[index]!;
+      const baselineGame = result.results[index + 1]!;
+      const focalCandidate = candidateGame.participants.find(
+        (entry) => entry.policy === CANDIDATE_V23.id,
+      )!;
+      const focalBaseline = baselineGame.participants.find(
+        (entry) => entry.id === focalCandidate.id,
+      )!;
+      expect(candidateGame.seed).toBe(baselineGame.seed);
+      expect(candidateGame.participants.map((entry) => entry.faction)).toEqual(
+        baselineGame.participants.map((entry) => entry.faction),
+      );
+      expect(focalBaseline).toMatchObject({
+        id: focalCandidate.id,
+        seat: focalCandidate.seat,
+        faction: focalCandidate.faction,
+        policy: TACTICAL_V3.id,
+      });
+      expect(candidateGame.participants.filter((entry) => entry.id !== focalCandidate.id).every(
+        (entry) => entry.policy === TACTICAL_V3.id,
+      )).toBe(true);
+      expect(baselineGame.participants.every((entry) => entry.policy === TACTICAL_V3.id)).toBe(true);
     }
   });
 
@@ -66,7 +141,7 @@ describe("AI self-play benchmark", () => {
     const observed = runSelfPlayGame({
       playerCount: 5,
       seed: 101,
-      comparePolicies: [TACTICAL_V2, CANDIDATE_V7],
+      comparePolicies: [TACTICAL_V2, INCREMENTAL_TRANSFER_POLICY],
     });
 
     expect(observed.winner).toEqual(ordinary.results[0]?.winner);
@@ -74,7 +149,7 @@ describe("AI self-play benchmark", () => {
     expect(observed.disagreements.length).toBeGreaterThan(0);
     expect(observed.disagreements[0]).toMatchObject({
       seed: 101,
-      policies: [TACTICAL_V2.id, CANDIDATE_V7.id],
+      policies: [TACTICAL_V2.id, INCREMENTAL_TRANSFER_POLICY.id],
     });
     expect(observed.disagreements.every((entry) =>
       JSON.stringify(entry.decisions[0]?.command) !== JSON.stringify(entry.decisions[1]?.command)

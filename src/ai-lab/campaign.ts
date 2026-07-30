@@ -1,6 +1,7 @@
 import type {
   PairedTournamentResult,
   PolicyPerformanceSummary,
+  TournamentMode,
   WinRateSummary,
 } from "./benchmark";
 
@@ -10,16 +11,19 @@ export interface TournamentCampaignConfig {
   startSeed: number;
   candidatePolicyId: string;
   baselinePolicyId: string;
+  mode: TournamentMode;
+  sourceFingerprint: string;
   maxCommandsPerGame?: number;
 }
 
 export interface TournamentCampaignCheckpoint {
-  version: 2;
+  version: 3;
   config: TournamentCampaignConfig;
   completedPairs: number;
   completedGames: number;
   stalledGames: number;
   commandLimitedGames: number;
+  rejectedCommands: number;
   candidate: PolicyPerformanceSummary;
   baseline: PolicyPerformanceSummary;
   pairDifferenceMoments: { count: number; sum: number; sumSquares: number };
@@ -37,12 +41,13 @@ export function createCampaignCheckpoint(config: TournamentCampaignConfig): Tour
     throw new Error("targetPairs must be a positive integer");
   }
   return {
-    version: 2,
+    version: 3,
     config,
     completedPairs: 0,
     completedGames: 0,
     stalledGames: 0,
     commandLimitedGames: 0,
+    rejectedCommands: 0,
     candidate: emptyPolicySummary(),
     baseline: emptyPolicySummary(),
     pairDifferenceMoments: { count: 0, sum: 0, sumSquares: 0 },
@@ -57,6 +62,9 @@ export function addTournamentChunk(
   if (chunk.playerCount !== checkpoint.config.playerCount) {
     throw new Error("chunk player count does not match campaign");
   }
+  if (chunk.mode !== checkpoint.config.mode) {
+    throw new Error("chunk evaluation mode does not match campaign");
+  }
   if (checkpoint.completedPairs + chunk.pairs > checkpoint.config.targetPairs) {
     throw new Error("chunk exceeds campaign target");
   }
@@ -66,6 +74,7 @@ export function addTournamentChunk(
     completedGames: checkpoint.completedGames + chunk.completed,
     stalledGames: checkpoint.stalledGames + chunk.stalled,
     commandLimitedGames: checkpoint.commandLimitedGames + chunk.commandLimited,
+    rejectedCommands: checkpoint.rejectedCommands + chunk.rejectedCommands,
     candidate: mergePolicySummaries(checkpoint.candidate, chunk.candidate),
     baseline: mergePolicySummaries(checkpoint.baseline, chunk.baseline),
     pairDifferenceMoments: {
@@ -103,7 +112,7 @@ export function assertCampaignConfig(
   if (JSON.stringify(checkpoint.config) !== JSON.stringify(expected)) {
     throw new Error("checkpoint configuration does not match the requested campaign");
   }
-  if (checkpoint.version !== 2) throw new Error(`unsupported checkpoint version: ${checkpoint.version}`);
+  if (checkpoint.version !== 3) throw new Error(`unsupported checkpoint version: ${checkpoint.version}`);
 }
 
 function emptyPolicySummary(): PolicyPerformanceSummary {
