@@ -24,6 +24,7 @@ import {
   startTransmission,
   topResponseFrame,
   type GameState,
+  type PlayerProjection,
 } from "./engine";
 
 const players = ["甲", "乙", "丙", "丁", "戊"] as const;
@@ -188,6 +189,71 @@ describe("开始传递", () => {
     });
     passAllReactions(state);
     expect(() => startTransmission(state, "甲", transmissionCard)).not.toThrow();
+  });
+
+  it("仅在秘密下达窗口结束后为当前玩家列出完整传递指令", () => {
+    const state = initializedWithActive(players, 301);
+    const cardId = cardIdWhere((card) => card.transmission === "任意" && card.circle);
+    putCardInHand(state, "甲", cardId);
+
+    expect(projectGameForPlayer(state, "甲").legalActions.some(
+      (action) => action.type === "START_TRANSMISSION",
+    )).toBe(false);
+    enterTransmissionPhase(state, "甲");
+    expect(projectGameForPlayer(state, "甲").legalActions.some(
+      (action) => action.type === "START_TRANSMISSION",
+    )).toBe(false);
+    passAllReactions(state);
+
+    const actions = projectGameForPlayer(state, "甲").legalActions.filter(
+      (action): action is Extract<
+        PlayerProjection["legalActions"][number],
+        { type: "START_TRANSMISSION" }
+      > =>
+        action.type === "START_TRANSMISSION" && action.cardId === cardId,
+    );
+    expect(actions).toEqual(expect.arrayContaining([
+      {
+        type: "START_TRANSMISSION",
+        cardId,
+        method: "密电",
+        direction: "clockwise",
+      },
+      {
+        type: "START_TRANSMISSION",
+        cardId,
+        method: "密电",
+        direction: "counterclockwise",
+      },
+      {
+        type: "START_TRANSMISSION",
+        cardId,
+        method: "文本",
+        direction: "clockwise",
+      },
+      {
+        type: "START_TRANSMISSION",
+        cardId,
+        method: "直达",
+        targetId: "乙",
+      },
+    ]));
+    expect(projectGameForPlayer(state, "乙").legalActions.some(
+      (action) => action.type === "START_TRANSMISSION",
+    )).toBe(false);
+
+    for (const action of actions) {
+      const copy = structuredClone(state);
+      startTransmission(copy, "甲", action.cardId, {
+        method: action.method,
+        direction: action.direction,
+        targetId: action.targetId,
+      });
+      expect(copy.transmission).toMatchObject({
+        cardId,
+        method: action.method,
+      });
+    }
   });
 
   it("不带圈密电固定为顺时针", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { PhysicalCard, PhysicalCardId } from "../game/cards";
+import { currentReactionWindow } from "../game/engine";
 import { GameSessionService, type GameCommand } from "./game-session";
 import {
   ReactionTimeoutScheduler,
@@ -123,6 +124,15 @@ function setup(initialTimeout: 10 | 15 | null) {
 function startTransmission(sessions: GameSessionService): void {
   const state = sessions.getState("ABCDEF");
   const actorId = state.activePlayerId;
+  sessions.dispatch("ABCDEF", actorId, { type: "ENTER_TRANSMISSION_PHASE" });
+  while (currentReactionWindow(state)) {
+    const window = currentReactionWindow(state)!;
+    sessions.dispatch(
+      "ABCDEF",
+      window.responderOrder[window.nextResponderIndex]!,
+      { type: "PASS_REACTION" },
+    );
+  }
   const projection = sessions.project("ABCDEF", actorId);
   const card = projection.own.hand[0]!;
   const targetId = playerIds.find((id) => id !== actorId)!;

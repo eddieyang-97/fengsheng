@@ -42,6 +42,10 @@ import {
 import "./game-table.css";
 
 export type ProjectedLegalAction = PlayerProjection["legalActions"][number];
+type StartTransmissionAction = Extract<
+  ProjectedLegalAction,
+  { type: "START_TRANSMISSION" }
+>;
 type BurnCommand = Extract<GameCommand, { type: "PLAY_BURN" }>;
 type ProjectedReactionKind = NonNullable<PlayerProjection["reactionWindow"]>["kind"];
 type ProjectedReceiptStage = NonNullable<PlayerProjection["transmission"]>["receiptStage"];
@@ -858,6 +862,7 @@ export function promptActions(
     : (selectedLock ?? lockActions[0]);
 
   return actions.filter((action) => {
+    if (action.type === "START_TRANSMISSION") return false;
     const cardId = actionCardId(action);
     if (!cardId) return true;
     if (action.type === "PLAY_LOCK") return action === directLock;
@@ -1019,6 +1024,10 @@ export function GameTable({
   const settingsRef = useRef<HTMLDetailsElement>(null);
   const chatBubbles = usePlayerChatBubbles(chatMessages);
   const actions = projection.legalActions;
+  const transmissionActions = actions.filter(
+    (action): action is StartTransmissionAction =>
+      action.type === "START_TRANSMISSION",
+  );
   const selectionContext = [
     projection.phase,
     projection.activePlayerId,
@@ -1124,28 +1133,8 @@ export function GameTable({
       )
     : [];
   const selectedCard = projection.own.hand.find((card) => card.id === activeSelectedCardId);
-  const forcedChoice = actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT");
-  const isResolvedPreTransmissionSelection =
-    projection.phase === "preTransmission" &&
-    projection.pendingSecretOrder?.stage === "selection";
-  const canStartTransmission =
-    isResolvedPreTransmissionSelection &&
-    projection.activePlayerId === projection.own.id &&
-    !projection.transmission &&
-    !projection.reactionWindow &&
-    !forcedChoice;
+  const canStartTransmission = transmissionActions.length > 0;
   const selectableCardIds = new Set(playableCardIds);
-  if (canStartTransmission) {
-    const requiredColor = projection.pendingSecretOrder?.requiredColor;
-    const orderApplies = requiredColor && !projection.pendingSecretOrder?.verifiedNoMatch;
-    projection.own.hand
-      .filter((card) =>
-        !orderApplies ||
-        card.color === requiredColor ||
-        (card.color === "红蓝" && requiredColor !== "黑"),
-      )
-      .forEach((card) => selectableCardIds.add(card.id));
-  }
   const selectCard = useCallback((cardId: string | undefined) => {
     selectedCardContext.current = cardId ? selectionContext : undefined;
     setSelectedCardId(cardId);
@@ -1230,34 +1219,43 @@ export function GameTable({
     return () => window.cancelAnimationFrame(frame);
   }, [activeSelectedCardId, updateHandOverflow]);
 
-  const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
-  const directTransmissionTargetIds = canStartTransmission && selectedCard && effectiveMethod === "直达"
-    ? projection.players
-        .filter((player) => player.alive && player.id !== projection.own.id)
-        .map((player) => player.id)
+  const selectedTransmissionActions = selectedCard
+    ? transmissionActions.filter((action) => action.cardId === selectedCard.id)
     : [];
+  const availableTransmissionMethods = new Set(
+    selectedTransmissionActions.map((action) => action.method),
+  );
+  const effectiveMethod = selectedCard?.transmission === "任意"
+    ? availableTransmissionMethods.has(transmissionMethod)
+      ? transmissionMethod
+      : selectedTransmissionActions[0]?.method
+    : selectedCard?.transmission;
+  const selectedMethodTransmissionActions = effectiveMethod
+    ? selectedTransmissionActions.filter((action) => action.method === effectiveMethod)
+    : [];
+  const directTransmissionTargetIds = effectiveMethod === "直达"
+    ? selectedMethodTransmissionActions
+        .map((action) => action.targetId)
+        .filter((targetId): targetId is string => Boolean(targetId))
+    : [];
+  const selectedDirection = transmissionDirectionForSelection(
+    projection.mode,
+    selectedCard?.circle ?? false,
+    direction,
+  );
+  const routeTransmissionCommand = effectiveMethod && effectiveMethod !== "直达"
+    ? selectedMethodTransmissionActions.find(
+        (action) => action.direction === selectedDirection,
+      )
+    : undefined;
   const keyboardTransmissionCommand: GameCommand | undefined =
-    canStartTransmission && selectedCard && effectiveMethod
-      ? effectiveMethod === "直达"
-        ? directTransmissionTargetIds.length === 1
-          ? {
-              type: "START_TRANSMISSION",
-              cardId: selectedCard.id as PhysicalCardId,
-              method: effectiveMethod,
-              targetId: directTransmissionTargetIds[0]!,
-            }
-          : undefined
-        : {
-            type: "START_TRANSMISSION",
-            cardId: selectedCard.id as PhysicalCardId,
-            method: effectiveMethod,
-            direction: transmissionDirectionForSelection(
-              projection.mode,
-              selectedCard.circle,
-              direction,
-            ),
-          }
-      : undefined;
+    effectiveMethod === "直达"
+      ? directTransmissionTargetIds.length === 1
+        ? selectedMethodTransmissionActions.find(
+            (action) => action.targetId === directTransmissionTargetIds[0],
+          )
+        : undefined
+      : routeTransmissionCommand;
   const keyboardConfirmCommand: GameCommand | undefined =
     keyboardPrimaryAction ?? keyboardTransmissionCommand;
   const targetIds = new Set([
@@ -1294,11 +1292,12 @@ export function GameTable({
     ? displaySeatOrder.indexOf(projection.transmission.intendedRecipientId)
     : -1;
   const transmissionRecipientId = projection.transmission?.intendedRecipientId;
+  const transmissionSenderId = projection.transmission?.senderId;
 
   useLayoutEffect(() => {
     const slot = transmissionSlotRef.current;
     const motion = transmissionMotionRef.current;
-    if (!slot || !motion || !transmissionRecipientId) {
+    if (!slot || !motion || !transmissionRecipientId || !transmissionSenderId) {
       previousTransmissionPosition.current = undefined;
       transmissionAnimation.current?.cancel();
       transmissionAnimation.current = undefined;
@@ -1313,9 +1312,26 @@ export function GameTable({
     };
     const previous = previousTransmissionPosition.current;
     previousTransmissionPosition.current = current;
+    const sender = !previous
+      ? Array.from(
+          document.querySelectorAll<HTMLElement>("[data-game-animation-player-id]"),
+        )
+          .find((element) =>
+            element.dataset.gameAnimationPlayerId === transmissionSenderId
+          )
+          ?.querySelector<HTMLElement>(".player-reaction-trigger")
+      : undefined;
+    const senderBounds = sender?.getBoundingClientRect();
+    const origin = previous ?? (senderBounds
+      ? {
+          recipientId: transmissionSenderId,
+          x: senderBounds.left + senderBounds.width / 2,
+          y: senderBounds.top + senderBounds.height / 2,
+        }
+      : undefined);
     if (
-      !previous ||
-      previous.recipientId === current.recipientId ||
+      !origin ||
+      (previous && previous.recipientId === current.recipientId) ||
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
     ) {
       return;
@@ -1325,7 +1341,7 @@ export function GameTable({
     transmissionAnimation.current = motion.animate(
       [
         {
-          transform: `translate(${previous.x - current.x}px, ${previous.y - current.y}px)`,
+          transform: `translate(${origin.x - current.x}px, ${origin.y - current.y}px)`,
         },
         { transform: "translate(0, 0)" },
       ],
@@ -1334,7 +1350,7 @@ export function GameTable({
         easing: "cubic-bezier(.22,.76,.25,1)",
       },
     );
-  }, [transmissionRecipientId]);
+  }, [transmissionRecipientId, transmissionSenderId]);
   const autoPassAction = automaticPassCommand(actions, autoPassIgnoreBurn);
   const autoPassPrompt = reactionTimer?.promptId ?? (
     projection.reactionWindow
@@ -1664,20 +1680,6 @@ export function GameTable({
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
     if (matches.length === 1) {
       dispatchCommand(matches[0]);
-      return;
-    }
-    if (
-      matches.length === 0 &&
-      selectedCard &&
-      effectiveMethod === "直达" &&
-      directTransmissionTargetIds.includes(targetId)
-    ) {
-      dispatchCommand({
-        type: "START_TRANSMISSION",
-        cardId: selectedCard.id as PhysicalCardId,
-        method: effectiveMethod,
-        targetId,
-      });
     }
   };
 
@@ -2106,9 +2108,11 @@ export function GameTable({
                       onChange={(event) => setTransmissionMethod(event.target.value as typeof transmissionMethod)}
                       value={transmissionMethod}
                     >
-                      <option value="直达">直达</option>
-                      <option value="文本">文本</option>
-                      <option value="密电">密电</option>
+                      {(["直达", "文本", "密电"] as const)
+                        .filter((method) => availableTransmissionMethods.has(method))
+                        .map((method) => (
+                          <option key={method} value={method}>{method}</option>
+                        ))}
                     </select>
                   )}
                   {projection.mode !== "duel" && selectedCard.circle && effectiveMethod !== "直达" && (
@@ -2122,17 +2126,17 @@ export function GameTable({
                     </select>
                   )}
                   {effectiveMethod === "直达" ? projection.players
-                    .filter((player) => player.alive && player.id !== projection.own.id)
+                    .filter((player) => directTransmissionTargetIds.includes(player.id))
                     .map((player, index) => (
                       <button
                         disabled={busy || !connected}
                         key={player.id}
-                        onClick={() => dispatchCommand({
-                          type: "START_TRANSMISSION",
-                          cardId: selectedCard.id as PhysicalCardId,
-                          method: effectiveMethod,
-                          targetId: player.id,
-                        })}
+                        onClick={() => {
+                          const command = selectedMethodTransmissionActions.find(
+                            (action) => action.targetId === player.id,
+                          );
+                          if (command) dispatchCommand(command);
+                        }}
                         type="button"
                       >
                         {playerDisplayNames[player.id] ?? player.id}
@@ -2144,17 +2148,12 @@ export function GameTable({
                       </button>
                     )) : (
                     <button
-                      disabled={busy || !connected}
-                      onClick={() => dispatchCommand({
-                        type: "START_TRANSMISSION",
-                        cardId: selectedCard.id as PhysicalCardId,
-                        method: effectiveMethod,
-                        direction: transmissionDirectionForSelection(
-                          projection.mode,
-                          selectedCard.circle,
-                          direction,
-                        ),
-                      })}
+                      disabled={busy || !connected || !routeTransmissionCommand}
+                      onClick={() => {
+                        if (routeTransmissionCommand) {
+                          dispatchCommand(routeTransmissionCommand);
+                        }
+                      }}
                       type="button"
                     >
                       开始传递

@@ -351,6 +351,16 @@ describe("秘密下达", () => {
     passAll(state);
     expect(projectGameForPlayer(state, "甲").pendingSecretOrder?.requiredColor).toBe(required);
     expect(projectGameForPlayer(state, "丙").pendingSecretOrder?.requiredColor).toBeUndefined();
+    expect(projectGameForPlayer(state, "甲").legalActions.some(
+      (action) =>
+        action.type === "START_TRANSMISSION" &&
+        action.cardId === nonmatching,
+    )).toBe(false);
+    expect(projectGameForPlayer(state, "甲").legalActions.some(
+      (action) =>
+        action.type === "START_TRANSMISSION" &&
+        action.cardId === matching,
+    )).toBe(true);
     expect(state.hiddenSecretOrders).toContain(orderId);
     expect(state.auditLog.some((entry) => entry.includes("窗口结束"))).toBe(false);
     expect(() => startTransmission(state, "甲", nonmatching)).toThrow("必须传递符合秘密下达颜色");

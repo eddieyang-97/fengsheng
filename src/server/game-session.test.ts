@@ -46,6 +46,7 @@ describe("GameSessionService", () => {
       (candidate) => candidate.id === cardId,
     )!;
     const targetId = players.find((id) => id !== activePlayerId)!;
+    advanceToTransmissionSelection(sessions, "ABCDEF", activePlayerId);
     const projection = sessions.dispatch("ABCDEF", activePlayerId, {
       type: "START_TRANSMISSION",
       cardId,
@@ -62,6 +63,28 @@ describe("GameSessionService", () => {
     expect(sessions.project("ABCDEF", targetId).own.id).toBe(targetId);
   });
 
+  it("rejects transmission before the pre-transmission window and accepts a projected command", () => {
+    const sessions = new GameSessionService();
+    const state = sessions.create("ABCDEF", players, 142);
+    const actorId = state.activePlayerId;
+    const cardId = state.players[actorId].hand[0]!;
+
+    expect(() =>
+      sessions.dispatch("ABCDEF", actorId, {
+        type: "START_TRANSMISSION",
+        cardId,
+      }),
+    ).toThrow("当前不能以所选方式开始传递情报");
+
+    advanceToTransmissionSelection(sessions, "ABCDEF", actorId);
+    const command = sessions.project("ABCDEF", actorId).legalActions.find(
+      (action) => action.type === "START_TRANSMISSION",
+    );
+    expect(command).toBeDefined();
+    const projection = sessions.dispatch("ABCDEF", actorId, command!);
+    expect(projection.transmission?.senderId).toBe(actorId);
+  });
+
   it("dispatches a receipt decision directly from the recipient's final reaction prompt", () => {
     const sessions = new GameSessionService();
     const state = sessions.create("ABCDEF", players, 239);
@@ -74,6 +97,7 @@ describe("GameSessionService", () => {
     detachCard(state, intelligence.id);
     state.players[senderId].hand.push(intelligence.id as PhysicalCardId);
 
+    advanceToTransmissionSelection(sessions, "ABCDEF", senderId);
     sessions.dispatch("ABCDEF", senderId, {
       type: "START_TRANSMISSION",
       cardId: intelligence.id as PhysicalCardId,
@@ -134,6 +158,7 @@ describe("GameSessionService", () => {
     );
     state.players[reactorId].hand.push(separation.id as PhysicalCardId);
 
+    advanceToTransmissionSelection(sessions, "ABCDEF", senderId);
     sessions.dispatch("ABCDEF", senderId, {
       type: "START_TRANSMISSION",
       cardId: intelligence.id as PhysicalCardId,
@@ -277,6 +302,7 @@ describe("GameSessionService", () => {
       transferSeparation.id as PhysicalCardId,
     );
 
+    advanceToTransmissionSelection(transferSessions, "GHIJKL", senderId);
     transferSessions.dispatch("GHIJKL", senderId, {
       type: "START_TRANSMISSION",
       cardId: intelligence.id as PhysicalCardId,
@@ -432,6 +458,23 @@ describe("GameSessionService", () => {
     });
   });
 });
+
+function advanceToTransmissionSelection(
+  sessions: GameSessionService,
+  roomCode: string,
+  actorId: string,
+): void {
+  sessions.dispatch(roomCode, actorId, { type: "ENTER_TRANSMISSION_PHASE" });
+  const state = sessions.getState(roomCode);
+  while (currentReactionWindow(state)) {
+    const window = currentReactionWindow(state)!;
+    sessions.dispatch(
+      roomCode,
+      window.responderOrder[window.nextResponderIndex]!,
+      { type: "PASS_REACTION" },
+    );
+  }
+}
 
 function detachCard(state: GameState, cardId: string): void {
   for (const player of Object.values(state.players)) {

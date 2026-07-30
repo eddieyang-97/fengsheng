@@ -616,6 +616,13 @@ export interface PlayerProjection {
       }
     | { type: "CHOOSE_PUBLIC_TEXT_DISCARD"; cardId: PhysicalCardId }
     | {
+        type: "START_TRANSMISSION";
+        cardId: PhysicalCardId;
+        method: FixedTransmissionMethod;
+        direction?: Direction;
+        targetId?: PlayerId;
+      }
+    | {
         type: "PLAY_COUNTER";
         cardId: PhysicalCardId;
         targetInteractionId: string;
@@ -4417,6 +4424,7 @@ export function projectGameForPlayer(
           )
       : [];
   const activeFunctionActions: PlayerProjection["legalActions"] = [];
+  const transmissionActions = legalTransmissionActions(state, viewerId);
   const secretOrderActions: PlayerProjection["legalActions"] =
     currentReactionResponderId === viewerId &&
     reactionWindow?.kind === "secretOrder" &&
@@ -4681,8 +4689,83 @@ export function projectGameForPlayer(
           !activeFunctionAction &&
           !reactionWindow
         ? [...activeFunctionActions, ...burnActions, { type: "ENTER_TRANSMISSION_PHASE" }]
+      : transmissionActions.length > 0
+        ? transmissionActions
         : activeFunctionActions,
   };
+}
+
+function legalTransmissionActions(
+  state: GameState,
+  viewerId: PlayerId,
+): PlayerProjection["legalActions"] {
+  if (
+    state.phase !== "preTransmission" ||
+    state.activePlayerId !== viewerId ||
+    state.pendingSecretOrder?.stage !== "selection" ||
+    state.transmission ||
+    currentReactionWindow(state)
+  ) {
+    return [];
+  }
+
+  const viewer = state.players[viewerId];
+  if (!viewer?.alive || viewer.hand.length > 7) return [];
+  const order = state.pendingSecretOrder;
+  const orderApplies = Boolean(
+    order.sourceCardId &&
+      !order.countered &&
+      order.requiredColor &&
+      !order.verifiedNoMatch,
+  );
+  const livingTargets = state.seatOrder.filter(
+    (playerId) => playerId !== viewerId && state.players[playerId].alive,
+  );
+
+  const actions: PlayerProjection["legalActions"] = [];
+  for (const cardId of viewer.hand) {
+    const card = cardById(cardId);
+    if (
+      orderApplies &&
+      !cardMatchesSecretOrder(card, order.requiredColor!)
+    ) {
+      continue;
+    }
+
+    const methods = card.transmission === "任意"
+      ? (["密电", "文本", "直达"] as const)
+      : [card.transmission];
+    for (const method of methods) {
+      if (method === "直达") {
+        for (const targetId of livingTargets) {
+          actions.push({
+            type: "START_TRANSMISSION",
+            cardId,
+            method,
+            targetId,
+          });
+        }
+        continue;
+      }
+      if (card.circle && state.mode !== "duel") {
+        for (const direction of ["clockwise", "counterclockwise"] as const) {
+          actions.push({
+            type: "START_TRANSMISSION",
+            cardId,
+            method,
+            direction,
+          });
+        }
+        continue;
+      }
+      actions.push({
+        type: "START_TRANSMISSION",
+        cardId,
+        method,
+      });
+    }
+  }
+  return actions;
 }
 
 export function projectGameForSpectator(state: GameState): SpectatorProjection {

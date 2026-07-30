@@ -577,6 +577,16 @@ describe("game server sessions", () => {
     const commandSocket = (playerId: string) => socketsByPlayer.get(playerId)!;
 
     await emitAck(commandSocket(senderId), "game:command", {
+      command: { type: "ENTER_TRANSMISSION_PHASE" },
+    });
+    while (currentReactionWindow(state)) {
+      const responderId =
+        currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex];
+      await emitAck(commandSocket(responderId), "game:command", {
+        command: { type: "PASS_REACTION" },
+      });
+    }
+    await emitAck(commandSocket(senderId), "game:command", {
       command: transmissionCommand(blackCards[2], receiverId),
     });
     await emitAck(commandSocket(senderId), "game:command", {

@@ -138,6 +138,22 @@ export class GameSessionService {
     if (!state.players[actorId]) {
       throw new GameSessionError("NOT_A_GAME_PLAYER", "当前玩家不属于这局游戏");
     }
+    if (
+      command.type === "START_TRANSMISSION" &&
+      !projectGameForPlayer(state, actorId).legalActions.some(
+        (action) =>
+          action.type === "START_TRANSMISSION" &&
+          action.cardId === command.cardId &&
+          (command.method === undefined || action.method === command.method) &&
+          action.direction === command.direction &&
+          action.targetId === command.targetId,
+      )
+    ) {
+      throw new GameSessionError(
+        "ILLEGAL_GAME_COMMAND",
+        "当前不能以所选方式开始传递情报",
+      );
+    }
     const checkpoint = structuredClone(state);
     try {
       dispatchGameCommand(state, actorId, command);

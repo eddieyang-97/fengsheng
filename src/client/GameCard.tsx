@@ -25,9 +25,6 @@ export function cardVariantText(card: PhysicalCard): string | undefined {
   if (variant.kind === "secretOrder") {
     return `听风→${variant.mapping["听风"]}\n看雨→${variant.mapping["看雨"]}\n日落→${variant.mapping["日落"]}`;
   }
-  if (variant.kind === "publicTextBlack") {
-    return `${variant.mandatoryDrawFaction}摸 1 张`;
-  }
   return undefined;
 }
 
@@ -111,7 +108,7 @@ export function GameCard({
       {displayedVariantText && (
         <small className="game-card__variant">{displayedVariantText}</small>
       )}
-      {card.circle && <small>可选方向</small>}
+      {card.circle && <small className="game-card__direction">可选方向</small>}
       {card.color === "黑" && card.unburnable && (
         <small className="unburnable-badge">不可烧毁</small>
       )}

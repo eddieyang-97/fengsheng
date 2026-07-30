@@ -158,6 +158,10 @@ describe("game table card parameters", () => {
     expect(publicCardSummary(redPublicText)).toBe("公开文本 · 红 · 文本");
   });
 
+  it("keeps 公开文本 receipt rules outside the card face", () => {
+    expect(cardVariantText(blackPublicText)).toBeUndefined();
+  });
+
   it("distinguishes the selected action parameters", () => {
     expect(actionDetail(
       { type: "PLAY_PROBE", cardId: "p1-02", targetId: "乙" },
@@ -574,6 +578,22 @@ describe("锁定 prompt actions", () => {
       { type: "PASS_LOCK" },
       { type: "PLAY_LOCK", cardId: matchingRedLock.id },
     ]);
+  });
+
+  it("keeps server-generated transmission commands inside the dedicated composer", () => {
+    expect(promptActions([
+      {
+        type: "START_TRANSMISSION",
+        cardId: "p1-03",
+        method: "直达",
+        targetId: "乙",
+      },
+      {
+        type: "START_TRANSMISSION",
+        cardId: "p1-03",
+        method: "密电",
+      },
+    ], "p1-03")).toEqual([]);
   });
 });
 

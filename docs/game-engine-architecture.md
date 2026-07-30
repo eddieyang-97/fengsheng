@@ -159,6 +159,15 @@ The source and target receive appropriate private card information. A verified
 no-match claim records a persistent private hand snapshot for the source. The
 required color is projected only to entitled participants.
 
+Once the window reaches `selection`, the active player's projection contains
+the complete canonical `START_TRANSMISSION` command set. The engine expands
+each eligible hand card into its permitted method, direction, and direct-target
+combinations after applying the secret-order color restriction. The client may
+present those commands through a progressive composer, and bots may score them,
+but neither consumer reconstructs transmission legality. `GameSessionService`
+rejects a submitted transmission that is absent from the current projection,
+so a transport client cannot bypass the pre-transmission window.
+
 ## Transmission and receipt lifecycle
 
 `TransmissionState` owns one physical intelligence while `phase` is

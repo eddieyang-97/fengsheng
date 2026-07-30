@@ -171,6 +171,13 @@ The acknowledgement lets the submitting client update promptly. The following
 broadcast supplies the same canonical post-command state to every connected
 participant according to their visibility.
 
+Transmission selection uses the same command boundary as other actions. After
+the 秘密下达 window finishes, the projection supplies canonical
+`START_TRANSMISSION` commands. `GameTable` groups those commands by card,
+method, direction, and target to retain the progressive composer UI, while the
+bot scores the same command set. `GameSessionService` rejects transmission
+commands that are not present in the actor's projection.
+
 ## Identity and reconnects
 
 A connected socket stores room code, player ID, spectator status, and detach
