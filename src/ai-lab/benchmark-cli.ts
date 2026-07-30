@@ -1,5 +1,5 @@
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V11 } from "./policies";
+import { CANDIDATE_V11, evaluationPolicyById } from "./policies";
 import { LIVE_BOT_POLICY } from "../server/bot/strategy";
 
 const mode = process.argv[2] === "ab"
@@ -26,10 +26,12 @@ if (mode === "ab") {
   console.log(`baseline beliefs=brier ${result.baseline.beliefCalibration.brierScore.toFixed(4)}, top-choice ${percent(result.baseline.beliefCalibration.topChoiceAccuracy)}`);
   console.log(`paired difference=${percent(result.pairedWinRateDifference)} 95% CI=[${percent(result.confidence95.low)}, ${percent(result.confidence95.high)}] verdict=${result.verdict}`);
 } else if (mode === "disagreements") {
+  const firstPolicy = evaluationPolicyById(process.argv[6] ?? LIVE_BOT_POLICY.id);
+  const secondPolicy = evaluationPolicyById(process.argv[7] ?? CANDIDATE_V11.id);
   const results = Array.from({ length: games }, (_, index) => runSelfPlayGame({
     playerCount,
     seed: startSeed + index,
-    comparePolicies: [LIVE_BOT_POLICY, CANDIDATE_V11],
+    comparePolicies: [firstPolicy, secondPolicy],
   }));
   const disagreements = results.flatMap((result) => result.disagreements);
   const categoryCounts = new Map<string, number>();

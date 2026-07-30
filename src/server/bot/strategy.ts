@@ -21,6 +21,18 @@ export interface BotPolicy {
   readonly lureRequiresLikelyAcceptance: boolean;
   /** Avoid 锁定 when the current recipient is already likely to accept voluntarily. */
   readonly lockRequiresLikelyDecline: boolean;
+  /** Score 危险情报 transmission methods by visibility, return risk, and concrete combos. */
+  readonly methodAwareDangerousTransmission: boolean;
+  /** Preserve 掉包 when an accepting recipient would receive only a routine upgrade. */
+  readonly conservativeSwap: boolean;
+  /** Evaluate the expected receipt across the complete passive transmission route. */
+  readonly routeAwareTransmission: boolean;
+  /** Allow route evaluation to change which physical hand card is transmitted. */
+  readonly routeAwareTransmissionCardChoice: boolean;
+  /** Allow route evaluation to change the selected card's transmission method. */
+  readonly routeAwareTransmissionMethodChoice: boolean;
+  /** Preserve targeted function cards unless faction confidence supports spending them. */
+  readonly targetedFunctionConservation: boolean;
   /** Learn weak faction evidence from completed voluntary actions that help or harm this bot. */
   readonly inferResolvedActionAffinity: boolean;
 }
@@ -34,6 +46,12 @@ export const BASELINE_V1: BotPolicy = {
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
   lockRequiresLikelyDecline: false,
+  methodAwareDangerousTransmission: false,
+  conservativeSwap: false,
+  routeAwareTransmission: false,
+  routeAwareTransmissionCardChoice: false,
+  routeAwareTransmissionMethodChoice: false,
+  targetedFunctionConservation: false,
   inferResolvedActionAffinity: false,
 };
 export const TACTICAL_V2: BotPolicy = {
@@ -46,6 +64,12 @@ export const TACTICAL_V2: BotPolicy = {
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
   lockRequiresLikelyDecline: false,
+  methodAwareDangerousTransmission: false,
+  conservativeSwap: false,
+  routeAwareTransmission: false,
+  routeAwareTransmissionCardChoice: false,
+  routeAwareTransmissionMethodChoice: false,
+  targetedFunctionConservation: false,
   inferResolvedActionAffinity: false,
 };
 export const TACTICAL_V3: BotPolicy = {
@@ -58,6 +82,12 @@ export const TACTICAL_V3: BotPolicy = {
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
   lockRequiresLikelyDecline: false,
+  methodAwareDangerousTransmission: false,
+  conservativeSwap: false,
+  routeAwareTransmission: false,
+  routeAwareTransmissionCardChoice: false,
+  routeAwareTransmissionMethodChoice: false,
+  targetedFunctionConservation: false,
   inferResolvedActionAffinity: false,
 };
 export const TACTICAL_V4: BotPolicy = {
@@ -71,7 +101,18 @@ export const TACTICAL_V5: BotPolicy = {
   id: "tactical-v5",
   lockRequiresLikelyDecline: true,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V5;
+export const TACTICAL_V6: BotPolicy = {
+  ...TACTICAL_V5,
+  id: "tactical-v6",
+  methodAwareDangerousTransmission: true,
+  conservativeSwap: true,
+};
+export const TACTICAL_V7: BotPolicy = {
+  ...TACTICAL_V6,
+  id: "tactical-v7",
+  targetedFunctionConservation: true,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V7;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -452,7 +493,7 @@ export function chooseBotDecision(
             memory.transmissionInference,
           );
       return policy.reactionConservation > 0
-        ? applyReactionConservation(action, scored, projection, beliefs, policy.reactionConservation)
+        ? applyCardConservation(action, scored, projection, beliefs, policy)
         : scored;
     })
     .filter((candidate) => !excluded.has(JSON.stringify(candidate.command)));
@@ -645,13 +686,10 @@ function scoreAction(
         );
       }
       {
-        const improvement = swapImprovement(
-          card,
-          projection,
-          beliefs,
-          transmissionInference,
-        );
+        const improvement = swapImprovement(card, projection, beliefs, transmissionInference);
         if (
+          policy.conservativeSwap &&
+          projection.transmission?.intendedRecipientId !== projection.own.id &&
           currentRecipientLikelyToAccept(
             projection,
             beliefs,
@@ -669,8 +707,12 @@ function scoreAction(
           command,
           PASS_REACTION_SCORE +
             improvement -
-            cardUtility(card, ownFaction) * SWAP_CARD_COST_FACTOR,
-          "swap only for a material receipt swing after accounting for the card's future value",
+            (policy.conservativeSwap
+              ? cardUtility(card, ownFaction) * SWAP_CARD_COST_FACTOR
+              : 1),
+          policy.conservativeSwap
+            ? "swap only for a material receipt swing after accounting for the card's future value"
+            : "swap only when the replacement improves enough to justify spending the card",
         );
       }
     case "PLAY_TRANSFER": {
@@ -826,30 +868,43 @@ const DISCRETIONARY_REACTIONS = new Set<LegalAction["type"]>([
   "PLAY_LURE",
 ]);
 
-function applyReactionConservation(
+const TARGETED_FUNCTION_CARDS = new Set<LegalAction["type"]>([
+  "PLAY_PUBLIC_TEXT",
+  "PLAY_DANGEROUS_INTELLIGENCE",
+  "PLAY_SECRET_ORDER",
+]);
+
+function applyCardConservation(
   action: LegalAction,
   scored: BotDecision,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
-  strength: number,
+  policy: BotPolicy,
 ): BotDecision {
-  if (!DISCRETIONARY_REACTIONS.has(action.type) || Math.abs(scored.score) >= 1_000) {
+  const isReaction = DISCRETIONARY_REACTIONS.has(action.type);
+  const isTargetedFunction =
+    policy.targetedFunctionConservation &&
+    TARGETED_FUNCTION_CARDS.has(action.type);
+  if ((!isReaction && !isTargetedFunction) || Math.abs(scored.score) >= 1_000) {
     return scored;
   }
-  const targetId = reactionDecisionTarget(action, projection);
+  const targetId = cardDecisionTarget(action, projection);
   const belief = targetId ? beliefs[targetId] : undefined;
   const confidence = belief ? Math.max(...FACTIONS.map((faction) => belief[faction])) : 1 / 3;
-  const conservationCost = strength * (1 + (1 - confidence) * 2);
+  const conservationCost = policy.reactionConservation * (1 + (1 - confidence) * 2);
   return {
     ...scored,
     score: scored.score - conservationCost,
-    reason: `${scored.reason}; require ${conservationCost.toFixed(2)} confidence margin before spending a reaction card`,
+    reason: `${scored.reason}; require ${conservationCost.toFixed(2)} confidence margin before spending this ${isTargetedFunction ? "targeted function" : "reaction"} card`,
   };
 }
 
-function reactionDecisionTarget(action: LegalAction, projection: PlayerProjection): string | undefined {
+function cardDecisionTarget(action: LegalAction, projection: PlayerProjection): string | undefined {
   if ("targetPlayerId" in action) return action.targetPlayerId;
   if ("targetId" in action) return action.targetId;
+  if (action.type === "PLAY_SECRET_ORDER") {
+    return projection.pendingSecretOrder?.targetPlayerId;
+  }
   if (action.type === "PLAY_INTERCEPT") return projection.own.id;
   if (action.type === "PLAY_COUNTER") return projection.responseStack.at(-1)?.targetPlayerId;
   return projection.transmission?.intendedRecipientId;
@@ -895,7 +950,11 @@ function synthesizeTransmission(
   // it is gone, an empty filtered set means the bot may transmit any card.
   const cards = matchingCards.length > 0 ? matchingCards : projection.own.hand;
   const livingTargets = projection.players.filter((player) => player.alive && player.id !== projection.own.id);
-  const candidates: Array<{ command: GameCommand; score: number }> = [];
+  const candidates: Array<{
+    command: Extract<GameCommand, { type: "START_TRANSMISSION" }>;
+    score: number;
+    previousScore: number;
+  }> = [];
   for (const card of cards) {
     if (excludedCardIds.has(card.id as PhysicalCardId)) continue;
     const methods = card.transmission === "任意" ? (["密电", "文本", "直达"] as const) : [card.transmission];
@@ -903,11 +962,23 @@ function synthesizeTransmission(
       if (method === "直达") {
         for (const target of livingTargets) {
           const helpful = transmissionCardValue(card, projection.own.faction);
+          const previousScore = policy.scoring === "baseline"
+            ? helpful * targetAffinity(target.id, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
+            : tacticalTransmissionScore(
+                card,
+                method,
+                target.id,
+                undefined,
+                projection,
+                beliefs,
+                { ...policy, routeAwareTransmission: false },
+              );
           candidates.push({
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, targetId: target.id },
-            score: policy.scoring === "baseline"
-              ? helpful * targetAffinity(target.id, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
-              : tacticalTransmissionScore(card, method, target.id, projection, beliefs),
+            previousScore,
+            score: policy.scoring === "baseline" || !policy.routeAwareTransmission
+              ? previousScore
+              : tacticalTransmissionScore(card, method, target.id, undefined, projection, beliefs, policy),
           });
         }
       } else {
@@ -916,11 +987,23 @@ function synthesizeTransmission(
           : (["clockwise"] as const);
         for (const direction of directions) {
           const recipient = adjacentLivingPlayer(projection, direction);
+          const previousScore = policy.scoring === "baseline"
+            ? transmissionCardValue(card, projection.own.faction) * targetAffinity(recipient, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
+            : tacticalTransmissionScore(
+                card,
+                method,
+                recipient,
+                direction,
+                projection,
+                beliefs,
+                { ...policy, routeAwareTransmission: false },
+              );
           candidates.push({
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, direction },
-            score: policy.scoring === "baseline"
-              ? transmissionCardValue(card, projection.own.faction) * targetAffinity(recipient, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15
-              : tacticalTransmissionScore(card, method, recipient, projection, beliefs),
+            previousScore,
+            score: policy.scoring === "baseline" || !policy.routeAwareTransmission
+              ? previousScore
+              : tacticalTransmissionScore(card, method, recipient, direction, projection, beliefs, policy),
           });
         }
       }
@@ -930,8 +1013,24 @@ function synthesizeTransmission(
     (candidate) => !excluded.has(JSON.stringify(candidate.command)),
   );
   if (available.length === 0) return undefined;
-  const best = Math.max(...available.map((candidate) => candidate.score));
-  const tied = available.filter((candidate) => Math.abs(candidate.score - best) < 0.0001);
+  let selectable = available;
+  if (policy.routeAwareTransmission && !policy.routeAwareTransmissionCardChoice) {
+    const previousBest = Math.max(...available.map((candidate) => candidate.previousScore));
+    const previousBestCandidates = available.filter(
+      (candidate) => Math.abs(candidate.previousScore - previousBest) < 0.0001,
+    );
+    const selectedPrevious = previousBestCandidates[
+      pickIndex(previousBestCandidates.length, random)
+    ]!;
+    selectable = available.filter(
+      (candidate) =>
+        candidate.command.cardId === selectedPrevious.command.cardId &&
+        (policy.routeAwareTransmissionMethodChoice ||
+          candidate.command.method === selectedPrevious.command.method),
+    );
+  }
+  const best = Math.max(...selectable.map((candidate) => candidate.score));
+  const tied = selectable.filter((candidate) => Math.abs(candidate.score - best) < 0.0001);
   return tied[pickIndex(tied.length, random)]?.command;
 }
 
@@ -939,8 +1038,10 @@ function tacticalTransmissionScore(
   card: PhysicalCard,
   method: Exclude<PhysicalCard["transmission"], "任意">,
   recipientId: string | undefined,
+  direction: "clockwise" | "counterclockwise" | undefined,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
+  policy: BotPolicy,
 ): number {
   const opportunityCost = cardUtility(card, projection.own.faction) * 0.15;
   const recipientUtility = receiptUtility(
@@ -949,7 +1050,34 @@ function tacticalTransmissionScore(
     projection,
     beliefs,
   );
-  if (card.name !== "危险情报") {
+  if (policy.routeAwareTransmission) {
+    const routeUtility = expectedTransmissionRouteUtility(
+      card,
+      method,
+      recipientId,
+      direction,
+      projection,
+      beliefs,
+    );
+    if (card.name !== "危险情报") {
+      return routeUtility +
+        (method === "直达"
+          ? transmissionCardValue(card, projection.own.faction) * 0.1
+          : 0) -
+        opportunityCost;
+    }
+    const methodBonus = method === "密电" ? 3 : method === "直达" ? 1 : 0;
+    return method === "文本"
+      ? dangerousTextPlanUtility(
+          routeUtility,
+          card,
+          recipientId,
+          projection,
+          beliefs,
+        ) - opportunityCost
+      : routeUtility + methodBonus - opportunityCost;
+  }
+  if (card.name !== "危险情报" || !policy.methodAwareDangerousTransmission) {
     return recipientUtility +
       (method === "直达"
         ? transmissionCardValue(card, projection.own.faction) * 0.1
@@ -967,7 +1095,15 @@ function tacticalTransmissionScore(
     return recipientUtility * 0.7 + 3 - opportunityCost;
   }
   if (method === "直达") {
-    return recipientUtility * 0.45 + ownReturnUtility * 0.55 + 1 - opportunityCost;
+    const acceptance = dangerousDirectAcceptanceProbability(
+      recipientId,
+      projection,
+      beliefs,
+    );
+    return recipientUtility * acceptance +
+      ownReturnUtility * (1 - acceptance) +
+      1 -
+      opportunityCost;
   }
 
   const visibleAcceptance = dangerousTextAcceptanceProbability(
@@ -975,10 +1111,25 @@ function tacticalTransmissionScore(
     projection,
     beliefs,
   );
-  const plans = [
+  return dangerousTextPlanUtility(
     recipientUtility * visibleAcceptance +
       ownReturnUtility * (1 - visibleAcceptance),
-  ];
+    card,
+    recipientId,
+    projection,
+    beliefs,
+  ) - opportunityCost;
+}
+
+function dangerousTextPlanUtility(
+  passiveRouteUtility: number,
+  card: PhysicalCard,
+  recipientId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const recipientUtility = receiptUtility(card, recipientId, projection, beliefs);
+  const plans = [passiveRouteUtility];
   const lock = projection.own.hand.find((candidate) => candidate.name === "锁定");
   if (lock) {
     plans.push(
@@ -1009,7 +1160,79 @@ function tacticalTransmissionScore(
         cardUtility(swap, projection.own.faction) * 0.6,
     );
   }
-  return Math.max(...plans) - opportunityCost;
+  return Math.max(...plans);
+}
+
+function expectedTransmissionRouteUtility(
+  card: PhysicalCard,
+  method: Exclude<PhysicalCard["transmission"], "任意">,
+  recipientId: string | undefined,
+  direction: "clockwise" | "counterclockwise" | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (!recipientId) return 0;
+  const route = passiveTransmissionRoute(
+    method,
+    recipientId,
+    direction,
+    projection,
+  );
+  let probabilityToReach = 1;
+  let expectedUtility = 0;
+  for (const playerId of route) {
+    if (playerId === projection.own.id) {
+      expectedUtility += probabilityToReach *
+        receiptUtility(card, playerId, projection, beliefs);
+      break;
+    }
+    const acceptance = transmissionAcceptanceProbability(
+      card,
+      method,
+      playerId,
+      projection,
+      beliefs,
+    );
+    expectedUtility += probabilityToReach * acceptance *
+      receiptUtility(card, playerId, projection, beliefs);
+    probabilityToReach *= 1 - acceptance;
+  }
+  return expectedUtility;
+}
+
+function passiveTransmissionRoute(
+  method: Exclude<PhysicalCard["transmission"], "任意">,
+  recipientId: string,
+  direction: "clockwise" | "counterclockwise" | undefined,
+  projection: PlayerProjection,
+): string[] {
+  if (method === "直达") return [recipientId, projection.own.id];
+  const route = [recipientId];
+  const step = direction === "counterclockwise" ? -1 : 1;
+  let index = projection.seatOrder.indexOf(recipientId);
+  for (let offset = 0; offset < projection.seatOrder.length; offset += 1) {
+    index = (index + step + projection.seatOrder.length) % projection.seatOrder.length;
+    const playerId = projection.seatOrder[index]!;
+    if (!projection.players.find((player) => player.id === playerId)?.alive) continue;
+    route.push(playerId);
+    if (playerId === projection.own.id) break;
+  }
+  return route;
+}
+
+function transmissionAcceptanceProbability(
+  card: PhysicalCard,
+  method: Exclude<PhysicalCard["transmission"], "任意">,
+  recipientId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (method === "文本") {
+    return card.color === "黑"
+      ? dangerousTextAcceptanceProbability(recipientId, projection, beliefs)
+      : 0.95;
+  }
+  return dangerousDirectAcceptanceProbability(recipientId, projection, beliefs);
 }
 
 function dangerousTextAcceptanceProbability(
@@ -1026,6 +1249,24 @@ function dangerousTextAcceptanceProbability(
   return counts.physical >= 5
     ? 0.01 + agentProbability * 0.97
     : 0.01 + agentProbability * 0.14;
+}
+
+function dangerousDirectAcceptanceProbability(
+  recipientId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (!recipientId) return 0;
+  const recipient = projection.players.find((player) => player.id === recipientId);
+  if (!recipient) return 0;
+  const counts = countIntelligence(recipient.intelligence);
+  const agentProbability = beliefs[recipientId]?.特工 ?? 1 / 3;
+  const ordinaryHiddenAcceptance = 0.45;
+  if (counts.physical === 5 && counts.black <= 1) {
+    return ordinaryHiddenAcceptance +
+      agentProbability * (0.99 - ordinaryHiddenAcceptance);
+  }
+  return ordinaryHiddenAcceptance;
 }
 
 function intelligenceValue(card: PhysicalCard | undefined, faction: Faction, blackCount: number): number {

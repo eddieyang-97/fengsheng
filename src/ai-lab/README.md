@@ -12,11 +12,14 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v5`. It retains `tactical-v4`'s acceptance-aware
-调虎离山 scoring and adds the symmetric rule for 锁定: if the current recipient
-is already likely to accept voluntarily, the bot saves 锁定 instead of spending
-it to guarantee the same outcome. It still uses 锁定 to force an intelligence
-the recipient is likely to reject.
+production to `tactical-v7`. Its `tactical-v5` base contains acceptance-aware
+调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
+bot preserves the function card. V6 adds scoring for 危险情报 transmission
+visibility and concrete follow-up plans, and preserves 掉包 when another
+accepting recipient would receive only a routine upgrade. V7 adds
+confidence-adjusted conservation for targeted 公开文本, 危险情报, and 秘密下达
+while leaving information-gathering 试探 and self-benefit 增援/机密文件
+unpenalized. `tactical-v6` remains the immediate rollback and A/B policy.
 
 Historical and candidate policies remain available for explicit evaluation and
 rollback. `candidate-v8` is the earlier incremental 调虎离山 experiment without
@@ -27,6 +30,39 @@ incremental 转移 scoring. `candidate-v10` layers that 转移 experiment over l
 non-redirected function action measurably helps or harms the bot's own hand. It
 ignores self-actions, neutral outcomes, and all such inference for 特工. It is
 the default evaluation candidate but is not live.
+
+`candidate-v12` isolates the method-aware 危险情报 change over `tactical-v5`.
+`candidate-v13` isolates the conservative 掉包 change over `tactical-v5`.
+`candidate-v14` applies passive-route acceptance modeling to card, method, and
+direction selection. It changed 607 decisions in a 100-game disagreement sample
+and scored 35.8% versus tactical-v6's 36.4% in 100 five-player pairs, so it was
+not promoted. `candidate-v15` preserves v6's physical-card choice and applies
+route modeling only within that card; it scored 37.4% versus 37.2% in the same
+size sample and remained inconclusive.
+
+`candidate-v16` is the conservative route candidate: it preserves both v6's
+physical card and transmission method, using route modeling only for direction
+or the target of 直达. A 500-pair five-player confirmation (seeds 4001-4500)
+completed all 1,000 games without stalls or rejected commands. Candidate-v16
+scored 37.12% versus tactical-v6's 37.20% (-0.08 percentage points, 95% CI
+[-2.72, +2.56]). It remains evaluation-only because the result was neutral and
+inconclusive.
+
+A 100-pair five-player comparison (seeds 2001-2100) of the refined
+`tactical-v6` against `tactical-v5` completed all 200 games without stalls or
+rejected commands. V6 scored 37.6% versus 37.2% (+0.4 percentage points, 95% CI
+[-2.8, +3.6]); the result is inconclusive. The matching two-player comparison
+was 50.5% versus 49.5% (+1.0 points, 95% CI [-1.0, +3.0]), also inconclusive.
+Disagreement review found and corrected two overgeneralizations before this
+final run: conservative 掉包 now applies only when another player is receiving,
+and a five-card 特工's near-certain acceptance is included when scoring
+危险情报 as 直达.
+
+To inspect policy disagreements with card names and receipt commitment state:
+
+```powershell
+npm run ai:benchmark -- disagreements 5 100 2001 tactical-v5 tactical-v6
+```
 
 Initial five-player paired run (100 pairs, seeds 1-100): candidate-v8 37.2%
 versus tactical-v3 35.4%, paired difference +1.8 percentage points with a 95%

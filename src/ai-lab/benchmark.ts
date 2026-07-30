@@ -26,12 +26,18 @@ export interface BotDisagreement {
     method: string;
     recipientId: string;
     faceUp: boolean;
+    recipientMustAccept?: boolean;
+    cardName?: string;
     cardColor?: string;
   };
   intelligenceCounts: Record<string, { red: number; blue: number; black: number; physical: number }>;
   legalActionTypes: string[];
   policies: readonly [string, string];
   decisions: readonly [BotDecision | undefined, BotDecision | undefined];
+  decisionCards: readonly [
+    { name: string; color: string; transmission: string } | undefined,
+    { name: string; color: string; transmission: string } | undefined,
+  ];
   beliefs: readonly [Record<string, FactionBelief>, Record<string, FactionBelief>];
   publicEvent?: string;
 }
@@ -392,6 +398,8 @@ function describeDisagreement(
           method: projection.transmission.method,
           recipientId: projection.transmission.intendedRecipientId,
           faceUp: projection.transmission.faceUp,
+          recipientMustAccept: projection.transmission.recipientMustAccept,
+          cardName: projection.transmission.card?.name,
           cardColor: projection.transmission.card?.color,
         }
       : undefined,
@@ -407,12 +415,32 @@ function describeDisagreement(
     legalActionTypes: [...new Set(projection.legalActions.map((action) => action.type))],
     policies: [policies[0].id, policies[1].id],
     decisions,
+    decisionCards: [
+      summarizeDecisionCard(decisions[0], projection),
+      summarizeDecisionCard(decisions[1], projection),
+    ],
     beliefs: policies.map((policy) => factionBeliefsForPolicy(memory, projection, policy)) as [
       Record<string, FactionBelief>,
       Record<string, FactionBelief>,
     ],
     publicEvent: projection.auditLog.at(-1),
   };
+}
+
+function summarizeDecisionCard(
+  decision: BotDecision | undefined,
+  projection: ReturnType<GameSessionService["project"]>,
+): BotDisagreement["decisionCards"][number] {
+  const command = decision?.command;
+  if (!command || !("cardId" in command)) return undefined;
+  const card = projection.own.hand.find((held) => held.id === command.cardId);
+  return card
+    ? {
+        name: card.name,
+        color: card.color,
+        transmission: card.transmission,
+      }
+    : undefined;
 }
 
 function didPlayerWin(winner: WinnerState | undefined, playerId: string, faction: string): boolean {
