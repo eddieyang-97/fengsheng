@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type {
   Faction,
@@ -10,10 +10,18 @@ import type { PlayerProjection } from "../game/engine";
 import type { ChatMessageSnapshot, PublicAuditEvent } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reactions";
-import { CardArtwork, cardArtPath } from "./CardArtwork";
+import { cardArtPath, HiddenIntelligenceArtwork } from "./CardArtwork";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import { FinalHandsPanel } from "./FinalHandsPanel";
+import {
+  cardVariantText,
+  compactCardMeta,
+  GameCard as CardView,
+  privateNoticeVariantText,
+  probeIdentityNoticeText,
+  publicCardSummary,
+} from "./GameCard";
 import { GameEventAnimationLayer } from "./GameEventAnimationLayer";
 import {
   GAME_SHORTCUT_BINDINGS,
@@ -390,11 +398,14 @@ const ACTION_LABELS: Record<string, string> = {
   PLAY_COUNTER: "识破",
 };
 
-function cardTone(card: PhysicalCard): string {
-  return card.color === "红" ? "red" : card.color === "蓝" ? "blue" : card.color === "红蓝" ? "dual" : "black";
-}
-
 export { cardArtPath };
+export {
+  cardVariantText,
+  compactCardMeta,
+  privateNoticeVariantText,
+  probeIdentityNoticeText,
+  publicCardSummary,
+};
 
 export function factionBackgroundClass(faction: Faction): string {
   if (faction === "军情") return "game-shell--faction-intelligence";
@@ -449,48 +460,6 @@ export function inspectedHandForProjection(
   return projection.activeFunctionAction?.inspectedHand ??
     projection.pendingSecretOrder?.inspectedHand ??
     [];
-}
-
-export function cardVariantText(card: PhysicalCard): string | undefined {
-  const variant = card.variant;
-  if (!variant) return undefined;
-  if (variant.kind === "probeIdentity") {
-    return `军情→${variant.mapping["军情"]} · 潜伏→${variant.mapping["潜伏"]} · 特工→${variant.mapping["特工"]}`;
-  }
-  if (variant.kind === "probeDrawDiscard") {
-    return `${variant.drawFaction}摸 1 张；其他阵营弃 1 张`;
-  }
-  if (variant.kind === "secretOrder") {
-    return `听风→${variant.mapping["听风"]} · 看雨→${variant.mapping["看雨"]} · 日落→${variant.mapping["日落"]}`;
-  }
-  return undefined;
-}
-
-export function probeIdentityNoticeText(card: PhysicalCard): string | undefined {
-  const variant = card.variant;
-  if (variant?.kind !== "probeIdentity") return undefined;
-  return `${variant.mapping["军情"]}→军情 · ${variant.mapping["潜伏"]}→潜伏 · ${variant.mapping["特工"]}→特工`;
-}
-
-export function privateNoticeVariantText(
-  card: PhysicalCard,
-  reverseProbeMapping = false,
-): string | undefined {
-  const variantText = reverseProbeMapping
-    ? probeIdentityNoticeText(card) ?? cardVariantText(card)
-    : cardVariantText(card);
-  return variantText?.replaceAll(" · ", "\n");
-}
-
-export function publicCardSummary(card: PhysicalCard): string {
-  return `${card.name} · ${card.color} · ${card.transmission}`;
-}
-
-export function compactCardMeta(card: Pick<PhysicalCard, "color" | "transmission" | "unburnable">): string {
-  const transmission = card.unburnable
-    ? ({ 直达: "直", 密电: "密", 文本: "文", 任意: "任" } as const)[card.transmission]
-    : card.transmission;
-  return `${card.color}·${transmission}`;
 }
 
 export function publicTextReceiptEffect(card: PhysicalCard): string | undefined {
@@ -557,60 +526,6 @@ function probeVariantLabel(card: PhysicalCard | undefined): string | undefined {
     return `${card.variant.drawFaction}摸牌／其他阵营弃牌`;
   }
   return undefined;
-}
-
-function CardView({
-  card,
-  selected,
-  playable,
-  inspectable,
-  noticeSummary = false,
-  reverseProbeMapping = false,
-  shortcutLabel,
-  buttonRef,
-  onClick,
-}: {
-  card: PhysicalCard;
-  selected?: boolean;
-  playable?: boolean;
-  inspectable?: boolean;
-  noticeSummary?: boolean;
-  reverseProbeMapping?: boolean;
-  shortcutLabel?: string;
-  buttonRef?: React.Ref<HTMLButtonElement>;
-  onClick?: () => void;
-}) {
-  const displayedVariantText = privateNoticeVariantText(
-    card,
-    noticeSummary && reverseProbeMapping,
-  );
-  return (
-    <button
-      className={`game-card game-card--${cardTone(card)}${card.unburnable ? " game-card--unburnable" : ""}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}${inspectable ? " game-card--inspectable" : ""}`}
-      disabled={!onClick}
-      onClick={onClick}
-      ref={buttonRef}
-      title={`${publicCardSummary(card)}${card.unburnable ? " · 不可烧毁" : ""}`}
-      type="button"
-    >
-      <CardArtwork cardName={card.name} />
-      {shortcutLabel && <kbd className="card-shortcut-badge">{shortcutLabel}</kbd>}
-      <strong>{card.name}</strong>
-      <span
-        className="game-card__meta"
-        data-color={card.color}
-        data-compact-meta={compactCardMeta(card)}
-        data-transmission={card.transmission}
-      >
-        {card.color} · {card.transmission}
-      </span>
-      {displayedVariantText && <small>{displayedVariantText}</small>}
-      {card.circle && <small>可选方向</small>}
-      {card.color === "黑" && card.unburnable && (
-        <small className="unburnable-badge">不可烧毁</small>
-      )}
-    </button>
-  );
 }
 
 function actionCardId(action: ProjectedLegalAction): string | undefined {
@@ -1093,6 +1008,14 @@ export function GameTable({
   const auditLogFollowsLatest = useRef(true);
   const handRowRef = useRef<HTMLDivElement>(null);
   const handCardRefs = useRef(new Map<string, HTMLButtonElement>());
+  const transmissionSlotRef = useRef<HTMLDivElement>(null);
+  const transmissionMotionRef = useRef<HTMLDivElement>(null);
+  const previousTransmissionPosition = useRef<{
+    recipientId: string;
+    x: number;
+    y: number;
+  } | undefined>(undefined);
+  const transmissionAnimation = useRef<Animation | undefined>(undefined);
   const settingsRef = useRef<HTMLDetailsElement>(null);
   const chatBubbles = usePlayerChatBubbles(chatMessages);
   const actions = projection.legalActions;
@@ -1370,6 +1293,48 @@ export function GameTable({
   const transmissionRecipientIndex = projection.transmission
     ? displaySeatOrder.indexOf(projection.transmission.intendedRecipientId)
     : -1;
+  const transmissionRecipientId = projection.transmission?.intendedRecipientId;
+
+  useLayoutEffect(() => {
+    const slot = transmissionSlotRef.current;
+    const motion = transmissionMotionRef.current;
+    if (!slot || !motion || !transmissionRecipientId) {
+      previousTransmissionPosition.current = undefined;
+      transmissionAnimation.current?.cancel();
+      transmissionAnimation.current = undefined;
+      return;
+    }
+
+    const bounds = slot.getBoundingClientRect();
+    const current = {
+      recipientId: transmissionRecipientId,
+      x: bounds.left + bounds.width / 2,
+      y: bounds.top + bounds.height / 2,
+    };
+    const previous = previousTransmissionPosition.current;
+    previousTransmissionPosition.current = current;
+    if (
+      !previous ||
+      previous.recipientId === current.recipientId ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+
+    transmissionAnimation.current?.cancel();
+    transmissionAnimation.current = motion.animate(
+      [
+        {
+          transform: `translate(${previous.x - current.x}px, ${previous.y - current.y}px)`,
+        },
+        { transform: "translate(0, 0)" },
+      ],
+      {
+        duration: 520,
+        easing: "cubic-bezier(.22,.76,.25,1)",
+      },
+    );
+  }, [transmissionRecipientId]);
   const autoPassAction = automaticPassCommand(actions, autoPassIgnoreBurn);
   const autoPassPrompt = reactionTimer?.promptId ?? (
     projection.reactionWindow
@@ -1473,6 +1438,11 @@ export function GameTable({
       }
 
       if (intent.type === "toggleDiscardPile") {
+        if (discardPileOpen) {
+          event.preventDefault();
+          setDiscardPileOpen(false);
+          return;
+        }
         if (
           !shouldHandleKeyboardShortcut(event.target, intent) ||
           detailCard
@@ -1721,9 +1691,11 @@ export function GameTable({
           </div>
           <div className="game-round-meta">
             <span data-game-animation-anchor="deck">牌堆 <b>{projection.drawPileCount}</b></span>
-            <span data-game-animation-anchor="discard">
-              <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
-            </span>
+            <DiscardPileButton
+              cards={projection.publicDiscard}
+              onOpen={() => setDiscardPileOpen(true)}
+              shortcutLabel={keyboardShortcutsEnabled ? "K" : undefined}
+            />
           </div>
         </div>
         <div className="game-status">
@@ -1762,55 +1734,60 @@ export function GameTable({
                   />
                   启用键盘快捷键
                 </label>
-                <div aria-label="键盘快捷键说明" className="keyboard-shortcut-groups">
-                  <section className="keyboard-shortcut-group">
-                    <h4>通用</h4>
-                    <dl>
-                      <div><dt><kbd>1–9</kbd></dt><dd>选择手牌</dd></div>
-                      <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>切换可用手牌</dd></div>
-                      <div><dt><kbd>Enter</kbd></dt><dd>确认唯一主要操作</dd></div>
-                      <div><dt><kbd>K</kbd></dt><dd>打开／关闭弃牌堆</dd></div>
-                      <div><dt><kbd>N</kbd></dt><dd>展开／收起私人通知</dd></div>
-                      <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
-                    </dl>
-                  </section>
-                  <section className="keyboard-shortcut-group">
-                    <h4>流程</h4>
-                    <dl>
-                      <div><dt><kbd>T</kbd></dt><dd>进入情报传递阶段</dd></div>
-                      <div><dt><kbd>S</kbd></dt><dd>跳过当前窗口</dd></div>
-                      <div><dt><kbd>QWERTYU</kbd></dt><dd>选择直达接收者</dd></div>
-                    </dl>
-                  </section>
-                  <section className="keyboard-shortcut-group">
-                    <h4>决定</h4>
-                    <dl>
-                      <div><dt><kbd>A</kbd></dt><dd>接受情报</dd></div>
-                      <div><dt><kbd>D</kbd></dt><dd>不接收情报／确认弃牌</dd></div>
-                    </dl>
-                  </section>
-                  <section className="keyboard-shortcut-group keyboard-shortcut-group--function">
-                    <h4>功能牌</h4>
-                    <dl>
-                      <div><dt><kbd>L</kbd></dt><dd>锁定</dd></div>
-                      <div><dt><kbd>F</kbd></dt><dd>增援</dd></div>
-                      <div><dt><kbd>G</kbd></dt><dd>机密文件</dd></div>
-                      <div><dt><kbd>R</kbd></dt><dd>掉包</dd></div>
-                      <div><dt><kbd>I</kbd></dt><dd>截获</dd></div>
-                      <div><dt><kbd>U</kbd></dt><dd>调虎离山</dd></div>
-                      <div><dt><kbd>P</kbd></dt><dd>破译</dd></div>
-                      <div><dt><kbd>B</kbd></dt><dd>烧毁（目标唯一时）</dd></div>
-                      <div><dt><kbd>O</kbd></dt><dd>离间（目标唯一时）</dd></div>
-                      <div><dt><kbd>C</kbd></dt><dd>识破</dd></div>
-                      <div><dt><kbd>M</kbd></dt><dd>选择秘密下达</dd></div>
-                      <div>
-                        <dt><kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd></dt>
-                        <dd>听风 / 看雨 / 日落</dd>
-                      </div>
-                    </dl>
-                  </section>
-                </div>
-                <small>输入聊天消息或操作表单时，快捷键会自动停用。</small>
+                <details className="keyboard-shortcut-reference">
+                  <summary>查看键盘快捷键</summary>
+                  <div className="keyboard-shortcut-reference__panel">
+                    <div aria-label="键盘快捷键说明" className="keyboard-shortcut-groups">
+                      <section className="keyboard-shortcut-group">
+                        <h4>通用</h4>
+                        <dl>
+                          <div><dt><kbd>1–9</kbd></dt><dd>选择手牌</dd></div>
+                          <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>切换可用手牌</dd></div>
+                          <div><dt><kbd>Enter</kbd></dt><dd>确认唯一主要操作</dd></div>
+                          <div><dt><kbd>K</kbd></dt><dd>打开／关闭弃牌堆</dd></div>
+                          <div><dt><kbd>N</kbd></dt><dd>展开／收起私人通知</dd></div>
+                          <div><dt><kbd>Esc</kbd></dt><dd>取消选择或关闭弹窗</dd></div>
+                        </dl>
+                      </section>
+                      <section className="keyboard-shortcut-group">
+                        <h4>流程</h4>
+                        <dl>
+                          <div><dt><kbd>T</kbd></dt><dd>进入情报传递阶段</dd></div>
+                          <div><dt><kbd>S</kbd></dt><dd>跳过当前窗口</dd></div>
+                          <div><dt><kbd>QWERTYU</kbd></dt><dd>选择直达接收者</dd></div>
+                        </dl>
+                      </section>
+                      <section className="keyboard-shortcut-group">
+                        <h4>决定</h4>
+                        <dl>
+                          <div><dt><kbd>A</kbd></dt><dd>接受情报</dd></div>
+                          <div><dt><kbd>D</kbd></dt><dd>不接收情报／确认弃牌</dd></div>
+                        </dl>
+                      </section>
+                      <section className="keyboard-shortcut-group keyboard-shortcut-group--function">
+                        <h4>功能牌</h4>
+                        <dl>
+                          <div><dt><kbd>L</kbd></dt><dd>锁定</dd></div>
+                          <div><dt><kbd>F</kbd></dt><dd>增援</dd></div>
+                          <div><dt><kbd>G</kbd></dt><dd>机密文件</dd></div>
+                          <div><dt><kbd>R</kbd></dt><dd>掉包</dd></div>
+                          <div><dt><kbd>I</kbd></dt><dd>截获</dd></div>
+                          <div><dt><kbd>U</kbd></dt><dd>调虎离山</dd></div>
+                          <div><dt><kbd>P</kbd></dt><dd>破译</dd></div>
+                          <div><dt><kbd>B</kbd></dt><dd>烧毁（目标唯一时）</dd></div>
+                          <div><dt><kbd>O</kbd></dt><dd>离间（目标唯一时）</dd></div>
+                          <div><dt><kbd>C</kbd></dt><dd>识破</dd></div>
+                          <div><dt><kbd>M</kbd></dt><dd>选择秘密下达</dd></div>
+                          <div>
+                            <dt><kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd></dt>
+                            <dd>听风 / 看雨 / 日落</dd>
+                          </div>
+                        </dl>
+                      </section>
+                    </div>
+                    <small>输入聊天消息或操作表单时，快捷键会自动停用。</small>
+                  </div>
+                </details>
               </section>
               <label className="auto-pass-control">
                 <input
@@ -2022,41 +1999,53 @@ export function GameTable({
                 aria-label="待传递情报"
                 className="transmission-card-slot"
                 data-transmission-recipient-id={projection.transmission.intendedRecipientId}
+                ref={transmissionSlotRef}
                 style={{
                   "--player-index": transmissionRecipientIndex,
                   "--player-count": displaySeatOrder.length,
                 } as React.CSSProperties}
               >
-                {!projection.reactionWindow && (
-                  <small className="transmission-route-summary">
-                    {playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}
-                    {" → "}
-                    {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}
-                    {" · "}
-                    {projection.transmission.method}
-                    {" · "}
-                    {projection.transmission.locked
-                      ? "已锁定"
-                      : receiptStageLabel(projection.transmission.receiptStage)}
-                  </small>
-                )}
-                {projection.transmission.card
-                  ? <>
-                      <CardView
-                        card={projection.transmission.card}
-                        inspectable={projection.transmission.card.name === "公开文本"}
-                        key={projection.transmission.card.id}
-                        onClick={projection.transmission.card.name === "公开文本"
-                          ? () => setDetailCard(projection.transmission!.card)
-                          : undefined}
-                      />
-                      {publicTextReceiptEffect(projection.transmission.card) && (
-                        <small className="transmission-receipt-summary">
-                          收到后：{publicTextReceiptEffect(projection.transmission.card)}
-                        </small>
+                <div className="transmission-card-motion" ref={transmissionMotionRef}>
+                  {!projection.reactionWindow && (
+                    <small className="transmission-route-summary">
+                      {playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}
+                      {" → "}
+                      {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}
+                      {" · "}
+                      {projection.transmission.method}
+                      {" · "}
+                      {projection.transmission.locked
+                        ? "已锁定"
+                        : receiptStageLabel(projection.transmission.receiptStage)}
+                    </small>
+                  )}
+                  {projection.transmission.card
+                    ? <>
+                        <CardView
+                          card={projection.transmission.card}
+                          inspectable={projection.transmission.card.name === "公开文本"}
+                          key={projection.transmission.card.id}
+                          onClick={projection.transmission.card.name === "公开文本"
+                            ? () => setDetailCard(projection.transmission!.card)
+                            : undefined}
+                        />
+                        {publicTextReceiptEffect(projection.transmission.card) && (
+                          <small className="transmission-receipt-summary">
+                            收到后：{publicTextReceiptEffect(projection.transmission.card)}
+                          </small>
+                        )}
+                      </>
+                    : (
+                        <div
+                          aria-label="未公开情报"
+                          className="hidden-card"
+                          role="img"
+                          title="未公开情报"
+                        >
+                          <HiddenIntelligenceArtwork />
+                        </div>
                       )}
-                    </>
-                  : <div className="hidden-card">未公开情报</div>}
+                </div>
               </div>
             )}
 

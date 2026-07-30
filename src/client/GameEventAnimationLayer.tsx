@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 
 import "./game-event-animations.css";
 
-export type GameEventAnimationKind = "draw" | "play" | "burn" | "counter";
+export type GameEventAnimationKind = "draw" | "burn" | "counter";
 
 export interface ParsedGameEventAnimation {
   kind: GameEventAnimationKind;
@@ -58,18 +58,7 @@ export function parseGameEventAnimation(
     return { kind: "counter", actorId, label: "识破" };
   }
 
-  const playedCard = actorId
-    ? entry.match(new RegExp(`^${escapeRegExp(actorId)}使用([^，]+)`))?.[1]
-      ?? entry.match(new RegExp(`^${escapeRegExp(actorId)}对.+使用([^，]+)`))?.[1]
-    : undefined;
-  if (actorId && playedCard) {
-    return { kind: "play", actorId, label: playedCard };
-  }
   return undefined;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function centerOf(element: Element | null): { x: number; y: number } | undefined {
@@ -117,15 +106,11 @@ function positionedAnimation(
     to = event.actorId === ownPlayerId
       ? centerOf(anchor("own-hand")) ?? centerOf(playerAnchor(event.actorId, "seat")) ?? tableCenter
       : centerOf(playerAnchor(event.actorId, "seat")) ?? tableCenter;
-  } else if (event.kind === "play" && event.actorId) {
-    from = event.actorId === ownPlayerId
-      ? centerOf(anchor("own-hand")) ?? centerOf(playerAnchor(event.actorId, "seat")) ?? tableCenter
-      : centerOf(playerAnchor(event.actorId, "seat")) ?? tableCenter;
   } else if (event.kind === "burn" && event.targetPlayerId) {
     from = centerOf(playerAnchor(event.targetPlayerId, "intelligence"))
       ?? centerOf(playerAnchor(event.targetPlayerId, "seat"))
       ?? tableCenter;
-    to = centerOf(anchor("discard")) ?? tableCenter;
+    to = from;
   } else if (event.kind === "counter") {
     from = responseCenter;
     to = responseCenter;

@@ -18,24 +18,7 @@ describe("parseGameEventAnimation", () => {
     ).toBeUndefined();
   });
 
-  it("recognizes ordinary card plays and gives 识破 its dedicated treatment", () => {
-    expect(
-      parseGameEventAnimation("player-1使用锁定", players),
-    ).toEqual({
-      kind: "play",
-      actorId: "player-1",
-      label: "锁定",
-    });
-    expect(
-      parseGameEventAnimation(
-        "player-1对player-2使用试探，等待响应",
-        players,
-      ),
-    ).toEqual({
-      kind: "play",
-      actorId: "player-1",
-      label: "试探",
-    });
+  it("gives 识破 its dedicated treatment without animating ordinary card plays", () => {
     expect(
       parseGameEventAnimation(
         "player-3使用识破，反制player-1的锁定",
@@ -46,6 +29,15 @@ describe("parseGameEventAnimation", () => {
       actorId: "player-3",
       label: "识破",
     });
+    expect(
+      parseGameEventAnimation("player-1使用锁定", players),
+    ).toBeUndefined();
+    expect(
+      parseGameEventAnimation(
+        "player-1对player-2使用试探，等待响应",
+        players,
+      ),
+    ).toBeUndefined();
   });
 
   it("animates 烧毁 only when the target intelligence actually leaves play", () => {
@@ -64,13 +56,4 @@ describe("parseGameEventAnimation", () => {
     ).toBeUndefined();
   });
 
-  it("handles player ids containing regular-expression punctuation", () => {
-    expect(
-      parseGameEventAnimation("player(1)使用掉包", ["player(1)", "player"]),
-    ).toEqual({
-      kind: "play",
-      actorId: "player(1)",
-      label: "掉包",
-    });
-  });
 });

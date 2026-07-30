@@ -1,46 +1,21 @@
 import { useEffect } from "react";
 
 import type { PhysicalCard } from "../game/cards";
-import { CardArtwork } from "./CardArtwork";
-
-function cardTone(card: PhysicalCard): string {
-  return card.color === "红"
-    ? "red"
-    : card.color === "蓝"
-      ? "blue"
-      : card.color === "红蓝"
-        ? "dual"
-        : "black";
-}
-
-function variantText(card: PhysicalCard): string | undefined {
-  const variant = card.variant;
-  if (!variant) return undefined;
-  if (variant.kind === "probeIdentity") {
-    return `军情→${variant.mapping["军情"]} · 潜伏→${variant.mapping["潜伏"]} · 特工→${variant.mapping["特工"]}`;
-  }
-  if (variant.kind === "probeDrawDiscard") {
-    return `${variant.drawFaction}摸1张；其他阵营弃1张`;
-  }
-  if (variant.kind === "secretOrder") {
-    return `听风→${variant.mapping["听风"]} · 看雨→${variant.mapping["看雨"]} · 日落→${variant.mapping["日落"]}`;
-  }
-  if (variant.kind === "publicTextBlack") {
-    return `${variant.mandatoryDrawFaction}摸1张`;
-  }
-  return undefined;
-}
+import { GameCard } from "./GameCard";
 
 export function DiscardPileButton({
   cards,
   onOpen,
+  shortcutLabel,
 }: {
   cards: readonly PhysicalCard[];
   onOpen: () => void;
+  shortcutLabel?: string;
 }) {
   return (
     <button className="discard-pile-button" onClick={onOpen} type="button">
       弃牌堆 {cards.length} · 查看
+      {shortcutLabel && <kbd className="action-shortcut-badge">{shortcutLabel}</kbd>}
     </button>
   );
 }
@@ -78,14 +53,11 @@ export function DiscardPileDialog({
         ) : (
           <div className="discard-card-grid">
             {[...cards].reverse().map((card, index) => (
-              <article className={`discard-card game-card game-card--${cardTone(card)}`} key={`${card.id}-${index}`}>
-                <CardArtwork cardName={card.name} />
-                <strong>{card.name}</strong>
-                <span className="game-card__meta">{card.color} · {card.transmission}</span>
-                {variantText(card) && <small>{variantText(card)}</small>}
-                {card.circle && <small>可选方向</small>}
-                {card.color === "黑" && card.unburnable && <small className="unburnable-badge">不可烧毁</small>}
-              </article>
+              <GameCard
+                card={card}
+                className="discard-card"
+                key={`${card.id}-${index}`}
+              />
             ))}
           </div>
         )}

@@ -22,12 +22,24 @@ export function cardArtPath(cardName: PhysicalCard["name"]): string {
   return `/card-art/${CARD_ART_SLUGS[cardName]}.png`;
 }
 
+export const HIDDEN_INTELLIGENCE_ART_PATH = "/card-art/hidden-intelligence.png";
+
 export function CardArtwork({ cardName }: { cardName: PhysicalCard["name"] }) {
   return (
     <span
       aria-hidden="true"
       className="game-card__art"
       style={{ backgroundImage: `url("${cardArtPath(cardName)}")` }}
+    />
+  );
+}
+
+export function HiddenIntelligenceArtwork() {
+  return (
+    <span
+      aria-hidden="true"
+      className="hidden-card__art"
+      style={{ backgroundImage: `url("${HIDDEN_INTELLIGENCE_ART_PATH}")` }}
     />
   );
 }

@@ -57,12 +57,8 @@
   animation: game-event-draw .66s cubic-bezier(.2,.72,.22,1);
 }
 
-.game-event-animation--play {
-  animation: game-event-play .58s cubic-bezier(.2,.68,.26,1);
-}
-
 .game-event-animation--burn {
-  animation: game-event-burn .78s cubic-bezier(.22,.65,.25,1);
+  animation: game-event-burn .72s cubic-bezier(.22,.65,.25,1);
 }
 
 .game-event-animation--burn .game-event-animation__card {
@@ -85,22 +81,53 @@
 
 .game-event-animation__counter {
   position: absolute;
-  left: -31px;
-  top: -22px;
+  left: -36px;
+  top: -20px;
   display: grid;
-  width: 62px;
-  height: 44px;
+  width: 72px;
+  height: 40px;
   place-items: center;
-  color: #a52e27;
-  background: rgba(247,229,190,.9);
-  border: 3px double #a52e27;
-  border-radius: 4px;
-  box-shadow: 0 5px 16px rgba(0,0,0,.32);
+  color: rgba(164,48,39,.92);
+  background:
+    repeating-linear-gradient(
+      7deg,
+      rgba(115,30,25,.05) 0 1px,
+      transparent 1px 4px
+    );
+  border: 2px solid currentColor;
+  border-radius: 2px;
+  box-shadow:
+    inset 0 0 0 2px rgba(164,48,39,.2),
+    0 2px 7px rgba(0,0,0,.24);
   font-family: "Noto Serif SC","Songti SC",serif;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 900;
-  letter-spacing: .08em;
-  transform: rotate(-9deg);
+  letter-spacing: .16em;
+  text-indent: .16em;
+  text-shadow:
+    1px 0 rgba(92,22,19,.22),
+    -1px 1px rgba(92,22,19,.14);
+  transform: rotate(-6deg);
+}
+
+.game-event-animation__counter::before,
+.game-event-animation__counter::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+.game-event-animation__counter::before {
+  inset: 3px;
+  border: 1px solid rgba(164,48,39,.62);
+}
+
+.game-event-animation__counter::after {
+  inset: -2px;
+  background:
+    linear-gradient(90deg, transparent 12%, rgba(32,22,18,.2) 13% 15%, transparent 16%),
+    linear-gradient(0deg, transparent 68%, rgba(32,22,18,.16) 69% 72%, transparent 73%);
+  mix-blend-mode: multiply;
 }
 
 @keyframes game-event-draw {
@@ -110,24 +137,19 @@
   100% { opacity: 0; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) rotate(3deg) scale(.92); }
 }
 
-@keyframes game-event-play {
-  0% { opacity: 0; transform: translate(var(--game-event-from-x),var(--game-event-from-y)) rotate(5deg) scale(.78); }
-  18% { opacity: .98; }
-  72% { opacity: .98; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) rotate(-2deg) scale(1.04); }
-  100% { opacity: 0; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) rotate(-2deg) scale(.92); }
-}
-
 @keyframes game-event-burn {
-  0% { opacity: .95; transform: translate(var(--game-event-from-x),var(--game-event-from-y)) rotate(-3deg) scale(.9); filter: brightness(.9); }
-  45% { opacity: .9; filter: brightness(.62) sepia(.45); }
-  100% { opacity: 0; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) rotate(9deg) scale(.6); filter: brightness(.35) sepia(.8); }
+  0% { opacity: 0; transform: translate(var(--game-event-from-x),var(--game-event-from-y)) rotate(-2deg) scale(.94); filter: brightness(.88); }
+  18% { opacity: .96; }
+  55% { opacity: .9; transform: translate(var(--game-event-from-x),var(--game-event-from-y)) rotate(1deg) scale(.9); filter: brightness(.58) sepia(.55); }
+  100% { opacity: 0; transform: translate(var(--game-event-from-x),var(--game-event-from-y)) rotate(5deg) scale(.48); filter: brightness(.28) sepia(.9); }
 }
 
 @keyframes game-event-counter {
-  0% { opacity: 0; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) scale(1.6) rotate(7deg); }
-  28% { opacity: 1; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) scale(1) rotate(0); }
-  72% { opacity: 1; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) scale(1) rotate(0); }
-  100% { opacity: 0; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) scale(.92) rotate(-2deg); }
+  0% { opacity: 0; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) scale(1.22) rotate(2deg); filter:blur(.7px); }
+  24% { opacity: .94; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) scale(.97) rotate(0); filter:none; }
+  38% { opacity: .82; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) scale(1) rotate(0); }
+  76% { opacity: .82; }
+  100% { opacity: 0; transform: translate(var(--game-event-to-x),var(--game-event-to-y)) scale(.98) rotate(-1deg); }
 }
 
 .winner-banner {
@@ -147,7 +169,6 @@
   }
 
   .game-event-animation--draw,
-  .game-event-animation--play,
   .game-event-animation--burn {
     transform: translate(var(--game-event-to-x),var(--game-event-to-y));
   }

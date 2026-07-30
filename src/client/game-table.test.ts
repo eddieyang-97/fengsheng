@@ -141,14 +141,14 @@ const projection = {
 
 describe("game table card parameters", () => {
   it("shows the printed 试探 and 秘密下达 variants", () => {
-    expect(cardVariantText(identityProbe)).toBe("军情→间谍 · 潜伏→卧底 · 特工→好人");
+    expect(cardVariantText(identityProbe)).toBe("军情→间谍\n潜伏→卧底\n特工→好人");
     expect(probeIdentityNoticeText(identityProbe)).toBe(
-      "间谍→军情 · 卧底→潜伏 · 好人→特工",
+      "间谍→军情\n卧底→潜伏\n好人→特工",
     );
     expect(privateNoticeVariantText(identityProbe, true)).toBe(
       "间谍→军情\n卧底→潜伏\n好人→特工",
     );
-    expect(cardVariantText(secretOrder)).toBe("听风→红 · 看雨→蓝 · 日落→黑");
+    expect(cardVariantText(secretOrder)).toBe("听风→红\n看雨→蓝\n日落→黑");
     expect(privateNoticeVariantText(secretOrder)).toBe(
       "听风→红\n看雨→蓝\n日落→黑",
     );
