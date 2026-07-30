@@ -41,10 +41,12 @@ export interface BotPolicy {
   readonly targetedFunctionConservation: boolean;
   /** Which visible direct transmissions count as intentional evidence when this bot is the target. */
   readonly directTransmissionEvidence: "none" | "black-only" | "all";
+  /** Multiplier for intentional direct-transmission evidence. */
+  readonly directTransmissionEvidenceStrength: number;
   /** Evidence strength for faction opposition from a knowingly lethal, unredirected lock. */
   readonly lethalLockEvidence: number;
   /** How to score inspected 危险情报 discard choices. */
-  readonly dangerousDiscardStrategy: "random" | "color-denial" | "color-then-function" | "target-value";
+  readonly dangerousDiscardStrategy: "random" | "color-denial" | "color-then-function" | "expected-denial" | "target-value";
   /** Learn weak faction evidence from completed voluntary actions that help or harm this bot. */
   readonly inferResolvedActionAffinity: boolean;
 }
@@ -66,6 +68,7 @@ export const BASELINE_V1: BotPolicy = {
   routeAwareTransmissionMethodChoice: false,
   targetedFunctionConservation: false,
   directTransmissionEvidence: "none",
+  directTransmissionEvidenceStrength: 1,
   lethalLockEvidence: 0,
   dangerousDiscardStrategy: "random",
   inferResolvedActionAffinity: false,
@@ -88,6 +91,7 @@ export const TACTICAL_V2: BotPolicy = {
   routeAwareTransmissionMethodChoice: false,
   targetedFunctionConservation: false,
   directTransmissionEvidence: "none",
+  directTransmissionEvidenceStrength: 1,
   lethalLockEvidence: 0,
   dangerousDiscardStrategy: "random",
   inferResolvedActionAffinity: false,
@@ -110,6 +114,7 @@ export const TACTICAL_V3: BotPolicy = {
   routeAwareTransmissionMethodChoice: false,
   targetedFunctionConservation: false,
   directTransmissionEvidence: "none",
+  directTransmissionEvidenceStrength: 1,
   lethalLockEvidence: 0,
   dangerousDiscardStrategy: "random",
   inferResolvedActionAffinity: false,
@@ -148,7 +153,12 @@ export const TACTICAL_V9: BotPolicy = {
   lethalLockEvidence: 2.5,
   dangerousDiscardStrategy: "color-denial",
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V8;
+export const TACTICAL_V10: BotPolicy = {
+  ...TACTICAL_V8,
+  id: "tactical-v10",
+  dangerousDiscardStrategy: "color-then-function",
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V10;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -340,6 +350,7 @@ export function observeBotProjection(
         currentTransmission.method,
         memory.transmissionInference?.forcedByPlayerId !== undefined,
         policy.directTransmissionEvidence,
+        policy.directTransmissionEvidenceStrength,
       );
     }
   }
@@ -1046,6 +1057,14 @@ function dangerousDiscardUtility(
     0,
   );
   const ownFaction = projection.own.faction;
+  if (strategy === "expected-denial") {
+    return FACTIONS.reduce((total, faction) => {
+      const aligned = ownFaction !== "特工" && faction === ownFaction;
+      const disposition = aligned ? -1 : 1;
+      return total +
+        targetBelief[faction] * disposition * cardUtility(card, faction);
+    }, 0);
+  }
   const sameFactionProbability = ownFaction === "特工"
     ? 0
     : targetBelief[ownFaction];
@@ -1875,6 +1894,11 @@ function cardUtility(card: PhysicalCard | undefined, faction: Faction): number {
   return functionCardValue(card) + Math.max(0, transmissionCardValue(card, faction) * 0.15);
 }
 
+/** Full-information hand value used by offline counterfactual evaluation. */
+export function handCardUtility(card: PhysicalCard, faction: Faction): number {
+  return cardUtility(card, faction);
+}
+
 function functionCardValue(card: PhysicalCard): number {
   const actionValue: Partial<Record<PhysicalCard["name"], number>> = {
     识破: 14, 转移: 12, 截获: 12, 掉包: 11, 锁定: 10, 烧毁: 10,
@@ -2264,6 +2288,7 @@ function observeTransmissionSenderEvidence(
   method: Exclude<PhysicalCard["transmission"], "任意">,
   colorWasForced: boolean,
   directTransmissionEvidence: BotPolicy["directTransmissionEvidence"],
+  directTransmissionEvidenceStrength: number,
 ): void {
   const helpful = cardHelpsFaction(card, targetFaction);
   const useIntentionalDirectEvidence = directTransmissionEvidence === "all" ||
@@ -2277,7 +2302,8 @@ function observeTransmissionSenderEvidence(
   }
 
   if (helpful) {
-    evidence[targetFaction] += colorWasForced ? 0.55 : 0.9;
+    evidence[targetFaction] += (colorWasForced ? 0.55 : 0.9) *
+      directTransmissionEvidenceStrength;
     return;
   }
 
@@ -2287,9 +2313,11 @@ function observeTransmissionSenderEvidence(
   const alternativeBoost = card.color === "黑"
     ? colorWasForced ? 0.2 : 0.4
     : colorWasForced ? 0.12 : 0.2;
-  evidence[targetFaction] -= penalty;
+  evidence[targetFaction] -= penalty * directTransmissionEvidenceStrength;
   for (const faction of FACTIONS) {
-    if (faction !== targetFaction) evidence[faction] += alternativeBoost;
+    if (faction !== targetFaction) {
+      evidence[faction] += alternativeBoost * directTransmissionEvidenceStrength;
+    }
   }
 }
 

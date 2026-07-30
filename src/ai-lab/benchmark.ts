@@ -1,11 +1,14 @@
 import {
   currentReactionWindow,
   factionsForPlayerCount,
+  projectGameForPlayer,
+  type GameState,
   type WinnerState,
 } from "../game/engine";
-import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, LIVE_BOT_POLICY, type BotDecision, type BotMemory, type BotPolicy, type FactionBelief } from "../server/bot/strategy";
-import { GameSessionService, type GameCommand } from "../server/game-session";
-import { CANDIDATE_V24 } from "./policies";
+import { PHYSICAL_DECK } from "../game/cards";
+import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, evaluatePublicPosition, factionBeliefsForPolicy, handCardUtility, LIVE_BOT_POLICY, type BotDecision, type BotMemory, type BotPolicy, type FactionBelief } from "../server/bot/strategy";
+import { dispatchGameCommand, GameSessionService, type GameCommand } from "../server/game-session";
+import { CANDIDATE_V29 } from "./policies";
 
 export interface SelfPlayGameOptions {
   playerCount: 2 | 5 | 6 | 7 | 8;
@@ -39,6 +42,15 @@ export interface BotDisagreement {
     { name: string; color: string; transmission: string } | undefined,
   ];
   beliefs: readonly [Record<string, FactionBelief>, Record<string, FactionBelief>];
+  counterfactual?: {
+    metric: "full-information-discard-denial" | "full-information-receipt-branch";
+    targetFaction?: string;
+    recipientIds?: readonly [string, string];
+    cardName?: string;
+    cardColor?: string;
+    utilities: readonly [number, number];
+    preferredPolicy: string | "tie";
+  };
   publicEvent?: string;
 }
 
@@ -194,9 +206,12 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
             options.seed,
             commands,
             projection,
+            games.getState(roomCode),
             options.comparePolicies,
             decisions,
             policyMemories,
+            policies,
+            memories,
           ));
         }
       }
@@ -256,7 +271,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
 export function runPairedTournament(options: PairedTournamentOptions): PairedTournamentResult {
   if (!Number.isInteger(options.pairs) || options.pairs < 1) throw new Error("pairs must be a positive integer");
   factionsForPlayerCount(options.playerCount);
-  const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V24;
+  const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V29;
   const baselinePolicy = options.baselinePolicy ?? LIVE_BOT_POLICY;
   const mode = options.mode ?? "mixed-seats";
   const startSeed = options.startSeed ?? 1;
@@ -469,9 +484,12 @@ function describeDisagreement(
   seed: number,
   commandNumber: number,
   projection: ReturnType<GameSessionService["project"]>,
+  state: GameState,
   policies: readonly [BotPolicy, BotPolicy],
   decisions: readonly [BotDecision | undefined, BotDecision | undefined],
   memories: readonly [BotMemory, BotMemory],
+  livePolicies: readonly BotPolicy[],
+  liveMemories: ReadonlyMap<string, BotMemory>,
 ): BotDisagreement {
   return {
     seed,
@@ -512,8 +530,194 @@ function describeDisagreement(
       Record<string, FactionBelief>,
       Record<string, FactionBelief>,
     ],
+    counterfactual:
+      discardCounterfactual(projection, state, policies, decisions) ??
+      receiptCounterfactual(
+        seed,
+        commandNumber,
+        projection,
+        state,
+        policies,
+        decisions,
+        livePolicies,
+        liveMemories,
+      ),
     publicEvent: projection.auditLog.at(-1),
   };
+}
+
+function discardCounterfactual(
+  projection: ReturnType<GameSessionService["project"]>,
+  state: GameState,
+  policies: readonly [BotPolicy, BotPolicy],
+  decisions: readonly [BotDecision | undefined, BotDecision | undefined],
+): BotDisagreement["counterfactual"] {
+  if (
+    decisions[0]?.command.type !== "CHOOSE_DANGEROUS_DISCARD" ||
+    decisions[1]?.command.type !== "CHOOSE_DANGEROUS_DISCARD"
+  ) return undefined;
+  const targetId = projection.activeFunctionAction?.targetPlayerId;
+  const actor = state.players[projection.own.id];
+  const target = targetId ? state.players[targetId] : undefined;
+  const cards = decisions.map((decision) =>
+    decisionPhysicalCard(decision, projection)
+  );
+  if (!actor || !target || !cards[0] || !cards[1]) return undefined;
+  const aligned = actor.faction !== "特工" && actor.faction === target.faction;
+  const disposition = aligned ? -1 : 1;
+  const utilities = cards.map(
+    (card) => disposition * handCardUtility(card!, target.faction),
+  ) as [number, number];
+  const preferredPolicy = Math.abs(utilities[0] - utilities[1]) < 0.0001
+    ? "tie"
+    : utilities[0] > utilities[1]
+      ? policies[0].id
+      : policies[1].id;
+  return {
+    metric: "full-information-discard-denial",
+    targetFaction: target.faction,
+    utilities,
+    preferredPolicy,
+  };
+}
+
+function receiptCounterfactual(
+  seed: number,
+  commandNumber: number,
+  projection: ReturnType<GameSessionService["project"]>,
+  state: GameState,
+  policies: readonly [BotPolicy, BotPolicy],
+  decisions: readonly [BotDecision | undefined, BotDecision | undefined],
+  livePolicies: readonly BotPolicy[],
+  liveMemories: ReadonlyMap<string, BotMemory>,
+): BotDisagreement["counterfactual"] {
+  const receiptCommands = new Set(["ACCEPT_INTELLIGENCE", "DECLINE_INTELLIGENCE"]);
+  const commandTypes = decisions.map((decision) => decision?.command.type);
+  if (
+    !commandTypes[0] ||
+    !commandTypes[1] ||
+    commandTypes[0] === commandTypes[1] ||
+    !receiptCommands.has(commandTypes[0]) ||
+    !receiptCommands.has(commandTypes[1])
+  ) return undefined;
+  const transmission = state.transmission;
+  if (!transmission || !projection.transmission) return undefined;
+  const card = PHYSICAL_DECK.find((candidate) => candidate.id === transmission.cardId);
+  const currentRecipientId = transmission.intendedRecipientId;
+  const nextRecipientId = nextLivingRecipientAfterDecline(projection);
+  if (!card || !nextRecipientId) return undefined;
+  const recipientForCommand = (commandType: string | undefined) =>
+    commandType === "ACCEPT_INTELLIGENCE" ? currentRecipientId : nextRecipientId;
+  const recipientIds = commandTypes.map(recipientForCommand) as [string, string];
+  const utilities = decisions.map((decision, branchIndex) =>
+    runReceiptBranch(
+      state,
+      projection.own.id,
+      decision!.command,
+      livePolicies,
+      liveMemories,
+      seed * 10_000 + commandNumber * 2 + branchIndex,
+    )
+  ) as [number, number];
+  const preferredPolicy = Math.abs(utilities[0] - utilities[1]) < 0.0001
+    ? "tie"
+    : utilities[0] > utilities[1]
+      ? policies[0].id
+      : policies[1].id;
+  return {
+    metric: "full-information-receipt-branch",
+    recipientIds,
+    cardName: card.name,
+    cardColor: card.color,
+    utilities,
+    preferredPolicy,
+  };
+}
+
+function runReceiptBranch(
+  sourceState: GameState,
+  observerId: string,
+  initialCommand: GameCommand,
+  livePolicies: readonly BotPolicy[],
+  liveMemories: ReadonlyMap<string, BotMemory>,
+  randomSeed: number,
+): number {
+  const state = structuredClone(sourceState);
+  const ids = Object.keys(state.players);
+  const memories = new Map([...liveMemories].map(([id, memory]) => [
+    id,
+    structuredClone(memory),
+  ]));
+  const randoms = new Map(ids.map((id, index) => [
+    id,
+    createSeededBotRandom(randomSeed * 131 + index + 1),
+  ]));
+  dispatchGameCommand(state, observerId, initialCommand);
+  let commands = 0;
+  while (
+    !state.winner &&
+    (
+      state.transmission !== undefined ||
+      state.pendingPublicTextReceipt !== undefined ||
+      state.phase === "resolvingReceipt"
+    ) &&
+    commands < 500
+  ) {
+    let advanced = false;
+    for (const [index, id] of ids.entries()) {
+      const botProjection = projectGameForPlayer(state, id);
+      const policy = livePolicies[index] ?? LIVE_BOT_POLICY;
+      const memory = memories.get(id) ?? createBotMemory(botProjection, policy);
+      memories.set(id, memory);
+      const command = chooseBotCommand(botProjection, memory, {
+        policy,
+        random: randoms.get(id),
+      });
+      if (!command) continue;
+      dispatchGameCommand(state, id, command);
+      commands += 1;
+      advanced = true;
+      break;
+    }
+    if (!advanced) break;
+  }
+  const finalProjection = projectGameForPlayer(state, observerId);
+  return evaluatePublicPosition(
+    finalProjection,
+    actualFactionBeliefs(state),
+  );
+}
+
+function actualFactionBeliefs(state: GameState): Record<string, FactionBelief> {
+  return Object.fromEntries(
+    Object.values(state.players).map((player) => [
+      player.id,
+      {
+        军情: player.faction === "军情" ? 1 : 0,
+        潜伏: player.faction === "潜伏" ? 1 : 0,
+        特工: player.faction === "特工" ? 1 : 0,
+      },
+    ]),
+  ) as Record<string, FactionBelief>;
+}
+
+function nextLivingRecipientAfterDecline(
+  projection: ReturnType<GameSessionService["project"]>,
+): string | undefined {
+  const transmission = projection.transmission;
+  if (!transmission) return undefined;
+  if (transmission.method === "直达") return transmission.senderId;
+  const currentIndex = projection.seatOrder.indexOf(transmission.intendedRecipientId);
+  if (currentIndex < 0) return undefined;
+  const step = transmission.direction === "counterclockwise" ? -1 : 1;
+  for (let offset = 1; offset <= projection.seatOrder.length; offset += 1) {
+    const index = (
+      currentIndex + step * offset + projection.seatOrder.length
+    ) % projection.seatOrder.length;
+    const playerId = projection.seatOrder[index]!;
+    if (projection.players.find((player) => player.id === playerId)?.alive) return playerId;
+  }
+  return undefined;
 }
 
 function summarizeDecisionCard(
@@ -522,10 +726,7 @@ function summarizeDecisionCard(
 ): BotDisagreement["decisionCards"][number] {
   const command = decision?.command;
   if (!command || !("cardId" in command)) return undefined;
-  const card = projection.own.hand.find((held) => held.id === command.cardId) ??
-    projection.activeFunctionAction?.inspectedHand?.find(
-      (held) => held.id === command.cardId,
-    );
+  const card = decisionPhysicalCard(decision, projection);
   return card
     ? {
         name: card.name,
@@ -533,6 +734,18 @@ function summarizeDecisionCard(
         transmission: card.transmission,
       }
     : undefined;
+}
+
+function decisionPhysicalCard(
+  decision: BotDecision | undefined,
+  projection: ReturnType<GameSessionService["project"]>,
+) {
+  const command = decision?.command;
+  if (!command || !("cardId" in command)) return undefined;
+  return projection.own.hand.find((held) => held.id === command.cardId) ??
+    projection.activeFunctionAction?.inspectedHand?.find(
+      (held) => held.id === command.cardId,
+    );
 }
 
 function didPlayerWin(winner: WinnerState | undefined, playerId: string, faction: string): boolean {

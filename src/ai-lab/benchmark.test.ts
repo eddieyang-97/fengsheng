@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V23, CANDIDATE_V24 } from "./policies";
+import { CANDIDATE_V23, CANDIDATE_V28, CANDIDATE_V29 } from "./policies";
 import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3 } from "../server/bot/strategy";
 
 const INCREMENTAL_TRANSFER_POLICY = {
@@ -62,7 +62,7 @@ describe("AI self-play benchmark", () => {
       );
       expect(firstLeg.participants.map((entry) => entry.policy)).toEqual(
         secondLeg.participants.map((entry) =>
-          entry.policy === CANDIDATE_V24.id ? LIVE_BOT_POLICY.id : CANDIDATE_V24.id
+          entry.policy === CANDIDATE_V29.id ? LIVE_BOT_POLICY.id : CANDIDATE_V29.id
         ),
       );
     }
@@ -154,5 +154,38 @@ describe("AI self-play benchmark", () => {
     expect(observed.disagreements.every((entry) =>
       JSON.stringify(entry.decisions[0]?.command) !== JSON.stringify(entry.decisions[1]?.command)
     )).toBe(true);
+  });
+
+  it("scores 危险情报 discard disagreements with hidden full-information value", () => {
+    const result = runSelfPlayGame({
+      playerCount: 5,
+      seed: 30001,
+      comparePolicies: [TACTICAL_V2, CANDIDATE_V23],
+    });
+    const evaluated = result.disagreements.filter((entry) => entry.counterfactual);
+
+    expect(evaluated.length).toBeGreaterThan(0);
+    expect(evaluated.every((entry) =>
+      entry.counterfactual?.metric === "full-information-discard-denial" &&
+      entry.counterfactual.utilities.every(Number.isFinite)
+    )).toBe(true);
+  });
+
+  it("scores accept-versus-decline disagreements by resolving both receipt branches", () => {
+    const result = runSelfPlayGame({
+      playerCount: 5,
+      seed: 30005,
+      comparePolicies: [LIVE_BOT_POLICY, CANDIDATE_V28],
+    });
+    const evaluated = result.disagreements.find((entry) =>
+      entry.counterfactual?.metric === "full-information-receipt-branch"
+    );
+
+    expect(evaluated?.counterfactual).toMatchObject({
+      metric: "full-information-receipt-branch",
+      cardColor: "黑",
+    });
+    expect(evaluated?.counterfactual?.recipientIds).toHaveLength(2);
+    expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
   });
 });

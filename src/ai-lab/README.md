@@ -12,7 +12,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v8`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v10`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -22,6 +22,12 @@ while leaving information-gathering 试探 and self-benefit 增援/机密文件
 unpenalized. V8 scores the forced return to the sender when declining 直达,
 allowing a bot to take a safe card instead of returning harmful intelligence
 to an ally, or to return a winning card to an ally immediately.
+
+V10 adds a color-first 危险情报 discard policy. It first favors cards whose
+transmission color benefits a likely opponent, then uses function-card value as
+a conservative tie-breaker only when the target is more likely an opponent.
+This promotes candidate-v24 without including any unrelated inference changes.
+`tactical-v8` remains the immediate rollback policy.
 
 V9 remains evaluation-only. It adds
 假情报-only 直达 faction evidence and strong opposing-faction evidence when a
@@ -33,7 +39,7 @@ The independent 500-pair result did not establish an improvement over V8, so
 these changes are not part of the production policy.
 
 The selectable policy registry retains tactical versions for rollback and only
-the active experimental candidates v14-v17 and v19-v24. Historical candidates
+the active experimental candidates v14-v17 and v19-v29. Historical candidates
 v3-v13 were retired after their results were recorded below; their
 implementations remain available through Git history.
 
@@ -43,9 +49,9 @@ implementations remain available through Git history.
 > and seat breakdowns unreliable. The figures below are retained as experiment
 > history, not promotion evidence. Any surviving candidate must be revalidated
 > with the source-bound schema-v3 harness before promotion. The narrow
-> tactical-v8 forced-return behavior remains live because it was promoted from
-> direct decision review and deterministic tactical dominance rather than its
-> aggregate paired result.
+> tactical-v8's forced-return behavior remains in the live tactical-v10 policy
+> because it was promoted from direct decision review and deterministic tactical
+> dominance rather than its aggregate paired result.
 
 `candidate-v14` applies passive-route acceptance modeling to card, method, and
 direction selection. It changed 607 decisions in a 100-game disagreement sample
@@ -113,8 +119,53 @@ results were invalidated by the historical policy-attribution bug. Corrected
 Across 100 development games, v23 changed 60 decisions from tactical-v8 and v22
 differed from v23 38 times. The behavior is common enough for aggregate
 evaluation, but neither model consistently improved across evaluation modes.
-Both remain experimental and tactical-v8 retains random 危险情报 discard choice
-until a stronger candidate is developed.
+V22 and v23 remain experimental. Candidate-v24 combines v23's color-first rule
+with a 35% function-value tie-breaker when the target is likely an opponent. Its
+corrected 100-pair development results were focal +2.0 points, mixed 0.0, and
+population 0.0. Independent five-player validation was focal 0.0, mixed +4.0,
+and population 0.0; matching duel validation was focal +5.0, mixed +5.0, and
+population 0.0. A frozen 200-pair five-player holdout scored focal +1.0, mixed
++1.3, and population -0.4, all statistically inconclusive. Every run completed
+without stalls, command limits, or rejected commands. V24 was promoted as
+tactical-v10 based on deterministic improvement over random discard, positive
+individual-effect results, and no tested player-count regression.
+
+Candidate-v25 re-evaluates full-strength hostility evidence from voluntarily
+sending 假情报 by 直达, isolated over tactical-v10. Candidate-v26 reduces that
+intentional evidence to half strength. Both improved five-player belief
+calibration but failed the corrected development gate on seeds 30001-30100:
+v25 scored focal -1.0 points, mixed +1.4, and population 0.0; v26 scored focal
+-1.0, mixed +1.6, and population +0.2. Because both hurt the bot actually using
+the policy in the focal comparison, neither advanced to validation.
+
+Candidate-v27 isolates moderate knowingly lethal 锁定 evidence over tactical-v10.
+Its corrected development results were focal +1.0 points, mixed +2.2, and
+population -0.4. Belief calibration worsened in both mixed and population runs,
+showing that a causally clear hostile act does not map cleanly to the remaining
+exact faction roster. V27 remains experimental and did not advance.
+
+Candidate-v28 re-evaluates acceptance-weighted decline routing over tactical-v10.
+It changed 20 receipt decisions across 100 development games. Development was
+non-negative at focal 0.0 points, mixed +0.2, and population 0.0, but independent
+validation regressed to focal 0.0, mixed -0.4, and population -0.2. Calibration
+improved while gameplay did not. V28 was rejected; tactical-v10 continues to
+model only the deterministic forced return after declining 直达. A later
+full-information receipt-branch audit on 200 development games found 33 direct
+accept-versus-decline disagreements. After executing both commands and resolving
+the complete receipt sequence through the normal engine and bots, v28 won 18
+branches, tactical-v10 won 13, and two tied. However, v28's mean gain was
+-9.133 despite a +12.320 median: its fewer losses were much more expensive.
+This downside pattern explains why an apparently better local routing rule
+failed match validation. The next routing candidate should guard against
+catastrophic branch loss rather than further maximize the one-step mean.
+
+Candidate-v29 replaces the earlier discard formulas with the direct Bayesian
+expectation of full-information card denial: for each possible target faction,
+it multiplies that belief probability by the signed value of removing the card.
+It beat tactical-v10 in 10 of 15 direct counterfactual disagreements (five
+losses, +1.48 mean denial value), but its development match results were focal
+0.0 points, mixed -0.2, and population -0.2. V29 was not promoted because local
+objective improvement did not translate into match improvement.
 
 The forced-return-only subset of candidate-v17 changed just three decisions in
 a 100-game five-player disagreement sample (seeds 9001-9100). All three avoided
@@ -210,7 +261,7 @@ with the same seed, seats, and factions. Confidence intervals are clustered by
 the seed pair rather than treating correlated player entries as independent.
 
 Future candidate development uses fixed, non-overlapping seed ranges (earlier
-ranges were already consumed while developing v14-v23):
+ranges were already consumed while developing v14-v24):
 
 - development: 30001-39999, for disagreement inspection and tuning;
 - validation: 40001-49999, for confirming a frozen candidate;
@@ -222,3 +273,22 @@ independent validation is positive, and the final holdout interval is positive
 or the change is justified by a narrow rules-level dominance case. Rare
 decisions should additionally report how often they trigger and be reviewed
 directly; aggregate win rate alone is not sufficient.
+
+The disagreement runner now performs metric-specific full-information
+counterfactuals and reports each metric separately so unlike utility scales are
+never combined. For 危险情报 discard choices, it uses the hidden actual target
+faction only in the offline evaluator and scores the value denied by each
+policy's selected card. On seeds 30001-30100, tactical-v10 beat tactical-v8's
+random choice 62-13 with one tie and +3.448 mean denial value. The
+function-value tie-breaker also beat candidate-v23's color-only policy 28-4
+with +3.825 mean value. This directly supports the tactical-v10 promotion while
+remaining separate from live bot information.
+
+For direct ACCEPT_INTELLIGENCE versus DECLINE_INTELLIGENCE disagreements, the
+offline evaluator clones the actual hidden server state, executes each command,
+and lets the normal command dispatcher and live bots resolve the entire receipt
+sequence, including reaction cards, forced returns, and 公开文本 effects. It
+then compares the resulting positions with the actual hidden factions. This is
+still a shallow branch rather than a full-game rollout, so it is a diagnostic
+rather than a promotion gate. Counterfactual summaries include win counts,
+mean, median, and range because terminal utility values can dominate the mean.

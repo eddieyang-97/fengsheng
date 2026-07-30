@@ -19,8 +19,9 @@ import {
   TACTICAL_V7,
   TACTICAL_V8,
   TACTICAL_V9,
+  TACTICAL_V10,
 } from "./strategy";
-import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24 } from "../../ai-lab/policies";
+import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29 } from "../../ai-lab/policies";
 
 const LOW_REACTION_CONSERVATION_POLICY = {
   ...TACTICAL_V3,
@@ -80,8 +81,8 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("keeps tactical-v8 live while tactical-v9 remains evaluation-only", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V8);
+  it("promotes only the validated 危险情报 discard behavior as tactical-v10", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V10);
     expect(TACTICAL_V4).toMatchObject({
       incrementalLure: true,
       lureRequiresLikelyAcceptance: true,
@@ -120,6 +121,40 @@ describe("bot strategy", () => {
       directTransmissionEvidence: "black-only",
       lethalLockEvidence: 2.5,
       dangerousDiscardStrategy: "color-denial",
+    });
+    expect(TACTICAL_V10).toMatchObject({
+      declineRouting: "forced-return",
+      directTransmissionEvidence: "none",
+      lethalLockEvidence: 0,
+      dangerousDiscardStrategy: "color-then-function",
+    });
+    expect(CANDIDATE_V25).toMatchObject({
+      directTransmissionEvidence: "black-only",
+      directTransmissionEvidenceStrength: 1,
+      lethalLockEvidence: 0,
+      dangerousDiscardStrategy: "color-then-function",
+    });
+    expect(CANDIDATE_V26).toMatchObject({
+      directTransmissionEvidence: "black-only",
+      directTransmissionEvidenceStrength: 0.5,
+      lethalLockEvidence: 0,
+    });
+    expect(CANDIDATE_V27).toMatchObject({
+      directTransmissionEvidence: "none",
+      lethalLockEvidence: 1.2,
+      dangerousDiscardStrategy: "color-then-function",
+    });
+    expect(CANDIDATE_V28).toMatchObject({
+      declineRouting: "acceptance-weighted",
+      directTransmissionEvidence: "none",
+      lethalLockEvidence: 0,
+      dangerousDiscardStrategy: "color-then-function",
+    });
+    expect(CANDIDATE_V29).toMatchObject({
+      declineRouting: "forced-return",
+      dangerousDiscardStrategy: "expected-denial",
+      directTransmissionEvidence: "none",
+      lethalLockEvidence: 0,
     });
     expect(TACTICAL_V2.id).toBe("tactical-v2");
   });
@@ -197,6 +232,14 @@ describe("bot strategy", () => {
       军情: -1,
       潜伏: 0.4,
       特工: 0.4,
+    });
+
+    const halfStrengthMemory = createBotMemory(initial);
+    observeBotProjection(halfStrengthMemory, transmitting, CANDIDATE_V26);
+    expect(halfStrengthMemory.evidence.b).toMatchObject({
+      军情: -0.5,
+      潜伏: 0.2,
+      特工: 0.2,
     });
 
     const liveMemory = createBotMemory(initial);

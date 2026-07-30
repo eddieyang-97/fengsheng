@@ -1,4 +1,4 @@
-import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, TACTICAL_V8, TACTICAL_V9, type BotPolicy } from "../server/bot/strategy";
+import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, TACTICAL_V8, TACTICAL_V9, TACTICAL_V10, type BotPolicy } from "../server/bot/strategy";
 
 export const CANDIDATE_V14: BotPolicy = {
   ...TACTICAL_V6,
@@ -66,6 +66,36 @@ export const CANDIDATE_V24: BotPolicy = {
   dangerousDiscardStrategy: "color-then-function",
 };
 
+export const CANDIDATE_V25: BotPolicy = {
+  ...TACTICAL_V10,
+  id: "candidate-v25",
+  directTransmissionEvidence: "black-only",
+};
+
+export const CANDIDATE_V26: BotPolicy = {
+  ...CANDIDATE_V25,
+  id: "candidate-v26",
+  directTransmissionEvidenceStrength: 0.5,
+};
+
+export const CANDIDATE_V27: BotPolicy = {
+  ...TACTICAL_V10,
+  id: "candidate-v27",
+  lethalLockEvidence: 1.2,
+};
+
+export const CANDIDATE_V28: BotPolicy = {
+  ...TACTICAL_V10,
+  id: "candidate-v28",
+  declineRouting: "acceptance-weighted",
+};
+
+export const CANDIDATE_V29: BotPolicy = {
+  ...TACTICAL_V10,
+  id: "candidate-v29",
+  dangerousDiscardStrategy: "expected-denial",
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
@@ -75,6 +105,7 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V7,
   TACTICAL_V8,
   TACTICAL_V9,
+  TACTICAL_V10,
   CANDIDATE_V14,
   CANDIDATE_V15,
   CANDIDATE_V16,
@@ -85,6 +116,11 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V22,
   CANDIDATE_V23,
   CANDIDATE_V24,
+  CANDIDATE_V25,
+  CANDIDATE_V26,
+  CANDIDATE_V27,
+  CANDIDATE_V28,
+  CANDIDATE_V29,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

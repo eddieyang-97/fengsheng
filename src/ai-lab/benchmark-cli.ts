@@ -1,5 +1,5 @@
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V24, evaluationPolicyById } from "./policies";
+import { evaluationPolicyById } from "./policies";
 import { LIVE_BOT_POLICY } from "../server/bot/strategy";
 
 const mode = process.argv[2] === "ab"
@@ -17,7 +17,7 @@ if (mode === "ab") {
     playerCount,
     pairs: games,
     startSeed,
-    candidatePolicy: CANDIDATE_V24,
+    candidatePolicy: evaluationPolicyById("candidate-v29"),
   });
   console.log(`AI A/B: ${result.pairs} pairs (${result.games} games), ${result.playerCount} players`);
   console.log(
@@ -30,7 +30,7 @@ if (mode === "ab") {
   console.log(`paired difference=${percent(result.pairedWinRateDifference)} 95% CI=[${percent(result.confidence95.low)}, ${percent(result.confidence95.high)}] verdict=${result.verdict}`);
 } else if (mode === "disagreements") {
   const firstPolicy = evaluationPolicyById(process.argv[6] ?? LIVE_BOT_POLICY.id);
-  const secondPolicy = evaluationPolicyById(process.argv[7] ?? CANDIDATE_V24.id);
+  const secondPolicy = evaluationPolicyById(process.argv[7] ?? "candidate-v29");
   const results = Array.from({ length: games }, (_, index) => runSelfPlayGame({
     playerCount,
     seed: startSeed + index,
@@ -44,9 +44,48 @@ if (mode === "ab") {
   }
   const categories = [...categoryCounts].map(([category, count]) => ({ category, count }))
     .sort((left, right) => right.count - left.count);
+  const counterfactuals = disagreements.flatMap((entry) =>
+    entry.counterfactual ? [entry.counterfactual] : []
+  );
   console.log(`AI disagreements: ${games} games, ${playerCount} players, ${disagreements.length} decisions`);
   console.log(`completed=${results.filter((result) => result.status === "completed").length} stalled=${results.filter((result) => result.status === "stalled").length}`);
   console.log(`categories=${JSON.stringify(categories.slice(0, 12))}`);
+  for (const metric of [...new Set(counterfactuals.map((entry) => entry.metric))]) {
+    const entries = counterfactuals.filter((entry) => entry.metric === metric);
+    const firstPolicyWins = entries.filter(
+      (entry) => entry.preferredPolicy === firstPolicy.id,
+    ).length;
+    const secondPolicyWins = entries.filter(
+      (entry) => entry.preferredPolicy === secondPolicy.id,
+    ).length;
+    const counterfactualTies = entries.filter(
+      (entry) => entry.preferredPolicy === "tie",
+    ).length;
+    const meanSecondPolicyGain = entries.reduce(
+      (sum, entry) => sum + entry.utilities[1] - entry.utilities[0],
+      0,
+    ) / Math.max(1, entries.length);
+    const orderedGains = entries
+      .map((entry) => entry.utilities[1] - entry.utilities[0])
+      .sort((left, right) => left - right);
+    const medianSecondPolicyGain = orderedGains.length === 0
+      ? 0
+      : orderedGains.length % 2 === 1
+        ? orderedGains[Math.floor(orderedGains.length / 2)]!
+        : (
+            orderedGains[orderedGains.length / 2 - 1]! +
+            orderedGains[orderedGains.length / 2]!
+          ) / 2;
+    const worstSecondPolicyGain = orderedGains[0] ?? 0;
+    const bestSecondPolicyGain = orderedGains.at(-1) ?? 0;
+    console.log(
+      `counterfactual metric=${metric} count=${entries.length} `
+      + `${firstPolicy.id}=${firstPolicyWins} ${secondPolicy.id}=${secondPolicyWins} `
+      + `ties=${counterfactualTies} meanSecondPolicyGain=${meanSecondPolicyGain.toFixed(3)} `
+      + `medianSecondPolicyGain=${medianSecondPolicyGain.toFixed(3)} `
+      + `range=[${worstSecondPolicyGain.toFixed(3)}, ${bestSecondPolicyGain.toFixed(3)}]`,
+    );
+  }
   for (const entry of disagreements.slice(0, 10)) {
     console.log(JSON.stringify(entry));
   }

@@ -181,7 +181,8 @@ export class GameSessionError extends Error {
   }
 }
 
-function dispatchGameCommand(
+/** Applies a command directly to an isolated game state, for server dispatch and offline rollouts. */
+export function dispatchGameCommand(
   state: GameState,
   actorId: string,
   command: GameCommand,
