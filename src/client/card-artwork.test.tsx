@@ -6,6 +6,7 @@ import type { PublicPlayerProjection } from "../game/engine";
 import {
   ACCEPTED_INTELLIGENCE_ART_PATH,
   AcceptedIntelligenceArtwork,
+  HIDDEN_DIRECT_INTELLIGENCE_ART_PATH,
   HIDDEN_INTELLIGENCE_ART_PATH,
   HIDDEN_SECRET_INTELLIGENCE_ART_PATH,
   HiddenIntelligenceArtwork,
@@ -44,12 +45,41 @@ describe("shared card artwork", () => {
     expect(markup).not.toContain("蓝");
   });
 
+  it("uses hand-delivery artwork for concealed 直达", () => {
+    const markup = renderToStaticMarkup(
+      <HiddenIntelligenceArtwork method="直达" />,
+    );
+
+    expect(markup).toContain(HIDDEN_DIRECT_INTELLIGENCE_ART_PATH);
+    expect(markup).toContain("hidden-card__art--direct");
+    expect(markup).not.toContain(HIDDEN_SECRET_INTELLIGENCE_ART_PATH);
+  });
+
   it("uses shared archived artwork for accepted intelligence", () => {
-    const markup = renderToStaticMarkup(<AcceptedIntelligenceArtwork />);
+    const markup = renderToStaticMarkup(
+      <AcceptedIntelligenceArtwork transmission="任意" />,
+    );
 
     expect(markup).toContain(ACCEPTED_INTELLIGENCE_ART_PATH);
     expect(markup).toContain("game-card__art--accepted");
   });
+
+  it.each([
+    ["直达", HIDDEN_DIRECT_INTELLIGENCE_ART_PATH, "direct"],
+    ["密电", HIDDEN_SECRET_INTELLIGENCE_ART_PATH, "secret"],
+    ["文本", HIDDEN_INTELLIGENCE_ART_PATH, "text"],
+    ["任意", ACCEPTED_INTELLIGENCE_ART_PATH, "flexible"],
+  ] as const)(
+    "maps accepted %s intelligence to its generic route artwork",
+    (transmission, expectedPath, expectedClass) => {
+      const markup = renderToStaticMarkup(
+        <AcceptedIntelligenceArtwork transmission={transmission} />,
+      );
+
+      expect(markup).toContain(expectedPath);
+      expect(markup).toContain(`game-card__art--accepted-${expectedClass}`);
+    },
+  );
 
   it("renders artwork in 弃牌堆", () => {
     const markup = renderToStaticMarkup(

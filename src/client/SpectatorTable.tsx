@@ -49,7 +49,7 @@ function PublicCard({
       title={publicCardSummary(card)}
     >
       {accepted
-        ? <AcceptedIntelligenceArtwork />
+        ? <AcceptedIntelligenceArtwork transmission={card.transmission} />
         : <CardArtwork cardName={card.name} />}
       <strong>{card.name}</strong>
       <span className="game-card__meta">{card.color} · {card.transmission}</span>

@@ -97,7 +97,7 @@ export function GameCard({
       type="button"
     >
       {artwork === "accepted"
-        ? <AcceptedIntelligenceArtwork />
+        ? <AcceptedIntelligenceArtwork transmission={card.transmission} />
         : <CardArtwork cardName={card.name} />}
       {shortcutLabel && <kbd className="card-shortcut-badge">{shortcutLabel}</kbd>}
       <strong>{card.name}</strong>

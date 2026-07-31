@@ -24,6 +24,8 @@ export function cardArtPath(cardName: PhysicalCard["name"]): string {
 }
 
 export const HIDDEN_INTELLIGENCE_ART_PATH = "/card-art/hidden-intelligence.png";
+export const HIDDEN_DIRECT_INTELLIGENCE_ART_PATH =
+  "/card-art/hidden-direct-intelligence.png";
 export const HIDDEN_SECRET_INTELLIGENCE_ART_PATH =
   "/card-art/hidden-secret-intelligence.png";
 export const ACCEPTED_INTELLIGENCE_ART_PATH =
@@ -39,12 +41,35 @@ export function CardArtwork({ cardName }: { cardName: PhysicalCard["name"] }) {
   );
 }
 
-export function AcceptedIntelligenceArtwork() {
+export function acceptedIntelligenceArtPath(
+  transmission: PhysicalCard["transmission"],
+): string {
+  if (transmission === "直达") return HIDDEN_DIRECT_INTELLIGENCE_ART_PATH;
+  if (transmission === "密电") return HIDDEN_SECRET_INTELLIGENCE_ART_PATH;
+  if (transmission === "文本") return HIDDEN_INTELLIGENCE_ART_PATH;
+  return ACCEPTED_INTELLIGENCE_ART_PATH;
+}
+
+export function AcceptedIntelligenceArtwork({
+  transmission,
+}: {
+  transmission: PhysicalCard["transmission"];
+}) {
   return (
     <span
       aria-hidden="true"
-      className="game-card__art game-card__art--accepted"
-      style={{ backgroundImage: `url("${ACCEPTED_INTELLIGENCE_ART_PATH}")` }}
+      className={`game-card__art game-card__art--accepted game-card__art--accepted-${
+        transmission === "直达"
+          ? "direct"
+          : transmission === "密电"
+            ? "secret"
+            : transmission === "文本"
+              ? "text"
+              : "flexible"
+      }`}
+      style={{
+        backgroundImage: `url("${acceptedIntelligenceArtPath(transmission)}")`,
+      }}
     />
   );
 }
@@ -52,9 +77,9 @@ export function AcceptedIntelligenceArtwork() {
 export function hiddenIntelligenceArtPath(
   method?: FixedTransmissionMethod,
 ): string {
-  return method === "密电"
-    ? HIDDEN_SECRET_INTELLIGENCE_ART_PATH
-    : HIDDEN_INTELLIGENCE_ART_PATH;
+  if (method === "密电") return HIDDEN_SECRET_INTELLIGENCE_ART_PATH;
+  if (method === "直达") return HIDDEN_DIRECT_INTELLIGENCE_ART_PATH;
+  return HIDDEN_INTELLIGENCE_ART_PATH;
 }
 
 export function HiddenIntelligenceArtwork({
@@ -65,7 +90,13 @@ export function HiddenIntelligenceArtwork({
   return (
     <span
       aria-hidden="true"
-      className={`hidden-card__art${method === "密电" ? " hidden-card__art--secret" : ""}`}
+      className={`hidden-card__art${
+        method === "密电"
+          ? " hidden-card__art--secret"
+          : method === "直达"
+            ? " hidden-card__art--direct"
+            : ""
+      }`}
       style={{ backgroundImage: `url("${hiddenIntelligenceArtPath(method)}")` }}
     />
   );
