@@ -20,19 +20,19 @@ const CARD_ART_SLUGS: Record<PhysicalCard["name"], string> = {
 };
 
 export function cardArtPath(cardName: PhysicalCard["name"]): string {
-  return `/card-art/${CARD_ART_SLUGS[cardName]}.png`;
+  return `/card-art/${CARD_ART_SLUGS[cardName]}.webp`;
 }
 
-export const HIDDEN_INTELLIGENCE_ART_PATH = "/card-art/hidden-intelligence.png";
+export const HIDDEN_INTELLIGENCE_ART_PATH = "/card-art/hidden-intelligence.webp";
 export const HIDDEN_DIRECT_INTELLIGENCE_ART_PATH =
-  "/card-art/hidden-direct-intelligence.png";
+  "/card-art/hidden-direct-intelligence.webp";
 export const HIDDEN_SECRET_INTELLIGENCE_ART_PATH =
-  "/card-art/hidden-secret-intelligence.png";
+  "/card-art/hidden-secret-intelligence.webp";
 export const ACCEPTED_INTELLIGENCE_ART_PATH =
-  "/card-art/accepted-intelligence.png";
+  "/card-art/accepted-intelligence.webp";
 
 export const CARD_ART_PATHS = [
-  ...Object.values(CARD_ART_SLUGS).map((slug) => `/card-art/${slug}.png`),
+  ...Object.values(CARD_ART_SLUGS).map((slug) => `/card-art/${slug}.webp`),
   HIDDEN_INTELLIGENCE_ART_PATH,
   HIDDEN_DIRECT_INTELLIGENCE_ART_PATH,
   HIDDEN_SECRET_INTELLIGENCE_ART_PATH,
@@ -47,7 +47,7 @@ export function preloadCardArtwork(): Promise<void> {
   artworkPreload ??= Promise.all(CARD_ART_PATHS.map(async (path) => {
     const image = new Image();
     image.decoding = "async";
-    image.fetchPriority = "low";
+    image.fetchPriority = "high";
     image.src = path;
     try {
       await image.decode();

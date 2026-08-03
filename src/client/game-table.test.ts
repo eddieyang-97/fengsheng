@@ -64,9 +64,9 @@ describe("table focus visibility", () => {
 
 describe("card artwork", () => {
   it("maps physical card names to stable project assets", () => {
-    expect(cardArtPath("公开文本")).toBe("/card-art/public-text.png");
-    expect(cardArtPath("烧毁")).toBe("/card-art/burn.png");
-    expect(cardArtPath("秘密下达")).toBe("/card-art/secret-order.png");
+    expect(cardArtPath("公开文本")).toBe("/card-art/public-text.webp");
+    expect(cardArtPath("烧毁")).toBe("/card-art/burn.webp");
+    expect(cardArtPath("秘密下达")).toBe("/card-art/secret-order.webp");
   });
 });
 

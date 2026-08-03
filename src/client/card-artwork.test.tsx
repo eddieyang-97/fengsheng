@@ -31,12 +31,13 @@ describe("shared card artwork", () => {
   it("preloads every unique illustration used by the shared card views", () => {
     expect(CARD_ART_PATHS).toHaveLength(19);
     expect(new Set(CARD_ART_PATHS).size).toBe(CARD_ART_PATHS.length);
-    expect(CARD_ART_PATHS).toContain("/card-art/public-text.png");
+    expect(CARD_ART_PATHS).toContain("/card-art/public-text.webp");
     expect(CARD_ART_PATHS).toContain(HIDDEN_SECRET_INTELLIGENCE_ART_PATH);
   });
 
   it("starts and decodes every illustration before cards need it", async () => {
     const requested: string[] = [];
+    const priorities: string[] = [];
     class FakeImage {
       decoding = "auto";
       fetchPriority = "auto";
@@ -44,6 +45,7 @@ describe("shared card artwork", () => {
 
       async decode() {
         requested.push(this.src);
+        priorities.push(this.fetchPriority);
       }
     }
     vi.stubGlobal("Image", FakeImage);
@@ -51,6 +53,7 @@ describe("shared card artwork", () => {
     await preloadCardArtwork();
 
     expect(requested).toEqual(CARD_ART_PATHS);
+    expect(priorities).toEqual(CARD_ART_PATHS.map(() => "high"));
     vi.unstubAllGlobals();
   });
 
@@ -114,7 +117,7 @@ describe("shared card artwork", () => {
       <DiscardPileDialog cards={[lockCard]} onClose={() => undefined} />,
     );
 
-    expect(markup).toContain("/card-art/lock.png");
+    expect(markup).toContain("/card-art/lock.webp");
     expect(markup).toContain("game-card__art");
   });
 
@@ -127,7 +130,7 @@ describe("shared card artwork", () => {
       <FinalHandsPanel playerDisplayNames={{ 甲: "小甲" }} players={players} />,
     );
 
-    expect(markup).toContain("/card-art/lock.png");
+    expect(markup).toContain("/card-art/lock.webp");
     expect(markup).toContain("final-hand-card game-card game-card--red");
   });
 });
