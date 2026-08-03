@@ -1,4 +1,4 @@
-import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, TACTICAL_V8, TACTICAL_V9, TACTICAL_V10, type BotPolicy } from "../server/bot/strategy";
+import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, TACTICAL_V8, TACTICAL_V9, TACTICAL_V10, TACTICAL_V11, type BotPolicy } from "../server/bot/strategy";
 
 export const CANDIDATE_V14: BotPolicy = {
   ...TACTICAL_V6,
@@ -96,6 +96,12 @@ export const CANDIDATE_V29: BotPolicy = {
   dangerousDiscardStrategy: "expected-denial",
 };
 
+export const CANDIDATE_V30: BotPolicy = {
+  ...TACTICAL_V10,
+  id: "candidate-v30",
+  finalReceiptSwapScoring: true,
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
@@ -106,6 +112,7 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V8,
   TACTICAL_V9,
   TACTICAL_V10,
+  TACTICAL_V11,
   CANDIDATE_V14,
   CANDIDATE_V15,
   CANDIDATE_V16,
@@ -121,6 +128,7 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V27,
   CANDIDATE_V28,
   CANDIDATE_V29,
+  CANDIDATE_V30,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

@@ -12,7 +12,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v10`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v11`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -27,7 +27,17 @@ V10 adds a color-first 危险情报 discard policy. It first favors cards whose
 transmission color benefits a likely opponent, then uses function-card value as
 a conservative tie-breaker only when the target is more likely an opponent.
 This promotes candidate-v24 without including any unrelated inference changes.
-`tactical-v8` remains the immediate rollback policy.
+
+V11 promotes candidate-v30's final-receipt 掉包 scoring. It compares the full
+replacement receipt against accepting or declining the current intelligence,
+so a locked bot no longer spends 掉包 to replace one black intelligence with
+another, and an unlocked bot preserves 掉包 when declining already avoids the
+same bad receipt. Three 100-pair five-player evaluations were neutral: mixed
+seats -0.2 percentage points, focal seat 0.0, and population -0.2, with no
+stalls, command-limit failures, or rejected commands. Direct diagnostics found
+that most changed decisions preserved 掉包 by declining or accepting instead.
+The change is promoted as a narrow dominance correction. `tactical-v10`
+remains the immediate rollback policy.
 
 V9 remains evaluation-only. It adds
 假情报-only 直达 faction evidence and strong opposing-faction evidence when a
@@ -39,7 +49,7 @@ The independent 500-pair result did not establish an improvement over V8, so
 these changes are not part of the production policy.
 
 The selectable policy registry retains tactical versions for rollback and only
-the active experimental candidates v14-v17 and v19-v29. Historical candidates
+the active experimental candidates v14-v17 and v19-v30. Historical candidates
 v3-v13 were retired after their results were recorded below; their
 implementations remain available through Git history.
 

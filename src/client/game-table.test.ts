@@ -44,6 +44,8 @@ import {
   soleSelectableTransmissionCardId,
   transmissionDirectionForSelection,
   transmissionPromptDescription,
+  transmissionSlotPosition,
+  transmissionSlotRadius,
   updateIdentityMarkers,
 } from "./GameTable";
 
@@ -809,6 +811,23 @@ describe("transmission prompt", () => {
       hand,
       new Set(),
     )).toBeUndefined();
+  });
+});
+
+describe("transmission card placement", () => {
+  it("uses the existing responsive radii", () => {
+    expect(transmissionSlotRadius(390, 844)).toBe(100);
+    expect(transmissionSlotRadius(1440, 600)).toBe(100);
+    expect(transmissionSlotRadius(1440, 900)).toBe(116);
+  });
+
+  it("places the settled widget on whole pixels without a CSS transform", () => {
+    expect(transmissionSlotPosition(
+      { left: 10, top: 20, width: 400, height: 400 },
+      { left: 150, top: 350, width: 120, height: 60 },
+      { width: 82, height: 114 },
+      116,
+    )).toEqual({ left: 159, top: 259 });
   });
 });
 

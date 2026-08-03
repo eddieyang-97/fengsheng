@@ -20,6 +20,8 @@ export {
   TACTICAL_V7,
   TACTICAL_V8,
   TACTICAL_V9,
+  TACTICAL_V10,
+  TACTICAL_V11,
   type BotPolicy,
   type BotDecision,
   type BotMemory,

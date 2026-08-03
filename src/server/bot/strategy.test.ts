@@ -20,8 +20,9 @@ import {
   TACTICAL_V8,
   TACTICAL_V9,
   TACTICAL_V10,
+  TACTICAL_V11,
 } from "./strategy";
-import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29 } from "../../ai-lab/policies";
+import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30 } from "../../ai-lab/policies";
 
 const LOW_REACTION_CONSERVATION_POLICY = {
   ...TACTICAL_V3,
@@ -73,6 +74,7 @@ const redMailCard = cardWhere((card) => card.color === "红" && card.transmissio
 const secretOrderCard = cardWhere((card) => card.variant?.kind === "secretOrder");
 const redSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "红");
 const blueSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "蓝");
+const blackSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "黑");
 const militaryDrawProbe = cardWhere(
   (card) => card.variant?.kind === "probeDrawDiscard" && card.variant.drawFaction === "军情",
 );
@@ -81,8 +83,8 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes only the validated 危险情报 discard behavior as tactical-v10", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V10);
+  it("promotes validated final-receipt 掉包 scoring as tactical-v11", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V11);
     expect(TACTICAL_V4).toMatchObject({
       incrementalLure: true,
       lureRequiresLikelyAcceptance: true,
@@ -127,6 +129,11 @@ describe("bot strategy", () => {
       directTransmissionEvidence: "none",
       lethalLockEvidence: 0,
       dangerousDiscardStrategy: "color-then-function",
+      finalReceiptSwapScoring: false,
+    });
+    expect(TACTICAL_V11).toMatchObject({
+      dangerousDiscardStrategy: "color-then-function",
+      finalReceiptSwapScoring: true,
     });
     expect(CANDIDATE_V25).toMatchObject({
       directTransmissionEvidence: "black-only",
@@ -1524,6 +1531,52 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(selfOnly, createBotMemory(selfOnly))?.type).toBe("PASS_REACTION");
   });
 
+  it("redirects 公开文本 toward an opponent and never toward itself", () => {
+    const projection = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [separationCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "c"
+          ? { ...player, faction: "军情" as Faction }
+          : player.id === "d"
+            ? { ...player, faction: "潜伏" as Faction }
+            : player
+      ),
+      activeFunctionAction: {
+        kind: "publicText",
+        sourcePlayerId: "b",
+        targetPlayerId: "c",
+        stage: "reactions",
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_FUNCTION_SEPARATION",
+          cardId: separationCard.id as PhysicalCardId,
+          targetId: "bot",
+        },
+        {
+          type: "PLAY_FUNCTION_SEPARATION",
+          cardId: separationCard.id as PhysicalCardId,
+          targetId: "d",
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection))).toMatchObject({
+      type: "PLAY_FUNCTION_SEPARATION",
+      targetId: "d",
+    });
+
+    const selfOnly = {
+      ...projection,
+      legalActions: projection.legalActions.filter((action) =>
+        action.type === "PASS_REACTION" ||
+        (action.type === "PLAY_FUNCTION_SEPARATION" && action.targetId === "bot")
+      ),
+    };
+    expect(chooseBotCommand(selfOnly, createBotMemory(selfOnly))?.type).toBe("PASS_REACTION");
+  });
+
   it("preserves swap for routine upgrades to intelligence the recipient will accept", () => {
     const players = makeProjection().players.map((player) =>
       player.id === "b" ? { ...player, faction: "军情" as Faction } : player
@@ -1633,6 +1686,40 @@ describe("bot strategy", () => {
       type: "PLAY_SWAP",
       cardId: redSwapCard.id,
     });
+  });
+
+  it("does not spend 掉包 to replace locked black intelligence with another black card", () => {
+    const originalBlackCard = cardWhere(
+      (card) => card.color === "黑" && card.id !== blackSwapCard.id,
+    );
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [blackSwapCard] },
+      transmission: {
+        ...transmission(originalBlackCard),
+        intendedRecipientId: "bot",
+        recipientMustAccept: true,
+        locked: true,
+        lockedRecipientId: "bot",
+      },
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "PLAY_SWAP", cardId: blackSwapCard.id as PhysicalCardId },
+      ],
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, CANDIDATE_V30),
+      { policy: CANDIDATE_V30 },
+    )).toEqual({
+      type: "ACCEPT_INTELLIGENCE",
+    });
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V10),
+      { policy: TACTICAL_V10 },
+    )).toMatchObject({ type: "PLAY_SWAP" });
   });
 
   it("uses a draw probe on a likely ally when its printed draw faction matches", () => {

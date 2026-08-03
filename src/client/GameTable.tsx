@@ -448,6 +448,43 @@ export function transmissionPromptDescription(
     : "确认后开始传递。";
 }
 
+interface LayoutRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export function transmissionSlotRadius(
+  viewportWidth: number,
+  viewportHeight: number,
+): number {
+  return viewportWidth <= 850
+    ? 100
+    : Math.min(116, Math.max(100, viewportHeight * 0.13));
+}
+
+export function transmissionSlotPosition(
+  ring: LayoutRect,
+  recipient: LayoutRect,
+  content: Pick<LayoutRect, "width" | "height">,
+  radius: number,
+): { left: number; top: number } {
+  const ringCenterX = ring.left + ring.width / 2;
+  const ringCenterY = ring.top + ring.height / 2;
+  const recipientCenterX = recipient.left + recipient.width / 2;
+  const recipientCenterY = recipient.top + recipient.height / 2;
+  const deltaX = recipientCenterX - ringCenterX;
+  const deltaY = recipientCenterY - ringCenterY;
+  const distance = Math.hypot(deltaX, deltaY) || 1;
+  const anchorX = ring.width / 2 + deltaX / distance * radius;
+  const anchorY = ring.height / 2 + deltaY / distance * radius;
+  return {
+    left: Math.round(anchorX - content.width / 2),
+    top: Math.round(anchorY - content.height / 2),
+  };
+}
+
 export function soleSelectableTransmissionCardId(
   hand: readonly Pick<PhysicalCard, "id">[],
   selectableCardIds: ReadonlySet<string>,
@@ -1034,6 +1071,7 @@ export function GameTable({
   const auditLogFollowsLatest = useRef(true);
   const handRowRef = useRef<HTMLDivElement>(null);
   const handCardRefs = useRef(new Map<string, HTMLButtonElement>());
+  const playerRingRef = useRef<HTMLDivElement>(null);
   const transmissionSlotRef = useRef<HTMLDivElement>(null);
   const transmissionMotionRef = useRef<HTMLDivElement>(null);
   const previousTransmissionPosition = useRef<{
@@ -1317,6 +1355,40 @@ export function GameTable({
   const transmissionSenderId = projection.transmission?.senderId;
 
   useLayoutEffect(() => {
+    const ring = playerRingRef.current;
+    const slot = transmissionSlotRef.current;
+    const motion = transmissionMotionRef.current;
+    if (!ring || !slot || !motion || !transmissionRecipientId) return;
+
+    const placeSlot = () => {
+      const recipient = Array.from(
+        ring.querySelectorAll<HTMLElement>("[data-game-animation-player-id]"),
+      ).find((element) =>
+        element.dataset.gameAnimationPlayerId === transmissionRecipientId
+      );
+      if (!recipient) return;
+      const position = transmissionSlotPosition(
+        ring.getBoundingClientRect(),
+        recipient.getBoundingClientRect(),
+        { width: motion.offsetWidth, height: motion.offsetHeight },
+        transmissionSlotRadius(window.innerWidth, window.innerHeight),
+      );
+      slot.style.left = `${position.left}px`;
+      slot.style.top = `${position.top}px`;
+    };
+
+    placeSlot();
+    const resizeObserver = new ResizeObserver(placeSlot);
+    resizeObserver.observe(ring);
+    resizeObserver.observe(motion);
+    window.addEventListener("resize", placeSlot);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", placeSlot);
+    };
+  }, [displaySeatOrder.length, transmissionRecipientId]);
+
+  useLayoutEffect(() => {
     const slot = transmissionSlotRef.current;
     const motion = transmissionMotionRef.current;
     if (!slot || !motion || !transmissionRecipientId || !transmissionSenderId) {
@@ -1360,7 +1432,7 @@ export function GameTable({
     }
 
     transmissionAnimation.current?.cancel();
-    transmissionAnimation.current = motion.animate(
+    const animation = motion.animate(
       [
         {
           transform: `translate(${origin.x - current.x}px, ${origin.y - current.y}px)`,
@@ -1372,6 +1444,12 @@ export function GameTable({
         easing: "cubic-bezier(.22,.76,.25,1)",
       },
     );
+    transmissionAnimation.current = animation;
+    void animation.finished.then(() => {
+      if (transmissionAnimation.current !== animation) return;
+      animation.cancel();
+      transmissionAnimation.current = undefined;
+    }).catch(() => undefined);
   }, [transmissionRecipientId, transmissionSenderId]);
   const autoPassAction = automaticPassCommand(actions, autoPassIgnoreBurn);
   const autoPassPrompt = reactionTimer?.promptId ?? (
@@ -1930,7 +2008,11 @@ export function GameTable({
 
       <section className="game-layout">
         <div className="table-area">
-          <div className="player-ring" data-game-animation-anchor="table">
+          <div
+            className="player-ring"
+            data-game-animation-anchor="table"
+            ref={playerRingRef}
+          >
             {displaySeatOrder.map((id, index) => {
               const player = projection.players.find((candidate) => candidate.id === id)!;
               const isOwn = id === projection.own.id;

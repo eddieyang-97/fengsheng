@@ -31,6 +31,8 @@ export interface BotPolicy {
   readonly methodAwareDangerousTransmission: boolean;
   /** Preserve 掉包 when an accepting recipient would receive only a routine upgrade. */
   readonly conservativeSwap: boolean;
+  /** Score 掉包 by its complete replacement outcome at the recipient's final decision. */
+  readonly finalReceiptSwapScoring: boolean;
   /** Evaluate the expected receipt across the complete passive transmission route. */
   readonly routeAwareTransmission: boolean;
   /** Allow route evaluation to change which physical hand card is transmitted. */
@@ -63,6 +65,7 @@ export const BASELINE_V1: BotPolicy = {
   lockRequiresLikelyDecline: false,
   methodAwareDangerousTransmission: false,
   conservativeSwap: false,
+  finalReceiptSwapScoring: false,
   routeAwareTransmission: false,
   routeAwareTransmissionCardChoice: false,
   routeAwareTransmissionMethodChoice: false,
@@ -86,6 +89,7 @@ export const TACTICAL_V2: BotPolicy = {
   lockRequiresLikelyDecline: false,
   methodAwareDangerousTransmission: false,
   conservativeSwap: false,
+  finalReceiptSwapScoring: false,
   routeAwareTransmission: false,
   routeAwareTransmissionCardChoice: false,
   routeAwareTransmissionMethodChoice: false,
@@ -109,6 +113,7 @@ export const TACTICAL_V3: BotPolicy = {
   lockRequiresLikelyDecline: false,
   methodAwareDangerousTransmission: false,
   conservativeSwap: false,
+  finalReceiptSwapScoring: false,
   routeAwareTransmission: false,
   routeAwareTransmissionCardChoice: false,
   routeAwareTransmissionMethodChoice: false,
@@ -158,7 +163,12 @@ export const TACTICAL_V10: BotPolicy = {
   id: "tactical-v10",
   dangerousDiscardStrategy: "color-then-function",
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V10;
+export const TACTICAL_V11: BotPolicy = {
+  ...TACTICAL_V10,
+  id: "tactical-v11",
+  finalReceiptSwapScoring: true,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V11;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -797,6 +807,32 @@ function scoreAction(
       }
       {
         const improvement = swapImprovement(card, projection, beliefs, transmissionInference);
+        const isFinalRecipientDecision =
+          projection.transmission?.intendedRecipientId === projection.own.id &&
+          projection.legalActions.some(
+            (candidate) =>
+              candidate.type === "ACCEPT_INTELLIGENCE" ||
+              candidate.type === "DECLINE_INTELLIGENCE",
+          );
+        if (policy.finalReceiptSwapScoring && isFinalRecipientDecision) {
+          const replacementReceiptUtility = receiptUtility(
+            card,
+            projection.own.id,
+            projection,
+            beliefs,
+          );
+          const safeTruePossessionBonus = card && card.color !== "黑" ? 1 : 0;
+          return decision(
+            command,
+            PASS_REACTION_SCORE +
+              replacementReceiptUtility +
+              safeTruePossessionBonus -
+              (policy.conservativeSwap
+                ? cardUtility(card, ownFaction) * SWAP_CARD_COST_FACTOR
+                : 1),
+            "compare the replacement's final receipt value against accepting or declining the current intelligence",
+          );
+        }
         if (
           policy.conservativeSwap &&
           projection.transmission?.intendedRecipientId !== projection.own.id &&
@@ -1731,7 +1767,7 @@ function activeFunctionTargetUtility(
     case "dangerousIntelligence":
       return -10 * targetAffinity(targetId, projection.own.faction, beliefs);
     case "publicText":
-      return 5 * targetAffinity(targetId, projection.own.faction, beliefs);
+      return -5 * targetAffinity(targetId, projection.own.faction, beliefs);
     default:
       return 0;
   }
