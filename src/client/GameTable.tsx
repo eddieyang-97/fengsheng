@@ -1057,7 +1057,7 @@ export function GameTable({
   );
   const lastAutoPassPrompt = useRef<string | undefined>(undefined);
   const pendingAutoPassTimer = useRef<number | undefined>(undefined);
-  const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("直达");
+  const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("密电");
   const [direction, setDirection] = useState<"clockwise" | "counterclockwise">("clockwise");
   const [discardPileOpen, setDiscardPileOpen] = useState(false);
   const [detailCard, setDetailCard] = useState<PhysicalCard>();
@@ -2225,7 +2225,7 @@ export function GameTable({
                       onChange={(event) => setTransmissionMethod(event.target.value as typeof transmissionMethod)}
                       value={transmissionMethod}
                     >
-                      {(["直达", "文本", "密电"] as const)
+                      {(["密电", "直达", "文本"] as const)
                         .filter((method) => availableTransmissionMethods.has(method))
                         .map((method) => (
                           <option key={method} value={method}>{method}</option>
