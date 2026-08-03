@@ -12,7 +12,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v11`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v12`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -39,6 +39,20 @@ that most changed decisions preserved 掉包 by declining or accepting instead.
 The change is promoted as a narrow dominance correction. `tactical-v10`
 remains the immediate rollback policy.
 
+V12 promotes candidate-v38's faction-threat targeting for 危险情报. A team bot
+normally pressures the opposing team before a quiet 特工; a 特工 normally
+pressures the larger faction. Visible near-win progress overrides faction size,
+including a five-intelligence 特工 or a faction player with two matching
+colors. Scores are normalized across the legal targets for the same physical
+card, so the feature changes only the target and never whether 危险情报 is
+played. Development results were focal +1.0 percentage point, mixed +1.0, and
+population +0.2. Reserved-seed validation scored focal +0.5, mixed +0.1, and
+population -0.1 (one win in 1,000 entries), with no stalls, command-limit
+failures, or rejected commands. The narrow target-ordering behavior is promoted
+as the requested strategic policy; `tactical-v11` is the rollback policy.
+V12 also preserves 秘密下达 when the active target has at most one hand card,
+where color control cannot justify spending the function card.
+
 V9 remains evaluation-only. It adds
 假情报-only 直达 faction evidence and strong opposing-faction evidence when a
 knowingly lethal 锁定 resolves without 掉包 or 离间 changing responsibility.
@@ -49,9 +63,97 @@ The independent 500-pair result did not establish an improvement over V8, so
 these changes are not part of the production policy.
 
 The selectable policy registry retains tactical versions for rollback and only
-the active experimental candidates v14-v17 and v19-v30. Historical candidates
+the active experimental candidates v14-v17 and v19-v33. Historical candidates
 v3-v13 were retired after their results were recorded below; their
 implementations remain available through Git history.
+
+`candidate-v31` replaces 公开文本 离间's target-affinity shortcut with an
+exchange model. The resolving function card is already public and is included
+in every player projection. When the bot is the proposed target, the candidate
+uses its exact remaining hand after spending 离间; for other players it uses a
+conservative unknown-hand estimate. It values the card received by the target,
+the random card lost, and the value delivered to the original source. In 200
+five-player development games it disagreed with tactical-v11 only twice: once
+to preserve a favorable allied exchange, and once to redirect an opponent's
+公开文本 to itself when its exact hand made that favorable. Three preliminary
+100-pair runs were neutral (focal seat 0.0 percentage points, mixed seats -0.2,
+population 0.0) with no stalls, command-limit failures, or rejected commands.
+It remains evaluation-only because the decision is too rare for those aggregate
+results to justify promotion by themselves.
+
+`candidate-v32` replaces the assumption that every incoming 试探 is harmful
+with an information-safe hidden-variant expectation. During the reaction window
+the responder does not receive the face-down physical card or whether it is an
+identity or draw/discard variant. The candidate instead starts from the public
+nine-card composition, removes only probes it legitimately knows from its own
+hand or its own earlier plays, values its cheapest possible discard, and uses
+the inferred affinity of the prober when comparing identity announcement with
+random card transfer. In 200 five-player development games it disagreed with
+tactical-v11 eleven times, always preserving 识破 by passing. Preliminary
+100-pair focal-seat, mixed-seat, and population runs were all exactly neutral
+in wins, with no stalls, command-limit failures, or rejected commands. It
+remains evaluation-only pending more targeted evidence about those rare passes.
+
+`candidate-v33` extends candidate-v32 through the resolved identity-probe
+choice. Instead of using hand count, it compares the inferred cost of revealing
+its faction to the prober with the exact expected value of transferring a
+random card from its current hand. Deterministic scenarios cover both useful
+directions: announce to a likely ally rather than donating a card, and give a
+low-value card to an opponent when concealing identity is worth more. A
+500-game diagnostic run on the live-policy trajectory produced no natural
+choice disagreements because tactical-v11 usually counters 试探 before this
+branch. Three 100-pair comparisons of candidate-v33 against candidate-v32 were
+exactly neutral in focal-seat, mixed-seat, and population modes, with no stalls,
+command-limit failures, or rejected commands. V33 remains evaluation-only.
+
+`candidate-v34` scores 截获 as an incremental choice: the forced receipt by the
+interceptor is compared with the expected value of leaving the intelligence
+with its current recipient. A voluntary recipient is assumed to decline when
+the intelligence is unfavorable to them, while 锁定, 转移 commitment, and other
+forced receipts are valued as committed outcomes. Deterministic scenarios
+cover both directions: preserving 截获 when a committed ally would benefit, and
+intercepting to deny a useful receipt to a known opponent even when the card is
+neutral for the bot. In 200 development games it changed 99 decisions, mostly
+adding interceptions (83) but also preserving the card (11). Preliminary
+100-pair results were focal seat -2.0 percentage points, mixed seats +1.4, and
+population 0.0, with no stalls, command-limit failures, or rejected commands.
+Because the focal bot regressed and the policy greatly increased 截获 use, V34
+remains evaluation-only and is not suitable for production promotion as-is.
+
+`candidate-v35` retains V34's displaced-receipt comparison but charges 60% of
+the physical 截获 card's transmission value as an opportunity cost. This both
+preserves useful cards and prefers a less valuable 截获 when several are legal.
+Against V34, a 200-game diagnostic changed 21 decisions: 11 passes, seven
+switches to 调虎离山, and three cheaper-card selections. Initial development
+results against tactical-v11 were focal seat 0.0 percentage points, mixed seats
++0.6, and population +0.6. A larger late-development sample scored focal -0.6,
+mixed +0.64, and population +0.32. Proper validation on reserved seeds scored
+focal +0.5, mixed -0.4, and population 0.0; population belief calibration also
+worsened. Every run completed without stalls, command-limit failures, or
+rejected commands. A 200-game live-policy audit found 96 changed decisions,
+including 76 new interceptions. V34 and V35 are retired from the selectable
+registry because the broad behavioral change failed the non-regression gate.
+The one-time holdout range remains unused.
+
+`candidate-v36` tested the recorded 转移 hypothesis by scoring the forced
+target receipt as an absolute outcome with an explicit card cost, allowing the
+normal action chooser to compare it directly with free 接受情报 and 不接受
+actions. A 200-game diagnostic changed 63 decisions, all preserving 转移: 60
+accepted and three declined instead. Despite that clean scope, development
+regressed: focal seat -1.0 percentage point, mixed seats -2.4 (with the 95%
+confidence interval favoring tactical-v11), and population 0.0. This suggests
+转移 has useful risk-control or commitment value when hidden intelligence has
+near-zero mean utility. V36 was retired before validation; simply adding a
+generic card cost is not an adequate model of that option value.
+
+Candidates v37-v39 developed faction-level offensive targeting. V37 applied
+the model to both 危险情报 and draw/discard 试探; development was focal 0.0,
+mixed -1.0, and population 0.0. Isolation showed that v38's 危险情报-only rule
+was non-negative in development and essentially neutral in validation, so it
+was promoted as tactical-v12. V39's 试探-only rule regressed to focal -1.0 and
+mixed -0.2 in development. The 试探 extension is retired because its
+faction-dependent draw/discard effect needs card-specific reasoning rather than
+a generic threat preference.
 
 > Historical measurement notice: the original mixed-policy harness executed
 > policies by stable player ID but attributed final policy labels by shuffled

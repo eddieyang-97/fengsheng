@@ -165,6 +165,8 @@ describe("行动阶段功能牌框架", () => {
       passReaction(state, responder);
     }
     expect(state.activeFunctionAction?.kind).toBe("publicText");
+    expect(projectGameForPlayer(state, "丙").activeFunctionAction?.sourceCard?.id)
+      .toBe(publicText);
 
     passReaction(state, "乙");
     expect(state.activeFunctionAction).toBeUndefined();
@@ -359,6 +361,17 @@ describe("行动阶段功能牌框架", () => {
 
     playProbe(state, "甲", probe, "乙");
 
+    expect(projectGameForPlayer(state, "甲").activeFunctionAction).toMatchObject({
+      kind: "probeIdentity",
+      sourceCard: expect.objectContaining({ id: probe }),
+    });
+    for (const viewerId of ["乙", "丙", "丁", "戊"] as const) {
+      expect(projectGameForPlayer(state, viewerId).activeFunctionAction).toMatchObject({
+        kind: "probe",
+        sourceCard: undefined,
+      });
+    }
+
     expect(projectGameForPlayer(state, "丙").legalActions).toContainEqual({
       type: "PLAY_FUNCTION_SEPARATION",
       cardId: separation,
@@ -375,6 +388,10 @@ describe("行动阶段功能牌框架", () => {
     expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
       { type: "CHOOSE_PROBE_IDENTITY", choice: "announce" },
     ]);
+    expect(projectGameForPlayer(state, "丁").activeFunctionAction).toMatchObject({
+      kind: "probeIdentity",
+      sourceCard: undefined,
+    });
   });
 });
 

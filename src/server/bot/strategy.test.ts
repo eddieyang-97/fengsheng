@@ -21,8 +21,9 @@ import {
   TACTICAL_V9,
   TACTICAL_V10,
   TACTICAL_V11,
+  TACTICAL_V12,
 } from "./strategy";
-import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30 } from "../../ai-lab/policies";
+import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36 } from "../../ai-lab/policies";
 
 const LOW_REACTION_CONSERVATION_POLICY = {
   ...TACTICAL_V3,
@@ -83,8 +84,8 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes validated final-receipt 掉包 scoring as tactical-v11", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V11);
+  it("promotes faction-threat 危险情报 targeting as tactical-v12", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V12);
     expect(TACTICAL_V4).toMatchObject({
       incrementalLure: true,
       lureRequiresLikelyAcceptance: true,
@@ -134,6 +135,11 @@ describe("bot strategy", () => {
     expect(TACTICAL_V11).toMatchObject({
       dangerousDiscardStrategy: "color-then-function",
       finalReceiptSwapScoring: true,
+    });
+    expect(TACTICAL_V12).toMatchObject({
+      finalReceiptSwapScoring: true,
+      factionThreatTargeting: "dangerous",
+      avoidSecretOrderSmallHand: true,
     });
     expect(CANDIDATE_V25).toMatchObject({
       directTransmissionEvidence: "black-only",
@@ -1222,6 +1228,110 @@ describe("bot strategy", () => {
       .toBe("PLAY_DANGEROUS_INTELLIGENCE");
   });
 
+  it("candidate-v37 pressures the larger opposing faction by default", () => {
+    const dangerousTargets = (ownFaction: Faction, players: PlayerProjection["players"]) =>
+      makeProjection({
+        phase: "initialized",
+        own: { id: "bot", faction: ownFaction, hand: [dangerousCard] },
+        players,
+        legalActions: [
+          {
+            type: "PLAY_DANGEROUS_INTELLIGENCE",
+            cardId: dangerousCard.id as PhysicalCardId,
+            targetId: "d",
+          },
+          {
+            type: "PLAY_DANGEROUS_INTELLIGENCE",
+            cardId: dangerousCard.id as PhysicalCardId,
+            targetId: "b",
+          },
+        ],
+      });
+    const basePlayers = makeProjection().players;
+
+    const teamBot = dangerousTargets("军情", basePlayers.map((player) => ({
+      ...player,
+      faction: player.id === "bot"
+        ? undefined
+        : player.id === "b" || player.id === "c"
+          ? "潜伏"
+          : player.id === "d"
+            ? "特工"
+            : "军情",
+    } as typeof player)));
+    expect(chooseBotCommand(
+      teamBot,
+      createBotMemory(teamBot, TACTICAL_V12),
+      { policy: TACTICAL_V12 },
+    )).toMatchObject({ targetId: "b" });
+
+    const agentBot = dangerousTargets("特工", basePlayers.map((player) => ({
+      ...player,
+      alive: player.id !== "e",
+      faction: player.id === "bot"
+        ? undefined
+        : player.id === "b" || player.id === "c" ? "潜伏" : "军情",
+    } as typeof player)));
+    expect(chooseBotCommand(
+      agentBot,
+      createBotMemory(agentBot, TACTICAL_V12),
+      { policy: TACTICAL_V12 },
+    )).toMatchObject({ targetId: "b" });
+  });
+
+  it("candidate-v37 overrides faction size for a clearly winning individual", () => {
+    const fiveTrue = Array.from({ length: 5 }, (_, index) => ({
+      ...blueCard,
+      id: `threat-agent-${index}`,
+    }));
+    const twoBlue = [
+      blueCard,
+      { ...blueCard, id: "threat-second-blue" },
+    ];
+    const chooseTarget = (
+      ownFaction: Faction,
+      dangerousPlayerId: "b" | "d",
+      players: PlayerProjection["players"],
+    ) => {
+      const projection = makeProjection({
+        phase: "initialized",
+        own: { id: "bot", faction: ownFaction, hand: [dangerousCard] },
+        players,
+        legalActions: ["b", "d"].map((targetId) => ({
+          type: "PLAY_DANGEROUS_INTELLIGENCE" as const,
+          cardId: dangerousCard.id as PhysicalCardId,
+          targetId,
+        })),
+      });
+      expect(chooseBotCommand(
+        projection,
+        createBotMemory(projection, TACTICAL_V12),
+        { policy: TACTICAL_V12 },
+      )).toMatchObject({ targetId: dangerousPlayerId });
+    };
+
+    chooseTarget("军情", "d", makeProjection().players.map((player) => ({
+      ...player,
+      faction: player.id === "bot"
+        ? undefined
+        : player.id === "b" || player.id === "c"
+          ? "潜伏"
+          : player.id === "d"
+            ? "特工"
+            : "军情",
+      intelligence: player.id === "d" ? fiveTrue : player.intelligence,
+    } as typeof player)));
+
+    chooseTarget("特工", "d", makeProjection().players.map((player) => ({
+      ...player,
+      alive: player.id !== "e",
+      faction: player.id === "bot"
+        ? undefined
+        : player.id === "b" || player.id === "c" ? "潜伏" : "军情",
+      intelligence: player.id === "d" ? twoBlue : player.intelligence,
+    } as typeof player)));
+  });
+
   it("tactical-v7 does not apply targeted-function conservation to 试探", () => {
     const projection = makeProjection({
       phase: "initialized",
@@ -1268,6 +1378,37 @@ describe("bot strategy", () => {
     expect(chooseTransfer(blueCard, [])).toBe("PASS_REACTION");
     expect(chooseTransfer(blackCard, [blackCard, { ...blackCard, id: "second-black" }]))
       .toBe("PLAY_TRANSFER");
+  });
+
+  it("candidate-v36 charges 转移 for spending the card", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [transferCard] },
+      transmission: {
+        ...transmission(blueCard),
+        card: undefined,
+        faceUp: false,
+      },
+      legalActions: [{
+        type: "PLAY_TRANSFER",
+        cardId: transferCard.id as PhysicalCardId,
+        targetId: "b",
+      }],
+    });
+
+    const live = chooseBotDecision(
+      projection,
+      createBotMemory(projection, TACTICAL_V11),
+      { policy: TACTICAL_V11 },
+    );
+    const candidate = chooseBotDecision(
+      projection,
+      createBotMemory(projection, CANDIDATE_V36),
+      { policy: CANDIDATE_V36 },
+    );
+
+    expect(candidate?.command.type).toBe("PLAY_TRANSFER");
+    expect(candidate?.score).toBe((live?.score ?? 0) - 3);
   });
 
   it("can combine incremental transfer with lure safeguards", () => {
@@ -1446,6 +1587,38 @@ describe("bot strategy", () => {
     expect(secretOrderCard.variant.mapping[command.word]).not.toBe("蓝");
   });
 
+  it("preserves 秘密下达 when the target has only one card", () => {
+    const projection = makeProjection({
+      phase: "preTransmission",
+      activePlayerId: "b",
+      own: { id: "bot", faction: "军情", hand: [secretOrderCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 1 } : player
+      ),
+      pendingSecretOrder: {
+        stage: "offering",
+        targetPlayerId: "b",
+        verifiedNoMatch: false,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        ...(["听风", "看雨", "日落"] as const).map((word) => ({
+          type: "PLAY_SECRET_ORDER" as const,
+          cardId: secretOrderCard.id as PhysicalCardId,
+          word,
+        })),
+      ],
+    });
+
+    expect(chooseBotCommand(projection, createBotMemory(projection)))
+      .toEqual({ type: "PASS_REACTION" });
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V11),
+      { policy: TACTICAL_V11 },
+    )?.type).toBe("PLAY_SECRET_ORDER");
+  });
+
   it("uses separation only for enough incremental improvement over the pending transfer target", () => {
     const chooseSeparation = (
       players: PlayerProjection["players"],
@@ -1546,6 +1719,7 @@ describe("bot strategy", () => {
         sourcePlayerId: "b",
         targetPlayerId: "c",
         stage: "reactions",
+        sourceCard: redPublicText,
       },
       legalActions: [
         { type: "PASS_REACTION" },
@@ -1575,6 +1749,56 @@ describe("bot strategy", () => {
       ),
     };
     expect(chooseBotCommand(selfOnly, createBotMemory(selfOnly))?.type).toBe("PASS_REACTION");
+  });
+
+  it("uses exact 公开文本 exchange value before redirecting it to itself", () => {
+    const players = makeProjection().players.map((player) =>
+      player.id === "b"
+        ? { ...player, faction: "潜伏" as Faction }
+        : player.id === "c"
+          ? { ...player, faction: "军情" as Faction }
+          : player
+    );
+    const projection = (extraHand: PhysicalCard[]) => makeProjection({
+      own: {
+        id: "bot",
+        faction: "军情",
+        hand: [separationCard, ...extraHand],
+      },
+      players,
+      activeFunctionAction: {
+        kind: "publicText",
+        sourcePlayerId: "b",
+        targetPlayerId: "c",
+        stage: "reactions",
+        sourceCard: redPublicText,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_FUNCTION_SEPARATION",
+          cardId: separationCard.id as PhysicalCardId,
+          targetId: "bot",
+        },
+      ],
+    });
+
+    const emptyAfterSeparation = projection([]);
+    expect(chooseBotCommand(
+      emptyAfterSeparation,
+      createBotMemory(emptyAfterSeparation, CANDIDATE_V31),
+      { policy: CANDIDATE_V31 },
+    )).toMatchObject({
+      type: "PLAY_FUNCTION_SEPARATION",
+      targetId: "bot",
+    });
+
+    const valuableCardAtRisk = projection([counterCard]);
+    expect(chooseBotCommand(
+      valuableCardAtRisk,
+      createBotMemory(valuableCardAtRisk, CANDIDATE_V31),
+      { policy: CANDIDATE_V31 },
+    )?.type).toBe("PASS_REACTION");
   });
 
   it("preserves swap for routine upgrades to intelligence the recipient will accept", () => {
@@ -1891,6 +2115,73 @@ describe("bot strategy", () => {
       .toBe("PLAY_INTERCEPT");
   });
 
+  it("scores 截获 against the receipt it replaces", () => {
+    const projection = (ownFaction: Faction, currentFaction: Faction) =>
+      makeProjection({
+        phase: "transmitting",
+        own: { id: "bot", faction: ownFaction, hand: [interceptCard] },
+        players: makeProjection().players.map((player) =>
+          player.id === "b"
+            ? { ...player, faction: currentFaction }
+            : player
+        ),
+        transmission: {
+          ...transmission(blueCard),
+          senderId: "c",
+          intendedRecipientId: "b",
+          card: blueCard,
+          faceUp: true,
+        },
+        reactionWindow: {
+          kind: "intelligence",
+          currentResponderId: "bot",
+        },
+        responseStack: [{
+          id: "intelligence",
+          kind: "intelligence",
+          sourcePlayerId: "c",
+          targetPlayerId: "b",
+        }],
+        legalActions: [
+          { type: "PASS_REACTION" },
+          {
+            type: "PLAY_INTERCEPT",
+            cardId: interceptCard.id as PhysicalCardId,
+          },
+        ],
+      });
+
+    const allyReceipt = projection("军情", "军情");
+    expect(chooseBotCommand(
+      allyReceipt,
+      createBotMemory(allyReceipt, CANDIDATE_V34),
+      { policy: CANDIDATE_V34 },
+    )?.type).toBe("PASS_REACTION");
+    expect(chooseBotCommand(
+      allyReceipt,
+      createBotMemory(allyReceipt, TACTICAL_V11),
+      { policy: TACTICAL_V11 },
+    )?.type).toBe("PLAY_INTERCEPT");
+
+    const denyOpponent = projection("潜伏", "军情");
+    expect(chooseBotCommand(
+      denyOpponent,
+      createBotMemory(denyOpponent, CANDIDATE_V34),
+      { policy: CANDIDATE_V34 },
+    )?.type).toBe("PLAY_INTERCEPT");
+    expect(chooseBotCommand(
+      denyOpponent,
+      createBotMemory(denyOpponent, TACTICAL_V11),
+      { policy: TACTICAL_V11 },
+    )?.type).toBe("PASS_REACTION");
+
+    expect(chooseBotCommand(
+      denyOpponent,
+      createBotMemory(denyOpponent, CANDIDATE_V35),
+      { policy: CANDIDATE_V35 },
+    )?.type).toBe("PLAY_INTERCEPT");
+  });
+
   it("does not use 破译 on visible intelligence that it originally transmitted", () => {
     const knownReturnedTransmission = {
       ...transmission(blueCard),
@@ -2172,6 +2463,11 @@ describe("bot strategy", () => {
 
     expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
       .toBe("PLAY_TRANSFER");
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, CANDIDATE_V36),
+      { policy: CANDIDATE_V36 },
+    )?.type).toBe("PLAY_TRANSFER");
   });
 
   it("counters hostile actions but preserves 识破 when the pending action helps", () => {
@@ -2208,6 +2504,108 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(helpful, createBotMemory(helpful))?.type).toBe("PASS_REACTION");
     expect(chooseBotCommand(helpful, createBotMemory(helpful), { policy: BASELINE_V1 })?.type)
       .toBe("PLAY_COUNTER");
+  });
+
+  it("uses the prober's inferred faction when deciding whether to counter hidden 试探", () => {
+    const lowValueCard = redDirectCard;
+    const projection = (sourceFaction: Faction) => makeProjection({
+      own: {
+        id: "bot",
+        faction: "军情",
+        hand: [counterCard, lowValueCard],
+      },
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, faction: sourceFaction } : player
+      ),
+      activeFunctionAction: {
+        kind: "probe",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "reactions",
+      },
+      responseStack: [{
+        id: "probe",
+        kind: "card",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        cardName: "试探",
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_COUNTER",
+          cardId: counterCard.id as PhysicalCardId,
+          targetInteractionId: "probe",
+        },
+      ],
+    });
+
+    const allyProbe = projection("军情");
+    expect(chooseBotCommand(
+      allyProbe,
+      createBotMemory(allyProbe, CANDIDATE_V32),
+      { policy: CANDIDATE_V32 },
+    )?.type).toBe("PASS_REACTION");
+    expect(chooseBotCommand(
+      allyProbe,
+      createBotMemory(allyProbe, TACTICAL_V11),
+      { policy: TACTICAL_V11 },
+    )?.type).toBe("PLAY_COUNTER");
+
+    const opponentProbe = projection("潜伏");
+    expect(chooseBotCommand(
+      opponentProbe,
+      createBotMemory(opponentProbe, CANDIDATE_V32),
+      { policy: CANDIDATE_V32 },
+    )?.type).toBe("PLAY_COUNTER");
+  });
+
+  it("uses source affinity and exact hand value for identity-probe choices", () => {
+    const projection = (sourceFaction: Faction, hand: PhysicalCard[]) =>
+      makeProjection({
+        own: { id: "bot", faction: "军情", hand },
+        players: makeProjection().players.map((player) =>
+          player.id === "b" ? { ...player, faction: sourceFaction } : player
+        ),
+        activeFunctionAction: {
+          kind: "probeIdentity",
+          sourcePlayerId: "b",
+          targetPlayerId: "bot",
+          stage: "awaitingProbeChoice",
+        },
+        legalActions: [
+          { type: "CHOOSE_PROBE_IDENTITY", choice: "announce" },
+          { type: "CHOOSE_PROBE_IDENTITY", choice: "giveRandom" },
+        ],
+      });
+
+    const allyProbe = projection("军情", [
+      counterCard,
+      transferCard,
+      redDirectCard,
+    ]);
+    expect(chooseBotCommand(
+      allyProbe,
+      createBotMemory(allyProbe, CANDIDATE_V33),
+      { policy: CANDIDATE_V33 },
+    )).toEqual({ type: "CHOOSE_PROBE_IDENTITY", choice: "announce" });
+    expect(chooseBotCommand(
+      allyProbe,
+      createBotMemory(allyProbe, TACTICAL_V11),
+      { policy: TACTICAL_V11 },
+    )).toEqual({ type: "CHOOSE_PROBE_IDENTITY", choice: "giveRandom" });
+
+    const opponentProbe = projection("特工", [blackCard]);
+    expect(chooseBotCommand(
+      opponentProbe,
+      createBotMemory(opponentProbe, CANDIDATE_V33),
+      { policy: CANDIDATE_V33 },
+    )).toEqual({ type: "CHOOSE_PROBE_IDENTITY", choice: "giveRandom" });
+    expect(chooseBotCommand(
+      opponentProbe,
+      createBotMemory(opponentProbe, TACTICAL_V11),
+      { policy: TACTICAL_V11 },
+    )).toEqual({ type: "CHOOSE_PROBE_IDENTITY", choice: "announce" });
   });
 
   it("does not hand matching intelligence to a likely opposing faction", () => {

@@ -543,10 +543,12 @@ export interface PlayerProjection {
     targetInteractionId?: string;
   }>;
   activeFunctionAction?: {
-    kind: ActiveFunctionKind;
+    kind: ActiveFunctionKind | "probe";
     sourcePlayerId: PlayerId;
     targetPlayerId: PlayerId;
     stage: ActiveFunctionAction["stage"];
+    /** Function cards awaiting resolution are face up and public. */
+    sourceCard?: PhysicalCard;
     inspectedHand?: PhysicalCard[];
   };
   pendingPublicTextReceipt?: {
@@ -4570,11 +4572,22 @@ export function projectGameForPlayer(
     responseStack,
     activeFunctionAction: activeFunctionAction
       ? {
-          kind: activeFunctionAction.kind,
-          sourcePlayerId: activeFunctionAction.sourcePlayerId,
-          targetPlayerId: activeFunctionAction.targetPlayerId,
-          stage: activeFunctionAction.stage,
-          inspectedHand:
+           kind:
+             (activeFunctionAction.kind === "probeIdentity" ||
+               activeFunctionAction.kind === "probeDrawDiscard") &&
+             activeFunctionAction.stage === "reactions" &&
+             activeFunctionAction.sourcePlayerId !== viewerId
+               ? "probe"
+               : activeFunctionAction.kind,
+           sourcePlayerId: activeFunctionAction.sourcePlayerId,
+           targetPlayerId: activeFunctionAction.targetPlayerId,
+           stage: activeFunctionAction.stage,
+           sourceCard:
+             cardById(activeFunctionAction.sourceCardId).name !== "试探" ||
+             activeFunctionAction.sourcePlayerId === viewerId
+               ? projectedCardById(activeFunctionAction.sourceCardId)
+               : undefined,
+           inspectedHand:
             activeFunctionAction.kind === "dangerousIntelligence" &&
             activeFunctionAction.stage === "awaitingDiscard" &&
             activeFunctionAction.sourcePlayerId === viewerId

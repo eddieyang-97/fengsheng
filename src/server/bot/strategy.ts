@@ -1,4 +1,4 @@
-import type { Faction, PhysicalCard, PhysicalCardId, SingleColor } from "../../game/cards";
+import { PHYSICAL_DECK, type Faction, type PhysicalCard, type PhysicalCardId, type SingleColor } from "../../game/cards";
 import { factionsForPlayerCount, type ActiveFunctionKind, type PlayerProjection } from "../../game/engine";
 import type { GameCommand } from "../game-session";
 
@@ -19,6 +19,8 @@ export interface BotPolicy {
   readonly reactionConservation: number;
   /** Score transfer as improvement over leaving the intelligence with its current recipient. */
   readonly incrementalTransfer: boolean;
+  /** Score 转移 as its absolute forced receipt, letting the chooser compare free alternatives. */
+  readonly transferAgainstBestFreeAlternative: boolean;
   /** How much downstream routing to include when scoring a decline. */
   readonly declineRouting: "flat" | "forced-return" | "acceptance-weighted";
   /** Score 调虎离山 by the receipt change caused by forcing the current recipient to decline. */
@@ -33,6 +35,16 @@ export interface BotPolicy {
   readonly conservativeSwap: boolean;
   /** Score 掉包 by its complete replacement outcome at the recipient's final decision. */
   readonly finalReceiptSwapScoring: boolean;
+  /** Evaluate both sides of the hand exchange when redirecting 公开文本 with 离间. */
+  readonly publicTextExchangeScoring: boolean;
+  /** Evaluate a face-down 试探 from its hidden-variant prior and the prober's affinity. */
+  readonly probeCounterAffinityScoring: boolean;
+  /** Compare identity announcement with the exact expected random-card transfer. */
+  readonly probeIdentityChoiceScoring: boolean;
+  /** Score 截获 by both its forced receipt and the receipt denied to the current target. */
+  readonly incrementalInterceptScoring: boolean;
+  /** Fraction of the held 截获 card's transmission value charged when spending it. */
+  readonly interceptOpportunityCostFactor: number;
   /** Evaluate the expected receipt across the complete passive transmission route. */
   readonly routeAwareTransmission: boolean;
   /** Allow route evaluation to change which physical hand card is transmitted. */
@@ -51,6 +63,10 @@ export interface BotPolicy {
   readonly dangerousDiscardStrategy: "random" | "color-denial" | "color-then-function" | "expected-denial" | "target-value";
   /** Learn weak faction evidence from completed voluntary actions that help or harm this bot. */
   readonly inferResolvedActionAffinity: boolean;
+  /** Which offensive target choices should prefer the more dangerous opposing faction. */
+  readonly factionThreatTargeting: "none" | "dangerous" | "probe" | "all";
+  /** Preserve 秘密下达 when its target has too few cards for meaningful color control. */
+  readonly avoidSecretOrderSmallHand: boolean;
 }
 export const BASELINE_V1: BotPolicy = {
   id: "baseline-v1",
@@ -59,6 +75,7 @@ export const BASELINE_V1: BotPolicy = {
   burnBase: 7,
   reactionConservation: 0,
   incrementalTransfer: false,
+  transferAgainstBestFreeAlternative: false,
   declineRouting: "flat",
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
@@ -66,6 +83,11 @@ export const BASELINE_V1: BotPolicy = {
   methodAwareDangerousTransmission: false,
   conservativeSwap: false,
   finalReceiptSwapScoring: false,
+  publicTextExchangeScoring: false,
+  probeCounterAffinityScoring: false,
+  probeIdentityChoiceScoring: false,
+  incrementalInterceptScoring: false,
+  interceptOpportunityCostFactor: 0,
   routeAwareTransmission: false,
   routeAwareTransmissionCardChoice: false,
   routeAwareTransmissionMethodChoice: false,
@@ -75,6 +97,8 @@ export const BASELINE_V1: BotPolicy = {
   lethalLockEvidence: 0,
   dangerousDiscardStrategy: "random",
   inferResolvedActionAffinity: false,
+  factionThreatTargeting: "none",
+  avoidSecretOrderSmallHand: false,
 };
 export const TACTICAL_V2: BotPolicy = {
   id: "tactical-v2",
@@ -83,6 +107,7 @@ export const TACTICAL_V2: BotPolicy = {
   burnBase: 7,
   reactionConservation: 0,
   incrementalTransfer: false,
+  transferAgainstBestFreeAlternative: false,
   declineRouting: "flat",
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
@@ -90,6 +115,11 @@ export const TACTICAL_V2: BotPolicy = {
   methodAwareDangerousTransmission: false,
   conservativeSwap: false,
   finalReceiptSwapScoring: false,
+  publicTextExchangeScoring: false,
+  probeCounterAffinityScoring: false,
+  probeIdentityChoiceScoring: false,
+  incrementalInterceptScoring: false,
+  interceptOpportunityCostFactor: 0,
   routeAwareTransmission: false,
   routeAwareTransmissionCardChoice: false,
   routeAwareTransmissionMethodChoice: false,
@@ -99,6 +129,8 @@ export const TACTICAL_V2: BotPolicy = {
   lethalLockEvidence: 0,
   dangerousDiscardStrategy: "random",
   inferResolvedActionAffinity: false,
+  factionThreatTargeting: "none",
+  avoidSecretOrderSmallHand: false,
 };
 export const TACTICAL_V3: BotPolicy = {
   id: "tactical-v3",
@@ -107,6 +139,7 @@ export const TACTICAL_V3: BotPolicy = {
   burnBase: 4,
   reactionConservation: 1.5,
   incrementalTransfer: false,
+  transferAgainstBestFreeAlternative: false,
   declineRouting: "flat",
   incrementalLure: false,
   lureRequiresLikelyAcceptance: false,
@@ -114,6 +147,11 @@ export const TACTICAL_V3: BotPolicy = {
   methodAwareDangerousTransmission: false,
   conservativeSwap: false,
   finalReceiptSwapScoring: false,
+  publicTextExchangeScoring: false,
+  probeCounterAffinityScoring: false,
+  probeIdentityChoiceScoring: false,
+  incrementalInterceptScoring: false,
+  interceptOpportunityCostFactor: 0,
   routeAwareTransmission: false,
   routeAwareTransmissionCardChoice: false,
   routeAwareTransmissionMethodChoice: false,
@@ -123,6 +161,8 @@ export const TACTICAL_V3: BotPolicy = {
   lethalLockEvidence: 0,
   dangerousDiscardStrategy: "random",
   inferResolvedActionAffinity: false,
+  factionThreatTargeting: "none",
+  avoidSecretOrderSmallHand: false,
 };
 export const TACTICAL_V4: BotPolicy = {
   ...TACTICAL_V3,
@@ -168,7 +208,13 @@ export const TACTICAL_V11: BotPolicy = {
   id: "tactical-v11",
   finalReceiptSwapScoring: true,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V11;
+export const TACTICAL_V12: BotPolicy = {
+  ...TACTICAL_V11,
+  id: "tactical-v12",
+  factionThreatTargeting: "dangerous",
+  avoidSecretOrderSmallHand: true,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V12;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -192,7 +238,7 @@ interface PublicObservation {
   };
   functionAction?: {
     signature: string;
-    kind: ActiveFunctionKind;
+    kind: Exclude<ActiveFunctionKind, "probeIdentity" | "probeDrawDiscard"> | "probe";
     sourceId: string;
     targetId: string;
     redirected: boolean;
@@ -369,7 +415,7 @@ export function observeBotProjection(
   const priorFunction = memory.previous?.functionAction;
   const currentFunction = functionObservation(projection, memory.previous);
   if (
-    priorFunction?.kind === "probeDrawDiscard" &&
+    priorFunction?.kind === "probe" &&
     priorFunction.targetId === projection.own.id &&
     currentFunction?.signature !== priorFunction.signature &&
     projection.own.faction !== "特工"
@@ -781,7 +827,7 @@ function scoreAction(
         : decision(command, PASS_REACTION_SCORE, "preserve reaction cards");
     }
     case "PLAY_COUNTER":
-      return decision(command, 5 - pendingInteractionUtility(projection, beliefs), "counter only when the pending action is unfavorable");
+      return decision(command, 5 - pendingInteractionUtility(projection, beliefs, policy), "counter only when the pending action is unfavorable");
     case "PLAY_DECRYPT":
       return projection.transmission?.card
         ? decision(
@@ -790,8 +836,27 @@ function scoreAction(
             "do not spend decrypt on intelligence already known to this player",
           )
         : decision(command, 14, "learn hidden intelligence");
-    case "PLAY_INTERCEPT":
-      return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, transmissionInference), "intercept tactically useful intelligence");
+    case "PLAY_INTERCEPT": {
+      const ownReceipt = currentTransmissionReceiptUtility(
+        projection.own.id,
+        projection,
+        beliefs,
+        transmissionInference,
+      );
+      return policy.incrementalInterceptScoring
+        ? decision(
+            command,
+            PASS_REACTION_SCORE + ownReceipt -
+              expectedCurrentReceiptUtilityOnPass(
+                projection,
+                beliefs,
+                transmissionInference,
+              ) -
+              cardUtility(card, ownFaction) * policy.interceptOpportunityCostFactor,
+            "intercept only when the forced self-receipt improves on leaving the intelligence with its current recipient",
+          )
+        : decision(command, PASS_REACTION_SCORE + ownReceipt, "intercept tactically useful intelligence");
+    }
     case "PLAY_SWAP":
       if (
         transmissionInference?.forcedByPlayerId === projection.own.id &&
@@ -882,7 +947,13 @@ function scoreAction(
         beliefs,
         transmissionInference,
       );
-      return policy.incrementalTransfer
+      return policy.transferAgainstBestFreeAlternative
+        ? decision(
+            command,
+            PASS_REACTION_SCORE + targetValue - SEPARATION_CARD_COST,
+            "transfer only when its forced receipt beats the best free accept-or-decline outcome",
+          )
+        : policy.incrementalTransfer
         ? decision(
             command,
             PASS_REACTION_SCORE + targetValue - currentValue - SEPARATION_CARD_COST,
@@ -892,8 +963,18 @@ function scoreAction(
     }
     case "PLAY_FUNCTION_SEPARATION": {
       const currentTargetId = projection.activeFunctionAction?.targetPlayerId;
-      const improvement = activeFunctionTargetUtility(action.targetId, projection, beliefs)
-        - activeFunctionTargetUtility(currentTargetId, projection, beliefs);
+      const improvement = activeFunctionTargetUtility(
+        action.targetId,
+        projection,
+        beliefs,
+        policy,
+        action.cardId,
+      ) - activeFunctionTargetUtility(
+        currentTargetId,
+        projection,
+        beliefs,
+        policy,
+      );
       return decision(
         command,
         PASS_REACTION_SCORE + improvement - SEPARATION_CARD_COST,
@@ -935,12 +1016,26 @@ function scoreAction(
     case "PLAY_PUBLIC_TEXT":
       return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 5 + 8, "exchange with a likely ally");
     case "PLAY_DANGEROUS_INTELLIGENCE":
-      return decision(command, -targetAffinity(action.targetId, ownFaction, beliefs) * 8 + 10, "pressure a likely opponent");
-    case "PLAY_PROBE": {
-      const effectValue = probeTargetUtility(card, action.targetId, projection, beliefs);
+      {
+        const baseScore = offensiveTargetBaseScore(action, projection, beliefs);
       return decision(
         command,
-        8 + effectValue * 8 + informationUncertainty(action.targetId, beliefs) * 2,
+        policy.factionThreatTargeting === "dangerous" || policy.factionThreatTargeting === "all"
+          ? normalizedStrategicTargetScore(action, projection, beliefs, 4)
+          : baseScore,
+        policy.factionThreatTargeting === "dangerous" || policy.factionThreatTargeting === "all"
+          ? "pressure the opposing faction with the greatest combined size and visible win threat"
+          : "pressure a likely opponent",
+      );
+      }
+    case "PLAY_PROBE": {
+      const baseScore = offensiveTargetBaseScore(action, projection, beliefs);
+      return decision(
+        command,
+        (policy.factionThreatTargeting === "probe" || policy.factionThreatTargeting === "all") &&
+          card?.variant?.kind === "probeDrawDiscard"
+          ? normalizedStrategicTargetScore(action, projection, beliefs, 3)
+          : baseScore,
         card?.variant?.kind === "probeDrawDiscard"
           ? "give the draw to a likely ally or force a likely opponent to discard"
           : "probe an uncertain opponent",
@@ -985,15 +1080,38 @@ function scoreAction(
       );
     }
     case "CHOOSE_PROBE_IDENTITY":
-      return decision(command, action.choice === "giveRandom" && projection.own.hand.length > 2 ? 9 : 7, "limit revealed identity information");
+      return policy.probeIdentityChoiceScoring
+        ? decision(
+            command,
+            probeIdentityChoiceUtility(
+              action.choice,
+              projection.activeFunctionAction?.sourcePlayerId,
+              projection,
+              beliefs,
+            ),
+            "compare faction disclosure with the expected value of a random card transfer",
+          )
+        : decision(command, action.choice === "giveRandom" && projection.own.hand.length > 2 ? 9 : 7, "limit revealed identity information");
     case "CHOOSE_PUBLIC_TEXT_EFFECT":
       return decision(command, action.choice === "drawTwo" ? 20 : action.choice === "drawOne" ? 13 : 4, "maximize hand value");
-    case "PLAY_SECRET_ORDER":
+    case "PLAY_SECRET_ORDER": {
+      const targetId = projection.pendingSecretOrder?.targetPlayerId;
+      const targetHandCount = projection.players.find(
+        (player) => player.id === targetId,
+      )?.handCount ?? 0;
+      if (policy.avoidSecretOrderSmallHand && targetHandCount <= 1) {
+        return decision(
+          command,
+          -100_000,
+          "preserve secret order when the target has at most one card",
+        );
+      }
       return decision(
         command,
         PASS_REACTION_SCORE + secretOrderImprovement(card, action.word, projection, beliefs) - SECRET_ORDER_CARD_COST,
         "force a likely opponent away from their most favorable intelligence color",
       );
+    }
     case "START_TRANSMISSION":
       return decision(
         command,
@@ -1757,20 +1875,144 @@ function currentRecipientLikelyToAccept(
   ) > 0;
 }
 
+function expectedCurrentReceiptUtilityOnPass(
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  transmissionInference?: BotMemory["transmissionInference"],
+): number {
+  const transmission = projection.transmission;
+  const recipientId = transmission?.intendedRecipientId;
+  if (!transmission || !recipientId) return 0;
+  const committed =
+    transmission.recipientMustAccept ||
+    transmission.transferredRecipientCommitted ||
+    transmission.lockedRecipientId === recipientId ||
+    transmission.returnedToSender;
+  if (
+    !committed &&
+    currentTransmissionRecipientUtility(
+      recipientId,
+      projection,
+      beliefs,
+      transmissionInference,
+    ) <= 0
+  ) {
+    return 0;
+  }
+  return currentTransmissionReceiptUtility(
+    recipientId,
+    projection,
+    beliefs,
+    transmissionInference,
+  );
+}
+
 function activeFunctionTargetUtility(
   targetId: string | undefined,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
+  policy: BotPolicy,
+  spentCardId?: PhysicalCardId,
 ): number {
   if (!targetId) return 0;
   switch (projection.activeFunctionAction?.kind) {
     case "dangerousIntelligence":
       return -10 * targetAffinity(targetId, projection.own.faction, beliefs);
     case "publicText":
-      return -5 * targetAffinity(targetId, projection.own.faction, beliefs);
+      return policy.publicTextExchangeScoring
+        ? publicTextExchangeUtility(targetId, projection, beliefs, spentCardId)
+        : -5 * targetAffinity(targetId, projection.own.faction, beliefs);
     default:
       return 0;
   }
+}
+
+const UNKNOWN_HAND_CARD_UTILITY = 8;
+
+function publicTextExchangeUtility(
+  targetId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  spentCardId?: PhysicalCardId,
+): number {
+  const action = projection.activeFunctionAction;
+  const sourceCard = action?.sourceCard;
+  if (!action || action.kind !== "publicText" || !sourceCard) {
+    return -5 * targetAffinity(targetId, projection.own.faction, beliefs);
+  }
+
+  const receivedValue = relationshipWeightedCardUtility(
+    sourceCard,
+    targetId,
+    projection,
+    beliefs,
+  );
+  if (targetId !== projection.own.id) {
+    return receivedValue -
+      relationshipWeightedUnknownCardUtility(targetId, projection, beliefs) +
+      relationshipWeightedUnknownCardUtility(
+        action.sourcePlayerId,
+        projection,
+        beliefs,
+      );
+  }
+
+  const exchangePool = projection.own.hand.filter(
+    (card) => card.id !== spentCardId,
+  );
+  if (exchangePool.length === 0) return receivedValue;
+  return exchangePool.reduce((total, lostCard) => {
+    const sourceGain = lostCard.name === "公开文本"
+      ? 0
+      : relationshipWeightedCardUtility(
+          lostCard,
+          action.sourcePlayerId,
+          projection,
+          beliefs,
+        );
+    return total + receivedValue -
+      relationshipWeightedCardUtility(
+        lostCard,
+        targetId,
+        projection,
+        beliefs,
+      ) + sourceGain;
+  }, 0) / exchangePool.length;
+}
+
+function relationshipWeightedCardUtility(
+  card: PhysicalCard,
+  playerId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const probabilities = playerId === projection.own.id
+    ? oneHot(projection.own.faction)
+    : beliefs[playerId] ?? { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
+  return FACTIONS.reduce((total, faction) =>
+    total + probabilities[faction] * factionRelationshipSign(
+      projection.own.faction,
+      faction,
+    ) * cardUtility(card, faction), 0);
+}
+
+function relationshipWeightedUnknownCardUtility(
+  playerId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const probabilities = playerId === projection.own.id
+    ? oneHot(projection.own.faction)
+    : beliefs[playerId] ?? { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
+  return FACTIONS.reduce((total, faction) =>
+    total + probabilities[faction] * factionRelationshipSign(
+      projection.own.faction,
+      faction,
+    ) * UNKNOWN_HAND_CARD_UTILITY, 0);
+}
+
+function factionRelationshipSign(ownFaction: Faction, playerFaction: Faction): number {
+  return ownFaction !== "特工" && playerFaction === ownFaction ? 1 : -1;
 }
 
 function burnUtility(
@@ -1819,6 +2061,7 @@ function hasPlayableReinforcement(projection: PlayerProjection): boolean {
 function pendingInteractionUtility(
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
+  policy: BotPolicy,
 ): number {
   const frames = projection.responseStack;
   if (frames.length === 0) return 0;
@@ -1830,11 +2073,96 @@ function pendingInteractionUtility(
     } else if (frame.kind === "intelligence") {
       value = receiptUtility(projection.transmission?.card, frame.targetPlayerId, projection, beliefs);
     } else {
-      value = cardActionUtility(frame.cardName, frame.sourcePlayerId, frame.targetPlayerId, projection, beliefs);
+      value = cardActionUtility(
+        frame.cardName,
+        frame.sourcePlayerId,
+        frame.targetPlayerId,
+        projection,
+        beliefs,
+        policy,
+      );
     }
     values.set(frame.id, value);
   }
   return values.get(frames.at(-1)!.id) ?? 0;
+}
+
+function hiddenProbeUtility(
+  sourceId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const knownProbeIds = new Set([
+    ...projection.own.hand
+      .filter((card) => card.name === "试探")
+      .map((card) => card.id),
+    ...projection.privateNotices.flatMap((notice) =>
+      notice.kind === "probePlayed" && "card" in notice && notice.card.name === "试探"
+        ? [notice.card.id]
+        : []
+    ),
+  ]);
+  const possibleProbes: PhysicalCard[] = PHYSICAL_DECK.filter(
+    (card) => card.name === "试探" && !knownProbeIds.has(card.id),
+  ).map((card) => card as PhysicalCard);
+  if (possibleProbes.length === 0) return -10;
+
+  const identityUtility = Math.max(
+    probeIdentityChoiceUtility("announce", sourceId, projection, beliefs),
+    probeIdentityChoiceUtility("giveRandom", sourceId, projection, beliefs),
+  );
+  const leastValuableHeldCard = projection.own.hand.reduce<PhysicalCard | undefined>(
+    (least, card) =>
+      !least || cardUtility(card, projection.own.faction) <
+          cardUtility(least, projection.own.faction)
+        ? card
+        : least,
+    undefined,
+  );
+  const discardUtility = leastValuableHeldCard
+    ? -cardUtility(leastValuableHeldCard, projection.own.faction)
+    : 0;
+
+  return possibleProbes.reduce((total, probe) => {
+    if (probe.variant?.kind === "probeIdentity") {
+      return total + identityUtility;
+    }
+    if (probe.variant?.kind === "probeDrawDiscard") {
+      return total + (
+        probe.variant.drawFaction === projection.own.faction
+          ? UNKNOWN_HAND_CARD_UTILITY
+          : discardUtility
+      );
+    }
+    return total;
+  }, 0) / possibleProbes.length;
+}
+
+function probeIdentityChoiceUtility(
+  choice: "announce" | "giveRandom",
+  sourceId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (choice === "announce") {
+    const sourceAffinity = targetAffinity(
+      sourceId,
+      projection.own.faction,
+      beliefs,
+    );
+    return sourceAffinity >= 0
+      ? 4 * sourceAffinity
+      : 12 * sourceAffinity;
+  }
+  if (projection.own.hand.length === 0) return Number.NEGATIVE_INFINITY;
+  return projection.own.hand.reduce((total, card) =>
+    total - cardUtility(card, projection.own.faction) +
+    relationshipWeightedCardUtility(
+      card,
+      sourceId ?? "",
+      projection,
+      beliefs,
+    ), 0) / projection.own.hand.length;
 }
 
 function cardActionUtility(
@@ -1843,11 +2171,16 @@ function cardActionUtility(
   targetId: string,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
+  policy: BotPolicy,
 ): number {
   const affinity = targetAffinity(targetId, projection.own.faction, beliefs);
   switch (name) {
     case "危险情报":
+      return -10 * affinity;
     case "试探":
+      return policy.probeCounterAffinityScoring && targetId === projection.own.id
+        ? hiddenProbeUtility(sourceId, projection, beliefs)
+        : -10 * affinity;
     case "秘密下达":
       return -10 * affinity;
     case "增援":
@@ -1948,6 +2281,74 @@ function targetAffinity(playerId: string | undefined, faction: Faction, beliefs:
   const belief = beliefs[playerId];
   if (!belief) return 0;
   return belief[faction] - Math.max(...FACTIONS.filter((entry) => entry !== faction).map((entry) => belief[entry]));
+}
+
+function strategicOpponentThreat(
+  playerId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (playerId === projection.own.id) return 0;
+  const target = projection.players.find((player) => player.id === playerId);
+  const belief = beliefs[playerId];
+  if (!target || !target.alive || !belief) return 0;
+  const counts = countIntelligence(target.intelligence);
+  return FACTIONS.reduce((total, faction) => {
+    if (projection.own.faction !== "特工" && faction === projection.own.faction) {
+      return total;
+    }
+    const expectedFactionSize = projection.players.reduce((size, player) => {
+      if (!player.alive || player.id === projection.own.id) return size;
+      return size + (beliefs[player.id]?.[faction] ?? 0);
+    }, 0);
+    if (faction === "特工") {
+      const individualThreat = counts.physical >= 5
+        ? 3
+        : 0.65 + counts.physical * 0.08;
+      return total + belief[faction] * individualThreat;
+    }
+    const desiredCount = faction === "军情" ? counts.blue : counts.red;
+    const factionSizeThreat = 1 + Math.max(0, expectedFactionSize - 1) * 0.4;
+    const visibleWinThreat = desiredCount >= 2 ? 1.5 : desiredCount * 0.12;
+    return total + belief[faction] * (factionSizeThreat + visibleWinThreat);
+  }, 0);
+}
+
+function offensiveTargetBaseScore(
+  action: Extract<LegalAction, { type: "PLAY_DANGEROUS_INTELLIGENCE" | "PLAY_PROBE" }>,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (action.type === "PLAY_DANGEROUS_INTELLIGENCE") {
+    return -targetAffinity(action.targetId, projection.own.faction, beliefs) * 8 + 10;
+  }
+  const card = projection.own.hand.find((held) => held.id === action.cardId);
+  return 8 + probeTargetUtility(card, action.targetId, projection, beliefs) * 8 +
+    informationUncertainty(action.targetId, beliefs) * 2;
+}
+
+function normalizedStrategicTargetScore(
+  action: Extract<LegalAction, { type: "PLAY_DANGEROUS_INTELLIGENCE" | "PLAY_PROBE" }>,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  scale: number,
+): number {
+  const comparable = projection.legalActions.filter(
+    (candidate): candidate is typeof action =>
+      candidate.type === action.type && candidate.cardId === action.cardId,
+  );
+  const originalBest = Math.max(
+    ...comparable.map((candidate) => offensiveTargetBaseScore(candidate, projection, beliefs)),
+  );
+  const strategicallyAdjustedBest = Math.max(
+    ...comparable.map((candidate) =>
+      offensiveTargetBaseScore(candidate, projection, beliefs) +
+      strategicOpponentThreat(candidate.targetId, projection, beliefs) * scale
+    ),
+  );
+  return offensiveTargetBaseScore(action, projection, beliefs) +
+    strategicOpponentThreat(action.targetId, projection, beliefs) * scale -
+    (strategicallyAdjustedBest - originalBest);
 }
 
 function informationUncertainty(playerId: string, beliefs: Record<string, FactionBelief>): number {
@@ -2212,27 +2613,32 @@ function functionObservation(
   const current = projection.activeFunctionAction;
   if (!current) return undefined;
   const prior = previous?.functionAction;
-  const labels: Record<ActiveFunctionKind, string> = {
+  const normalizedKind =
+    current.kind === "probeIdentity" ||
+    current.kind === "probeDrawDiscard" ||
+    current.kind === "probe"
+      ? "probe"
+      : current.kind;
+  const labels: Record<NonNullable<PublicObservation["functionAction"]>["kind"], string> = {
     reinforcement: "使用增援",
     confidentialFile: "使用机密文件",
     publicText: "使用公开文本",
     dangerousIntelligence: "使用危险情报",
-    probeIdentity: "使用试探",
-    probeDrawDiscard: "使用试探",
+    probe: "使用试探",
   };
   let startAuditIndex = -1;
   for (let index = projection.auditLog.length - 1; index >= 0; index -= 1) {
     const entry = projection.auditLog[index]!;
     if (
       entry.startsWith(current.sourcePlayerId) &&
-      entry.includes(labels[current.kind])
+      entry.includes(labels[normalizedKind])
     ) {
       startAuditIndex = index;
       break;
     }
   }
   const signature = [
-    current.kind,
+    normalizedKind,
     current.sourcePlayerId,
     Math.max(0, startAuditIndex),
   ].join("|");
@@ -2245,7 +2651,7 @@ function functionObservation(
   );
   return {
     signature,
-    kind: current.kind,
+    kind: normalizedKind,
     sourceId: current.sourcePlayerId,
     targetId: current.targetPlayerId,
     redirected,
@@ -2268,8 +2674,7 @@ function observeResolvedActionAffinity(
   if (
     action.kind !== "publicText" &&
     action.kind !== "dangerousIntelligence" &&
-    action.kind !== "probeIdentity" &&
-    action.kind !== "probeDrawDiscard"
+    action.kind !== "probe"
   ) {
     return;
   }
@@ -2287,7 +2692,7 @@ function observeResolvedActionAffinity(
   if (Math.abs(change) < 0.0001) return;
 
   // A successful 试探 draw already has a stronger, exact outcome signal.
-  if (action.kind === "probeDrawDiscard" && change > 0) return;
+  if (action.kind === "probe" && change > 0) return;
 
   const sourceEvidence = memory.evidence[action.sourceId] ??= emptyBelief();
   if (change > 0) {

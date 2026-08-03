@@ -1,4 +1,4 @@
-import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, TACTICAL_V8, TACTICAL_V9, TACTICAL_V10, TACTICAL_V11, type BotPolicy } from "../server/bot/strategy";
+import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, TACTICAL_V8, TACTICAL_V9, TACTICAL_V10, TACTICAL_V11, TACTICAL_V12, type BotPolicy } from "../server/bot/strategy";
 
 export const CANDIDATE_V14: BotPolicy = {
   ...TACTICAL_V6,
@@ -102,6 +102,60 @@ export const CANDIDATE_V30: BotPolicy = {
   finalReceiptSwapScoring: true,
 };
 
+export const CANDIDATE_V31: BotPolicy = {
+  ...TACTICAL_V11,
+  id: "candidate-v31",
+  publicTextExchangeScoring: true,
+};
+
+export const CANDIDATE_V32: BotPolicy = {
+  ...TACTICAL_V11,
+  id: "candidate-v32",
+  probeCounterAffinityScoring: true,
+};
+
+export const CANDIDATE_V33: BotPolicy = {
+  ...CANDIDATE_V32,
+  id: "candidate-v33",
+  probeIdentityChoiceScoring: true,
+};
+
+export const CANDIDATE_V34: BotPolicy = {
+  ...TACTICAL_V11,
+  id: "candidate-v34",
+  incrementalInterceptScoring: true,
+};
+
+export const CANDIDATE_V35: BotPolicy = {
+  ...CANDIDATE_V34,
+  id: "candidate-v35",
+  interceptOpportunityCostFactor: 0.6,
+};
+
+export const CANDIDATE_V36: BotPolicy = {
+  ...TACTICAL_V11,
+  id: "candidate-v36",
+  transferAgainstBestFreeAlternative: true,
+};
+
+export const CANDIDATE_V37: BotPolicy = {
+  ...TACTICAL_V11,
+  id: "candidate-v37",
+  factionThreatTargeting: "all",
+};
+
+export const CANDIDATE_V38: BotPolicy = {
+  ...TACTICAL_V11,
+  id: "candidate-v38",
+  factionThreatTargeting: "dangerous",
+};
+
+export const CANDIDATE_V39: BotPolicy = {
+  ...TACTICAL_V11,
+  id: "candidate-v39",
+  factionThreatTargeting: "probe",
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
@@ -113,6 +167,7 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V9,
   TACTICAL_V10,
   TACTICAL_V11,
+  TACTICAL_V12,
   CANDIDATE_V14,
   CANDIDATE_V15,
   CANDIDATE_V16,
@@ -129,6 +184,9 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V28,
   CANDIDATE_V29,
   CANDIDATE_V30,
+  CANDIDATE_V31,
+  CANDIDATE_V32,
+  CANDIDATE_V33,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

@@ -331,6 +331,9 @@ The engine never sends `GameState` directly to clients.
 - the viewer's faction and full hand;
 - public player fields, accepted intelligence, discard, and audit log;
 - hidden transmission cards only when face-up or privately visible;
+- resolving face-up function cards, while a face-down `试探` exposes only its
+  generic action identity during reactions; its physical card and variant remain
+  private to the source until the rules reveal the resulting instruction;
 - viewer-specific private notices and inspection snapshots;
 - a simplified response stack and current responder;
 - only pending information the viewer is entitled to know;
