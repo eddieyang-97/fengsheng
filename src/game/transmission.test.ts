@@ -423,6 +423,26 @@ describe("接收、死亡与胜利", () => {
     expect(state.auditLog.at(-1)).toBe("乙回合开始并摸2张牌");
   });
 
+  it("记录任意牌实际使用的传递方式并投影给客户端", () => {
+    const state = initializedWithActive(players, 505);
+    const cardId = cardIdWhere(
+      (card) => card.name === "危险情报" && card.transmission === "任意",
+    );
+    putCardInHand(state, "甲", cardId);
+    startTransmission(state, "甲", cardId, {
+      method: "密电",
+      direction: "clockwise",
+    });
+
+    acceptAfterReactions(state, "乙");
+
+    expect(state.players["乙"].intelligenceMethods?.[cardId]).toBe("密电");
+    expect(
+      projectGameForPlayer(state, "甲").players.find((player) => player.id === "乙")
+        ?.intelligenceMethods?.[cardId],
+    ).toBe("密电");
+  });
+
   it("回合顺时针推进并跳过死亡玩家", () => {
     const state = initializedWithActive(players, 51);
     state.players["乙"].alive = false;

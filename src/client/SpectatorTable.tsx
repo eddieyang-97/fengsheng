@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { PhysicalCard } from "../game/cards";
-import type { SpectatorProjection } from "../game/engine";
+import type { FixedTransmissionMethod, SpectatorProjection } from "../game/engine";
 import type { ChatMessageSnapshot, PublicAuditEvent } from "../room";
 import type { PlayerReactionEvent } from "../social-reactions";
 import {
@@ -10,7 +10,7 @@ import {
   HiddenIntelligenceArtwork,
 } from "./CardArtwork";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
-import { formatAuditEntries, mergeAuditLogs, publicCardSummary } from "./GameTable";
+import { formatAuditEntries, mergeAuditLogs } from "./GameTable";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import { FinalHandsPanel } from "./FinalHandsPanel";
 import { PlayerReactionLayer } from "./PlayerReactionLayer";
@@ -38,21 +38,24 @@ function cardTone(card: PhysicalCard): string {
 function PublicCard({
   accepted = false,
   card,
+  displayTransmission,
 }: {
   accepted?: boolean;
   card: PhysicalCard;
+  displayTransmission?: FixedTransmissionMethod;
 }) {
+  const transmission = displayTransmission ?? card.transmission;
   return (
     <div
-      aria-label={publicCardSummary(card)}
+      aria-label={`${card.name} · ${card.color} · ${transmission}`}
       className={`game-card game-card--${cardTone(card)}`}
-      title={publicCardSummary(card)}
+      title={`${card.name} · ${card.color} · ${transmission}`}
     >
       {accepted
-        ? <AcceptedIntelligenceArtwork transmission={card.transmission} />
+        ? <AcceptedIntelligenceArtwork transmission={transmission} />
         : <CardArtwork cardName={card.name} />}
       <strong>{card.name}</strong>
-      <span className="game-card__meta">{card.color} · {card.transmission}</span>
+      <span className="game-card__meta">{card.color} · {transmission}</span>
       {card.color === "黑" && card.unburnable && <small className="unburnable-badge">不可烧毁</small>}
     </div>
   );
@@ -141,7 +144,12 @@ export function SpectatorTable({
                   </button>
                   <div className={`intel-row${player.intelligence.length > 4 ? " intel-row--dense" : ""}`}>
                     {player.intelligence.map((card) => (
-                      <PublicCard accepted card={card} key={card.id} />
+                      <PublicCard
+                        accepted
+                        card={card}
+                        displayTransmission={player.intelligenceMethods?.[card.id]}
+                        key={card.id}
+                      />
                     ))}
                     {player.intelligence.length === 0 && <span>暂无情报</span>}
                   </div>

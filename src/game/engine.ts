@@ -149,6 +149,8 @@ export interface PlayerState {
   alive: boolean;
   hand: PhysicalCardId[];
   intelligence: PhysicalCardId[];
+  /** Resolved route used when an intelligence card was accepted. */
+  intelligenceMethods?: Partial<Record<string, FixedTransmissionMethod>>;
 }
 
 export interface PendingPublicTextReceipt {
@@ -478,6 +480,7 @@ export interface PublicPlayerProjection {
   handCount: number;
   hand?: PhysicalCard[];
   intelligence: PhysicalCard[];
+  intelligenceMethods?: Partial<Record<string, FixedTransmissionMethod>>;
 }
 
 export interface PlayerProjection {
@@ -768,6 +771,7 @@ export function initializeGame(playerIds: readonly PlayerId[], seed: number): Ga
         alive: true,
         hand: [],
         intelligence: [],
+        intelligenceMethods: {},
       } satisfies PlayerState,
     ]),
   );
@@ -1715,6 +1719,7 @@ function publiclyDiscardDeadPlayerCards(
     ...player.hand.splice(0),
     ...player.intelligence.splice(0),
   ];
+  player.intelligenceMethods = {};
   state.publicDiscard.push(...discarded);
   state.auditLog.push(
     `${player.id}死亡，全部手牌和情报公开弃置（${discarded.length}张）${
@@ -3097,6 +3102,8 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
   enterCombinedReceiptDecision(state, actorId);
   const acceptedCard = cardById(transmission.cardId);
   receiver.intelligence.push(transmission.cardId);
+  receiver.intelligenceMethods ??= {};
+  receiver.intelligenceMethods[transmission.cardId] = transmission.method;
   state.transmission = undefined;
   state.phase = "resolvingReceipt";
   removeResolutionContext(state, "receipt");
@@ -3741,6 +3748,7 @@ function resolveBurnContext(state: GameState): void {
     // A nested burn may already have removed the same accepted intelligence.
     if (index >= 0) {
       target!.intelligence.splice(index, 1);
+      delete target!.intelligenceMethods?.[context.targetIntelligenceCardId];
       state.publicDiscard.push(context.targetIntelligenceCardId);
       state.auditLog.push(
         `${context.targetPlayerId}的黑色情报${describeCardBrief(context.targetIntelligenceCardId)}被烧毁并公开弃置`,
@@ -4500,6 +4508,10 @@ export function projectGameForPlayer(
           ? { hand: player.hand.map(projectedCardById) }
           : {}),
         intelligence: player.intelligence.map(projectedCardById),
+        ...(player.intelligenceMethods &&
+        Object.keys(player.intelligenceMethods).length > 0
+          ? { intelligenceMethods: { ...player.intelligenceMethods } }
+          : {}),
       };
     }),
     own: {

@@ -1,6 +1,7 @@
 import type { Ref } from "react";
 
 import type { PhysicalCard } from "../game/cards";
+import type { FixedTransmissionMethod } from "../game/engine";
 import { AcceptedIntelligenceArtwork, CardArtwork } from "./CardArtwork";
 
 export function cardTone(card: PhysicalCard): string {
@@ -65,6 +66,7 @@ export interface GameCardProps {
   noticeSummary?: boolean;
   reverseProbeMapping?: boolean;
   artwork?: "card" | "accepted";
+  displayTransmission?: FixedTransmissionMethod;
   shortcutLabel?: string;
   buttonRef?: Ref<HTMLButtonElement>;
   onClick?: () => void;
@@ -79,10 +81,12 @@ export function GameCard({
   noticeSummary = false,
   reverseProbeMapping = false,
   artwork = "card",
+  displayTransmission,
   shortcutLabel,
   buttonRef,
   onClick,
 }: GameCardProps) {
+  const transmission = displayTransmission ?? card.transmission;
   const displayedVariantText = privateNoticeVariantText(
     card,
     noticeSummary && reverseProbeMapping,
@@ -93,21 +97,21 @@ export function GameCard({
       disabled={!onClick}
       onClick={onClick}
       ref={buttonRef}
-      title={`${publicCardSummary(card)}${card.unburnable ? " · 不可烧毁" : ""}`}
+      title={`${card.name} · ${card.color} · ${transmission}${card.unburnable ? " · 不可烧毁" : ""}`}
       type="button"
     >
       {artwork === "accepted"
-        ? <AcceptedIntelligenceArtwork transmission={card.transmission} />
+        ? <AcceptedIntelligenceArtwork transmission={transmission} />
         : <CardArtwork cardName={card.name} />}
       {shortcutLabel && <kbd className="card-shortcut-badge">{shortcutLabel}</kbd>}
       <strong>{card.name}</strong>
       <span
         className="game-card__meta"
         data-color={card.color}
-        data-compact-meta={compactCardMeta(card)}
-        data-transmission={card.transmission}
+        data-compact-meta={compactCardMeta({ ...card, transmission })}
+        data-transmission={transmission}
       >
-        {card.color} · {card.transmission}
+        {card.color} · {transmission}
       </span>
       {displayedVariantText && (
         <small className="game-card__variant">{displayedVariantText}</small>

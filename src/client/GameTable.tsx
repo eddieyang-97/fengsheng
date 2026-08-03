@@ -1155,6 +1155,7 @@ export function GameTable({
     : [];
   const selectedCard = projection.own.hand.find((card) => card.id === activeSelectedCardId);
   const canStartTransmission = transmissionActions.length > 0;
+  const compactMobilePrompt = !canStartTransmission && visiblePromptActions.length === 1;
   const selectableCardIds = new Set(playableCardIds);
   const selectCard = useCallback((cardId: string | undefined) => {
     selectedCardContext.current = cardId ? selectionContext : undefined;
@@ -2010,6 +2011,7 @@ export function GameTable({
                         <CardView
                           artwork="accepted"
                           card={card}
+                          displayTransmission={player.intelligenceMethods?.[card.id]}
                           key={card.id}
                           playable={Boolean(burnAction)}
                           inspectable={!burnAction}
@@ -2102,7 +2104,9 @@ export function GameTable({
             aria-live="polite"
             className={`prompt-panel action-dock ${
               actions.length > 0 || canStartTransmission ? "action-dock--decision" : "action-dock--passive"
-            }${projection.reactionWindow ? " action-dock--reaction" : ""}`}
+            }${projection.reactionWindow ? " action-dock--reaction" : ""}${
+              compactMobilePrompt ? " action-dock--single-action" : ""
+            }`}
           >
             <div className="action-dock__copy">
               <p>
