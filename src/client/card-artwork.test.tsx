@@ -1,15 +1,17 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PhysicalCard } from "../game/cards";
 import type { PublicPlayerProjection } from "../game/engine";
 import {
   ACCEPTED_INTELLIGENCE_ART_PATH,
   AcceptedIntelligenceArtwork,
+  CARD_ART_PATHS,
   HIDDEN_DIRECT_INTELLIGENCE_ART_PATH,
   HIDDEN_INTELLIGENCE_ART_PATH,
   HIDDEN_SECRET_INTELLIGENCE_ART_PATH,
   HiddenIntelligenceArtwork,
+  preloadCardArtwork,
 } from "./CardArtwork";
 import { DiscardPileDialog } from "./DiscardPile";
 import { FinalHandsPanel } from "./FinalHandsPanel";
@@ -26,6 +28,32 @@ const lockCard = {
 } satisfies PhysicalCard;
 
 describe("shared card artwork", () => {
+  it("preloads every unique illustration used by the shared card views", () => {
+    expect(CARD_ART_PATHS).toHaveLength(19);
+    expect(new Set(CARD_ART_PATHS).size).toBe(CARD_ART_PATHS.length);
+    expect(CARD_ART_PATHS).toContain("/card-art/public-text.png");
+    expect(CARD_ART_PATHS).toContain(HIDDEN_SECRET_INTELLIGENCE_ART_PATH);
+  });
+
+  it("starts and decodes every illustration before cards need it", async () => {
+    const requested: string[] = [];
+    class FakeImage {
+      decoding = "auto";
+      fetchPriority = "auto";
+      src = "";
+
+      async decode() {
+        requested.push(this.src);
+      }
+    }
+    vi.stubGlobal("Image", FakeImage);
+
+    await preloadCardArtwork();
+
+    expect(requested).toEqual(CARD_ART_PATHS);
+    vi.unstubAllGlobals();
+  });
+
   it("renders neutral artwork for 未公开情报 without visible text", () => {
     const markup = renderToStaticMarkup(<HiddenIntelligenceArtwork />);
 

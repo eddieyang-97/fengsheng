@@ -31,6 +31,33 @@ export const HIDDEN_SECRET_INTELLIGENCE_ART_PATH =
 export const ACCEPTED_INTELLIGENCE_ART_PATH =
   "/card-art/accepted-intelligence.png";
 
+export const CARD_ART_PATHS = [
+  ...Object.values(CARD_ART_SLUGS).map((slug) => `/card-art/${slug}.png`),
+  HIDDEN_INTELLIGENCE_ART_PATH,
+  HIDDEN_DIRECT_INTELLIGENCE_ART_PATH,
+  HIDDEN_SECRET_INTELLIGENCE_ART_PATH,
+  ACCEPTED_INTELLIGENCE_ART_PATH,
+] as const;
+
+let artworkPreload: Promise<void> | undefined;
+
+/** Fetches and decodes every card illustration before it is first displayed. */
+export function preloadCardArtwork(): Promise<void> {
+  if (typeof Image === "undefined") return Promise.resolve();
+  artworkPreload ??= Promise.all(CARD_ART_PATHS.map(async (path) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.fetchPriority = "low";
+    image.src = path;
+    try {
+      await image.decode();
+    } catch {
+      // The normal CSS request can retry if a speculative preload fails.
+    }
+  })).then(() => undefined);
+  return artworkPreload;
+}
+
 export function CardArtwork({ cardName }: { cardName: PhysicalCard["name"] }) {
   return (
     <span

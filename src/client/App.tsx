@@ -11,6 +11,7 @@ import type { PlayerProjection, SpectatorProjection } from "../game/engine";
 import type { RoomEntryResult, RoomSnapshot } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reactions";
+import { preloadCardArtwork } from "./CardArtwork";
 import { GameTable } from "./GameTable";
 import {
   loadSoundEnabledPreference,
@@ -126,6 +127,10 @@ export function App() {
   const reactionSoundTrackingStarted = useRef(false);
   const lastReactionSoundId = useRef<string | undefined>(undefined);
   const showingGameTable = Boolean(game || spectatorGame);
+
+  useEffect(() => {
+    void preloadCardArtwork();
+  }, []);
 
   useLayoutEffect(() => {
     if (!showingGameTable) return;
