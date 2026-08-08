@@ -1015,6 +1015,9 @@ export function privateNoticeText(
   if (notice.kind === "probePlayed") {
     return `你对【${otherPlayer}】使用的试探详情：`;
   }
+  if (notice.kind === "probeReceived") {
+    return `【${otherPlayer}】对你使用的试探详情：`;
+  }
   if (notice.kind === "secretOrderPlayed") {
     return `你对【${otherPlayer}】使用的秘密下达详情：`;
   }
@@ -2371,7 +2374,10 @@ export function GameTable({
                       <CardView
                         card={notice.card}
                         noticeSummary
-                        reverseProbeMapping={notice.kind === "probePlayed"}
+                        reverseProbeMapping={
+                          notice.kind === "probePlayed" ||
+                          notice.kind === "probeReceived"
+                        }
                       />
                     )}
                   </div>

@@ -230,6 +230,19 @@ describe("private identity markers", () => {
 });
 
 describe("私人通知文案", () => {
+  it("distinguishes the player who used 试探 from its resolved target", () => {
+    expect(privateNoticeText({
+      kind: "probePlayed",
+      otherPlayerId: "乙",
+      card: identityProbe,
+    }, { 乙: "小乙" })).toBe("你对【小乙】使用的试探详情：");
+    expect(privateNoticeText({
+      kind: "probeReceived",
+      otherPlayerId: "甲",
+      card: identityProbe,
+    }, { 甲: "小甲" })).toBe("【小甲】对你使用的试探详情：");
+  });
+
   it("说明秘密下达和危险情报的手牌查看结果", () => {
     expect(privateNoticeText({
       kind: "secretOrderHandInspected",

@@ -361,6 +361,8 @@ describe("行动阶段功能牌框架", () => {
 
     playProbe(state, "甲", probe, "乙");
 
+    expect(projectGameForPlayer(state, "乙").privateNotices).toEqual([]);
+
     expect(projectGameForPlayer(state, "甲").activeFunctionAction).toMatchObject({
       kind: "probeIdentity",
       sourceCard: expect.objectContaining({ id: probe }),
@@ -388,10 +390,34 @@ describe("行动阶段功能牌框架", () => {
     expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
       { type: "CHOOSE_PROBE_IDENTITY", choice: "announce" },
     ]);
+    expect(projectGameForPlayer(state, "乙").privateNotices).toEqual([]);
+    expect(projectGameForPlayer(state, "丁").privateNotices).toContainEqual(
+      expect.objectContaining({
+        kind: "probeReceived",
+        otherPlayerId: "甲",
+        card: expect.objectContaining({ id: probe }),
+      }),
+    );
     expect(projectGameForPlayer(state, "丁").activeFunctionAction).toMatchObject({
       kind: "probeIdentity",
       sourceCard: undefined,
     });
+  });
+
+  it("被识破的试探不向目标泄露卡牌详情", () => {
+    const state = game(15);
+    const probe = PHYSICAL_DECK.find(
+      (card) => "variant" in card && card.variant?.kind === "probeIdentity",
+    )!.id;
+    const counter = cardId("识破", [probe]);
+    putInHand(state, "甲", probe);
+    putInHand(state, "丙", counter);
+
+    playProbe(state, "甲", probe, "乙");
+    playCounter(state, "丙", counter, topResponseFrame(state)!.id);
+    passAll(state);
+
+    expect(projectGameForPlayer(state, "乙").privateNotices).toEqual([]);
   });
 });
 

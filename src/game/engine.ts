@@ -457,6 +457,7 @@ export interface PrivateSingleCardNotice {
     | "dangerousDiscardMade"
     | "dangerousDiscardLost"
     | "probePlayed"
+    | "probeReceived"
     | "secretOrderPlayed"
     | "secretOrderReceived";
   otherPlayerId: PlayerId;
@@ -2058,11 +2059,6 @@ export function playSecretOrder(
     otherPlayerId: state.activePlayerId,
     cardId,
   });
-  state.privateNotices[state.activePlayerId].push({
-    kind: "secretOrderReceived",
-    otherPlayerId: actorId,
-    cardId,
-  });
   pending.stage = "reactions";
   pending.sourcePlayerId = actorId;
   pending.sourceCardId = cardId;
@@ -2451,6 +2447,11 @@ function finishActiveFunctionAction(state: GameState): void {
     }
   } else {
     const probe = cardById(action.sourceCardId);
+    state.privateNotices[target.id].push({
+      kind: "probeReceived",
+      otherPlayerId: source.id,
+      cardId: action.sourceCardId,
+    });
     if (probe.variant?.kind === "probeIdentity") {
       action.stage = "awaitingProbeChoice";
       state.auditLog.push(`${target.id}须回应试探`);
@@ -3612,6 +3613,13 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
       if (!pending) throw new Error("秘密下达窗口状态无效");
       pending.stage = "selection";
       pending.countered = false;
+      if (pending.sourcePlayerId && pending.sourceCardId) {
+        state.privateNotices[pending.targetPlayerId].push({
+          kind: "secretOrderReceived",
+          otherPlayerId: pending.sourcePlayerId,
+          cardId: pending.sourceCardId,
+        });
+      }
       settleSecretOrderResolution(state);
       if (!automaticallyVerifyNoSecretOrderMatch(state)) {
         state.auditLog.push("秘密下达结算，颜色限制生效");
@@ -4613,7 +4621,8 @@ export function projectGameForPlayer(
           requiredColor:
             !state.pendingSecretOrder.countered &&
             (state.pendingSecretOrder.sourcePlayerId === viewerId ||
-              state.pendingSecretOrder.targetPlayerId === viewerId)
+              (state.pendingSecretOrder.targetPlayerId === viewerId &&
+                state.pendingSecretOrder.stage === "selection"))
               ? state.pendingSecretOrder.requiredColor
               : undefined,
           verifiedNoMatch: state.pendingSecretOrder.verifiedNoMatch,

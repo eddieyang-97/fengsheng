@@ -2097,7 +2097,8 @@ function hiddenProbeUtility(
       .filter((card) => card.name === "试探")
       .map((card) => card.id),
     ...projection.privateNotices.flatMap((notice) =>
-      notice.kind === "probePlayed" && "card" in notice && notice.card.name === "试探"
+      (notice.kind === "probePlayed" || notice.kind === "probeReceived") &&
+          "card" in notice && notice.card.name === "试探"
         ? [notice.card.id]
         : []
     ),

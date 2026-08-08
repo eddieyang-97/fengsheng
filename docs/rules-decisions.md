@@ -441,9 +441,11 @@ Draw handling:
 - Played in a dedicated pre-transmission window after the active player irrevocably ends their function-card phase and declares that they are entering transmission.
 - This window occurs before the active player selects the intelligence card, transmission method, route, or direction.
 - Once this window opens, the active player cannot return to the function-card phase or play additional active-phase function cards.
-- The user declares one printed word.
-- The card-specific mapping determines the required color.
-- The target must transmit a matching color when possible.
+  - The user declares one printed word.
+  - The card-specific mapping determines the required color.
+  - During the 识破 response window, the target sees the declared word but not the played card's mapping or required
+color. Those private details are revealed to the target only after 秘密下达 successfully resolves.
+  - The target must transmit a matching color when possible.
 - A red-blue card may satisfy either a red or blue requirement.
 - If multiple matching cards exist, the target chooses freely among them.
 - If no matching card exists, the server verifies this automatically as soon as 秘密下达 resolves; the target is not asked to make a redundant declaration.
@@ -467,7 +469,10 @@ Draw handling:
 Identity-code variant:
 
 - The target either publicly states the code corresponding to their faction, or allows one card to be taken randomly from their hand without inspection.
-- Only the user knows the card-specific mapping.
+- The user knows the card-specific mapping immediately. Once the response window
+  resolves, the final target also sees that exact 试探 in private notifications;
+  a countered 试探 reveals nothing to the target, and 离间 reveals it only to the
+  redirected final target.
 - If the target has no hand cards, the hand-card alternative is unavailable and they must publicly state the code corresponding to their true faction.
 - Any publicly announced code remains permanently in the public audit log.
 
@@ -525,7 +530,7 @@ A client must not receive:
 - other hands
 - other factions
 - hidden discard identities
-- another player’s private mapping
+- a 试探 mapping unless the viewer was its user or resolved target
 - unrevealed cards
 - server-only verification information
 

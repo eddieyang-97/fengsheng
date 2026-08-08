@@ -97,6 +97,15 @@ describe("试探", () => {
     expect(projectGameForPlayer(state, "乙").privateNotices).toEqual([]);
     passAll(state);
 
+    expect(projectGameForPlayer(state, "乙").privateNotices).toContainEqual(
+      expect.objectContaining({
+        kind: "probeReceived",
+        otherPlayerId: "甲",
+        card: expect.objectContaining({ id: probeId }),
+      }),
+    );
+    expect(projectGameForPlayer(state, "丙").privateNotices).toEqual([]);
+
     expect(projectGameForPlayer(state, "乙").legalActions).toEqual([
       { type: "CHOOSE_PROBE_IDENTITY", choice: "announce" },
     ]);
@@ -245,6 +254,14 @@ describe("秘密下达", () => {
 
     expect(state.hiddenSecretOrders).toContain(firstOrder);
     expect(currentResponseFrames(state)).toHaveLength(0);
+    expect(projectGameForPlayer(state, "甲").pendingSecretOrder?.requiredColor)
+      .toBeUndefined();
+    expect(projectGameForPlayer(state, "甲").privateNotices).not.toContainEqual(
+      expect.objectContaining({
+        kind: "secretOrderReceived",
+        card: expect.objectContaining({ id: firstOrder }),
+      }),
+    );
     expect(currentReactionWindow(state)).toMatchObject({
       kind: "secretOrder",
       responderOrder: ["乙", "丙", "丁", "戊"],
@@ -341,7 +358,9 @@ describe("秘密下达", () => {
         card: expect.objectContaining({ id: orderId }),
       }),
     );
-    expect(projectGameForPlayer(state, "甲").privateNotices).toContainEqual(
+    expect(projectGameForPlayer(state, "甲").pendingSecretOrder?.requiredColor)
+      .toBeUndefined();
+    expect(projectGameForPlayer(state, "甲").privateNotices).not.toContainEqual(
       expect.objectContaining({
         kind: "secretOrderReceived",
         otherPlayerId: "乙",
@@ -350,6 +369,13 @@ describe("秘密下达", () => {
     );
     passAll(state);
     expect(projectGameForPlayer(state, "甲").pendingSecretOrder?.requiredColor).toBe(required);
+    expect(projectGameForPlayer(state, "甲").privateNotices).toContainEqual(
+      expect.objectContaining({
+        kind: "secretOrderReceived",
+        otherPlayerId: "乙",
+        card: expect.objectContaining({ id: orderId }),
+      }),
+    );
     expect(projectGameForPlayer(state, "丙").pendingSecretOrder?.requiredColor).toBeUndefined();
     expect(projectGameForPlayer(state, "甲").legalActions.some(
       (action) =>
