@@ -490,6 +490,9 @@ Draw/discard variant:
 - Normal discards are face up.
 - Used 试探 is face down and removed permanently.
 - Used 秘密下达 is face down but remains reshuffle-eligible.
+- Player and spectator projections expose the number of face-down 秘密下达
+  cards in the discard pile and, separately, the number of 试探 cards removed
+  from the game. Their identities remain hidden.
 - A forced discard instruction does nothing if the affected player has no hand cards.
 
 ---

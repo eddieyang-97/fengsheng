@@ -1806,7 +1806,9 @@ export function GameTable({
             <span data-game-animation-anchor="deck">牌堆 <b>{projection.drawPileCount}</b></span>
             <DiscardPileButton
               cards={projection.publicDiscard}
+              hiddenCardCount={projection.hiddenDiscardCount}
               onOpen={() => setDiscardPileOpen(true)}
+              removedProbeCount={projection.removedProbeCount}
               shortcutLabel={keyboardShortcutsEnabled ? "K" : undefined}
             />
           </div>
@@ -2479,7 +2481,12 @@ export function GameTable({
         />
       </section>
       {discardPileOpen && (
-        <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />
+        <DiscardPileDialog
+          cards={projection.publicDiscard}
+          hiddenCardCount={projection.hiddenDiscardCount}
+          onClose={() => setDiscardPileOpen(false)}
+          removedProbeCount={projection.removedProbeCount}
+        />
       )}
       {detailCard && <CardDetailDialog card={detailCard} onClose={() => setDetailCard(undefined)} />}
       <PlayerReactionLayer

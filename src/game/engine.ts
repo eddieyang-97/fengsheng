@@ -491,6 +491,8 @@ export interface PlayerProjection {
   seatOrder: PlayerId[];
   drawPileCount: number;
   publicDiscard: PhysicalCard[];
+  hiddenDiscardCount: number;
+  removedProbeCount: number;
   players: PublicPlayerProjection[];
   own: {
     id: PlayerId;
@@ -4505,6 +4507,8 @@ export function projectGameForPlayer(
     seatOrder: [...state.seatOrder],
     drawPileCount: state.drawPile.length,
     publicDiscard: projectedPublicDiscard(state),
+    hiddenDiscardCount: state.hiddenSecretOrders.length,
+    removedProbeCount: state.removedProbes.length,
     players: state.seatOrder.map((id) => {
       const player = state.players[id];
       return {

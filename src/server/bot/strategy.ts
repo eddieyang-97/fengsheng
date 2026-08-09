@@ -37,6 +37,10 @@ export interface BotPolicy {
   readonly finalReceiptSwapScoring: boolean;
   /** Evaluate both sides of the hand exchange when redirecting 公开文本 with 离间. */
   readonly publicTextExchangeScoring: boolean;
+  /** Treat 公开文本 as hostile except for matching-color handoffs to the immediate upstream player. */
+  readonly publicTextIntentScoring: boolean;
+  /** Strongly prefer safe receipt after a 特工 has accumulated four true intelligence. */
+  readonly agentFourTrueReceiptPriority: boolean;
   /** Evaluate a face-down 试探 from its hidden-variant prior and the prober's affinity. */
   readonly probeCounterAffinityScoring: boolean;
   /** Compare identity announcement with the exact expected random-card transfer. */
@@ -84,6 +88,8 @@ export const BASELINE_V1: BotPolicy = {
   conservativeSwap: false,
   finalReceiptSwapScoring: false,
   publicTextExchangeScoring: false,
+  publicTextIntentScoring: false,
+  agentFourTrueReceiptPriority: false,
   probeCounterAffinityScoring: false,
   probeIdentityChoiceScoring: false,
   incrementalInterceptScoring: false,
@@ -116,6 +122,8 @@ export const TACTICAL_V2: BotPolicy = {
   conservativeSwap: false,
   finalReceiptSwapScoring: false,
   publicTextExchangeScoring: false,
+  publicTextIntentScoring: false,
+  agentFourTrueReceiptPriority: false,
   probeCounterAffinityScoring: false,
   probeIdentityChoiceScoring: false,
   incrementalInterceptScoring: false,
@@ -148,6 +156,8 @@ export const TACTICAL_V3: BotPolicy = {
   conservativeSwap: false,
   finalReceiptSwapScoring: false,
   publicTextExchangeScoring: false,
+  publicTextIntentScoring: false,
+  agentFourTrueReceiptPriority: false,
   probeCounterAffinityScoring: false,
   probeIdentityChoiceScoring: false,
   incrementalInterceptScoring: false,
@@ -214,10 +224,21 @@ export const TACTICAL_V12: BotPolicy = {
   factionThreatTargeting: "dangerous",
   avoidSecretOrderSmallHand: true,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V12;
+export const TACTICAL_V13: BotPolicy = {
+  ...TACTICAL_V12,
+  id: "tactical-v13",
+  publicTextIntentScoring: true,
+};
+export const TACTICAL_V14: BotPolicy = {
+  ...TACTICAL_V13,
+  id: "tactical-v14",
+  agentFourTrueReceiptPriority: true,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V14;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
+const AGENT_FOUR_TRUE_RECEIPT_BONUS = 60;
 const SWAP_CARD_COST_FACTOR = 0.6;
 const SETTLED_RECEIPT_SWAP_THRESHOLD = 40;
 const SECRET_ORDER_CARD_COST = 4;
@@ -434,12 +455,34 @@ export function observeBotProjection(
   if (currentFunction && currentFunction.signature !== priorFunction?.signature) {
     const target = projection.players.find((player) => player.id === currentFunction.targetId);
     const sourceEvidence = memory.evidence[currentFunction.sourceId] ??= emptyBelief();
-    if (target?.faction) {
-      if (currentFunction.kind === "publicText") sourceEvidence[target.faction] += 0.35;
-      if (currentFunction.kind === "dangerousIntelligence") {
-        sourceEvidence[target.faction] -= 0.45;
-        for (const faction of FACTIONS) if (faction !== target.faction) sourceEvidence[faction] += 0.2;
+    if (currentFunction.kind === "publicText") {
+      const targetFaction = target?.faction ??
+        (currentFunction.targetId === projection.own.id ? projection.own.faction : undefined);
+      if (targetFaction && policy.publicTextIntentScoring) {
+        const sourceCard = projection.activeFunctionAction?.sourceCard;
+        if (sourceCard) {
+          if (isCooperativePublicTextHandoff(
+            sourceCard,
+            currentFunction.sourceId,
+            currentFunction.targetId,
+            targetFaction,
+            projection,
+          )) {
+            sourceEvidence[targetFaction] += 0.35;
+          } else {
+            sourceEvidence[targetFaction] -= 0.35;
+            for (const faction of FACTIONS) {
+              if (faction !== targetFaction) sourceEvidence[faction] += 0.15;
+            }
+          }
+        }
+      } else if (targetFaction) {
+        sourceEvidence[targetFaction] += 0.35;
       }
+    }
+    if (currentFunction.kind === "dangerousIntelligence" && target?.faction) {
+      sourceEvidence[target.faction] -= 0.45;
+      for (const faction of FACTIONS) if (faction !== target.faction) sourceEvidence[faction] += 0.2;
     }
   }
   if (
@@ -727,10 +770,17 @@ function scoreAction(
         projection.transmission.card.color !== "黑"
           ? 1
           : 0;
+      const agentEndgameBonus = policy.agentFourTrueReceiptPriority &&
+          hasFourTrueIntelligence(projection.own.id, projection) &&
+          incomingIntelligenceIsSafeForAgent(projection, transmissionInference)
+        ? AGENT_FOUR_TRUE_RECEIPT_BONUS
+        : 0;
       return decision(
         command,
-        5 + receiptUtility + safeTruePossessionBonus,
-        safeTruePossessionBonus > 0 && receiptUtility === 0
+        5 + receiptUtility + safeTruePossessionBonus + agentEndgameBonus,
+        agentEndgameBonus > 0
+          ? "prioritize a safe fifth or sixth intelligence after reaching four true intelligence"
+          : safeTruePossessionBonus > 0 && receiptUtility === 0
           ? "accept safe true intelligence instead of routing it onward"
           : "evaluate tactical receipt outcome",
       );
@@ -1013,8 +1063,26 @@ function scoreAction(
           ? "burn only when the expected protection exceeds card-conservation cost"
           : "remove dangerous black intelligence when it helps the bot's side",
       );
-    case "PLAY_PUBLIC_TEXT":
-      return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 5 + 8, "exchange with a likely ally");
+    case "PLAY_PUBLIC_TEXT": {
+      const affinity = targetAffinity(action.targetId, ownFaction, beliefs);
+      if (!policy.publicTextIntentScoring) {
+        return decision(command, affinity * 5 + 8, "exchange with a likely ally");
+      }
+      const cooperativeHandoff = card !== undefined && isCooperativePublicTextHandoff(
+        card,
+        projection.own.id,
+        action.targetId,
+        ownFaction,
+        projection,
+      );
+      return decision(
+        command,
+        (cooperativeHandoff ? affinity : -affinity) * 5 + 8,
+        cooperativeHandoff
+          ? "give matching public text to the immediate upstream ally who can pass it back"
+          : "use public text as a hostile exchange",
+      );
+    }
     case "PLAY_DANGEROUS_INTELLIGENCE":
       {
         const baseScore = offensiveTargetBaseScore(action, projection, beliefs);
@@ -2241,6 +2309,26 @@ function countIntelligence(cards: readonly PhysicalCard[]): IntelligenceCounts {
   }, { red: 0, blue: 0, black: 0, physical: 0 });
 }
 
+function hasFourTrueIntelligence(playerId: string, projection: PlayerProjection): boolean {
+  if (playerId !== projection.own.id || projection.own.faction !== "特工") return false;
+  const player = projection.players.find((candidate) => candidate.id === playerId);
+  if (!player) return false;
+  const counts = countIntelligence(player.intelligence);
+  return counts.physical - counts.black >= 4;
+}
+
+function incomingIntelligenceIsSafeForAgent(
+  projection: PlayerProjection,
+  inference?: BotMemory["transmissionInference"],
+): boolean {
+  const player = projection.players.find((candidate) => candidate.id === projection.own.id);
+  if (!player) return false;
+  const blackCount = countIntelligence(player.intelligence).black;
+  const knownOrForcedBlack = projection.transmission?.card?.color === "黑" ||
+    (!projection.transmission?.card && inference?.forcedColor === "黑");
+  return !knownOrForcedBlack || blackCount < 2;
+}
+
 function addIntelligence(counts: IntelligenceCounts, card: PhysicalCard): IntelligenceCounts {
   return countIntelligenceFromBase(counts, [card]);
 }
@@ -2282,6 +2370,41 @@ function targetAffinity(playerId: string | undefined, faction: Faction, beliefs:
   const belief = beliefs[playerId];
   if (!belief) return 0;
   return belief[faction] - Math.max(...FACTIONS.filter((entry) => entry !== faction).map((entry) => belief[entry]));
+}
+
+function immediateUpstreamPlayerId(
+  playerId: string,
+  projection: PlayerProjection,
+): string | undefined {
+  const start = projection.seatOrder.indexOf(playerId);
+  if (start < 0) return undefined;
+  for (let offset = 1; offset < projection.seatOrder.length; offset += 1) {
+    const candidateId = projection.seatOrder[
+      (start - offset + projection.seatOrder.length) % projection.seatOrder.length
+    ];
+    if (projection.players.find((player) => player.id === candidateId)?.alive) {
+      return candidateId;
+    }
+  }
+  return undefined;
+}
+
+function isCooperativePublicTextHandoff(
+  card: PhysicalCard,
+  sourceId: string,
+  targetId: string,
+  sourceFaction: Faction,
+  projection: PlayerProjection,
+): boolean {
+  const matchingColor = sourceFaction === "军情"
+    ? "蓝"
+    : sourceFaction === "潜伏"
+      ? "红"
+      : undefined;
+  return card.name === "公开文本" &&
+    matchingColor !== undefined &&
+    card.color === matchingColor &&
+    immediateUpstreamPlayerId(sourceId, projection) === targetId;
 }
 
 function strategicOpponentThreat(

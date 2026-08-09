@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
 import { CANDIDATE_V23, CANDIDATE_V28, CANDIDATE_V29 } from "./policies";
-import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3 } from "../server/bot/strategy";
+import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12 } from "../server/bot/strategy";
 
 const INCREMENTAL_TRANSFER_POLICY = {
   ...TACTICAL_V3,
@@ -175,7 +175,8 @@ describe("AI self-play benchmark", () => {
     const result = runSelfPlayGame({
       playerCount: 5,
       seed: 30005,
-      comparePolicies: [LIVE_BOT_POLICY, CANDIDATE_V28],
+      policies: Array.from({ length: 5 }, () => TACTICAL_V12),
+      comparePolicies: [TACTICAL_V12, CANDIDATE_V28],
     });
     const evaluated = result.disagreements.find((entry) =>
       entry.counterfactual?.metric === "full-information-receipt-branch"

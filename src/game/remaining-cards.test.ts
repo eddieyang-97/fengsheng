@@ -20,6 +20,7 @@ import {
   playProbe,
   playSecretOrder,
   projectGameForPlayer,
+  projectGameForSpectator,
   startTransmission,
   topResponseFrame,
   type GameState,
@@ -111,6 +112,8 @@ describe("试探", () => {
     ]);
     chooseProbeIdentityResponse(state, "乙", "announce");
     expect(state.removedProbes).toContain(probeId);
+    expect(projectGameForPlayer(state, "甲").removedProbeCount).toBe(1);
+    expect(projectGameForSpectator(state).removedProbeCount).toBe(1);
     expect(state.auditLog).toContain(
       `乙因试探公开身份代码：${probe.variant.mapping[state.players["乙"].faction]}`,
     );
@@ -253,6 +256,8 @@ describe("秘密下达", () => {
     }
 
     expect(state.hiddenSecretOrders).toContain(firstOrder);
+    expect(projectGameForPlayer(state, "甲").hiddenDiscardCount).toBe(1);
+    expect(projectGameForSpectator(state).hiddenDiscardCount).toBe(1);
     expect(currentResponseFrames(state)).toHaveLength(0);
     expect(projectGameForPlayer(state, "甲").pendingSecretOrder?.requiredColor)
       .toBeUndefined();
@@ -286,6 +291,7 @@ describe("秘密下达", () => {
     expect(state.hiddenSecretOrders).toEqual(
       expect.arrayContaining([firstOrder, secondOrder]),
     );
+    expect(projectGameForPlayer(state, "甲").hiddenDiscardCount).toBe(2);
     expect(state.pendingSecretOrder).toMatchObject({
       stage: "selection",
       sourcePlayerId: "乙",

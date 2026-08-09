@@ -12,7 +12,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v12`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v14`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -52,6 +52,18 @@ failures, or rejected commands. The narrow target-ordering behavior is promoted
 as the requested strategic policy; `tactical-v11` is the rollback policy.
 V12 also preserves 秘密下达 when the active target has at most one hand card,
 where color control cannot justify spending the function card.
+
+V13 treats an intentional 公开文本 exchange as hostile by default for both
+target selection and faction inference. The sole cooperative pattern is a red
+or blue 公开文本 matching the user's faction, handed to the immediately
+upstream living player who can transmit it back on their next turn. Older
+versioned policies retain their original heuristic; `tactical-v12` is the
+rollback policy.
+
+V14 gives a 特工 with at least four true intelligence a strong priority to
+receive any nonlethal visible or hidden intelligence. A materially stronger
+concrete outcome, such as forcing a known 假情报 onto another player for a kill,
+can still override receipt; `tactical-v13` is the rollback policy.
 
 V9 remains evaluation-only. It adds
 假情报-only 直达 faction evidence and strong opposing-faction evidence when a

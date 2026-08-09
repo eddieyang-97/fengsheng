@@ -114,7 +114,12 @@ describe("shared card artwork", () => {
 
   it("renders artwork in 弃牌堆", () => {
     const markup = renderToStaticMarkup(
-      <DiscardPileDialog cards={[lockCard]} onClose={() => undefined} />,
+      <DiscardPileDialog
+        cards={[lockCard]}
+        hiddenCardCount={0}
+        onClose={() => undefined}
+        removedProbeCount={0}
+      />,
     );
 
     expect(markup).toContain("/card-art/lock.webp");
