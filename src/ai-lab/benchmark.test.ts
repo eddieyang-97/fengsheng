@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
 import { CANDIDATE_V23, CANDIDATE_V28, CANDIDATE_V29 } from "./policies";
-import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12 } from "../server/bot/strategy";
+import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12, TACTICAL_V18, TACTICAL_V19 } from "../server/bot/strategy";
 
 const INCREMENTAL_TRANSFER_POLICY = {
   ...TACTICAL_V3,
@@ -22,6 +22,12 @@ describe("AI self-play benchmark", () => {
     expect(result.stalled).toBe(0);
     expect(result.commandLimited).toBe(0);
     expect(result.rejectedCommands).toBe(0);
+  });
+
+  it("records the hidden color when a player rejects immediately after 破译", () => {
+    const result = runSelfPlayGame({ playerCount: 5, seed: 30003 });
+
+    expect(result.decryptRejections).toEqual({ total: 1, black: 1 });
   });
 
   it("finishes deterministic duel batches without stalling or rejected commands", () => {
@@ -188,5 +194,19 @@ describe("AI self-play benchmark", () => {
     });
     expect(evaluated?.counterfactual?.recipientIds).toHaveLength(2);
     expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
+  });
+
+  it("scores 秘密下达 use-versus-preserve disagreements through the end of the game", () => {
+    const result = runSelfPlayGame({
+      playerCount: 5,
+      seed: 32013,
+      comparePolicies: [TACTICAL_V18, TACTICAL_V19],
+    });
+    const evaluated = result.disagreements.find((entry) =>
+      entry.counterfactual?.metric === "full-information-secret-order-branch"
+    );
+
+    expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
+    expect(evaluated?.counterfactual?.preferredPolicy).toMatch(/^(tactical-v18|tactical-v19|tie)$/);
   });
 });

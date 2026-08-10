@@ -1,4 +1,4 @@
-import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, TACTICAL_V8, TACTICAL_V9, TACTICAL_V10, TACTICAL_V11, TACTICAL_V12, TACTICAL_V13, TACTICAL_V14, type BotPolicy } from "../server/bot/strategy";
+import { TACTICAL_V2, TACTICAL_V3, TACTICAL_V4, TACTICAL_V5, TACTICAL_V6, TACTICAL_V7, TACTICAL_V8, TACTICAL_V9, TACTICAL_V10, TACTICAL_V11, TACTICAL_V12, TACTICAL_V13, TACTICAL_V14, TACTICAL_V15, TACTICAL_V16, TACTICAL_V17, TACTICAL_V18, TACTICAL_V19, type BotPolicy } from "../server/bot/strategy";
 
 export const CANDIDATE_V14: BotPolicy = {
   ...TACTICAL_V6,
@@ -156,6 +156,24 @@ export const CANDIDATE_V39: BotPolicy = {
   factionThreatTargeting: "probe",
 };
 
+export const CANDIDATE_V40: BotPolicy = {
+  ...TACTICAL_V14,
+  id: "candidate-v40",
+  dangerousDiscardChoiceEvidence: 0.8,
+};
+
+export const CANDIDATE_V41: BotPolicy = {
+  ...TACTICAL_V14,
+  id: "candidate-v41",
+  dangerousDiscardChoiceEvidence: 0.4,
+};
+
+export const CANDIDATE_V42: BotPolicy = {
+  ...TACTICAL_V14,
+  id: "candidate-v42",
+  dangerousDiscardChoiceEvidence: 0.2,
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
@@ -170,6 +188,11 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V12,
   TACTICAL_V13,
   TACTICAL_V14,
+  TACTICAL_V15,
+  TACTICAL_V16,
+  TACTICAL_V17,
+  TACTICAL_V18,
+  TACTICAL_V19,
   CANDIDATE_V14,
   CANDIDATE_V15,
   CANDIDATE_V16,
@@ -189,6 +212,9 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V31,
   CANDIDATE_V32,
   CANDIDATE_V33,
+  CANDIDATE_V40,
+  CANDIDATE_V41,
+  CANDIDATE_V42,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

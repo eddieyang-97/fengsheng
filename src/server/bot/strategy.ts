@@ -1,5 +1,5 @@
 import { PHYSICAL_DECK, type Faction, type PhysicalCard, type PhysicalCardId, type SingleColor } from "../../game/cards";
-import { factionsForPlayerCount, type ActiveFunctionKind, type PlayerProjection } from "../../game/engine";
+import { factionsForPlayerCount, type ActiveFunctionKind, type Direction, type PlayerProjection } from "../../game/engine";
 import type { GameCommand } from "../game-session";
 
 const FACTIONS = ["军情", "潜伏", "特工"] as const satisfies readonly Faction[];
@@ -41,6 +41,18 @@ export interface BotPolicy {
   readonly publicTextIntentScoring: boolean;
   /** Strongly prefer safe receipt after a 特工 has accumulated four true intelligence. */
   readonly agentFourTrueReceiptPriority: boolean;
+  /** Experimental extra cost for a 特工 voluntarily accepting known black intelligence. */
+  readonly agentKnownBlackReceiptPenalty?: number;
+  /** Estimate how each other player perceives this bot from public identity evidence. */
+  readonly secondOrderIdentityModel: boolean;
+  /** Infer sender opposition and perceived alliances from accepted real 直达 color denial. */
+  readonly directColorDenialInference: boolean;
+  /** Reinforce affiliation when a +1 试探 sender deliberately reverses 密电 toward this bot. */
+  readonly supportiveReverseMailInference: boolean;
+  /** Prefer concentrating matching real intelligence on a trusted ally already ahead of this bot. */
+  readonly alliedProgressConcentration: boolean;
+  /** Preserve 秘密下达 when the target already has strong affinity toward this bot. */
+  readonly avoidRedundantAllySecretOrder: boolean;
   /** Evaluate a face-down 试探 from its hidden-variant prior and the prober's affinity. */
   readonly probeCounterAffinityScoring: boolean;
   /** Compare identity announcement with the exact expected random-card transfer. */
@@ -67,10 +79,14 @@ export interface BotPolicy {
   readonly dangerousDiscardStrategy: "random" | "color-denial" | "color-then-function" | "expected-denial" | "target-value";
   /** Learn weak faction evidence from completed voluntary actions that help or harm this bot. */
   readonly inferResolvedActionAffinity: boolean;
+  /** Evidence weight for attacker affinity inferred from a chosen 危险情报 discard. */
+  readonly dangerousDiscardChoiceEvidence?: number;
   /** Which offensive target choices should prefer the more dangerous opposing faction. */
   readonly factionThreatTargeting: "none" | "dangerous" | "probe" | "all";
   /** Preserve 秘密下达 when its target has too few cards for meaningful color control. */
   readonly avoidSecretOrderSmallHand: boolean;
+  /** Posterior estimate used after a player resolves 破译 and then rejects the intelligence. */
+  readonly decryptRejectionBlackProbability?: number;
 }
 export const BASELINE_V1: BotPolicy = {
   id: "baseline-v1",
@@ -90,6 +106,11 @@ export const BASELINE_V1: BotPolicy = {
   publicTextExchangeScoring: false,
   publicTextIntentScoring: false,
   agentFourTrueReceiptPriority: false,
+  secondOrderIdentityModel: false,
+  directColorDenialInference: false,
+  supportiveReverseMailInference: false,
+  alliedProgressConcentration: false,
+  avoidRedundantAllySecretOrder: false,
   probeCounterAffinityScoring: false,
   probeIdentityChoiceScoring: false,
   incrementalInterceptScoring: false,
@@ -124,6 +145,11 @@ export const TACTICAL_V2: BotPolicy = {
   publicTextExchangeScoring: false,
   publicTextIntentScoring: false,
   agentFourTrueReceiptPriority: false,
+  secondOrderIdentityModel: false,
+  directColorDenialInference: false,
+  supportiveReverseMailInference: false,
+  alliedProgressConcentration: false,
+  avoidRedundantAllySecretOrder: false,
   probeCounterAffinityScoring: false,
   probeIdentityChoiceScoring: false,
   incrementalInterceptScoring: false,
@@ -158,6 +184,11 @@ export const TACTICAL_V3: BotPolicy = {
   publicTextExchangeScoring: false,
   publicTextIntentScoring: false,
   agentFourTrueReceiptPriority: false,
+  secondOrderIdentityModel: false,
+  directColorDenialInference: false,
+  supportiveReverseMailInference: false,
+  alliedProgressConcentration: false,
+  avoidRedundantAllySecretOrder: false,
   probeCounterAffinityScoring: false,
   probeIdentityChoiceScoring: false,
   incrementalInterceptScoring: false,
@@ -234,6 +265,31 @@ export const TACTICAL_V14: BotPolicy = {
   id: "tactical-v14",
   agentFourTrueReceiptPriority: true,
 };
+export const TACTICAL_V15: BotPolicy = {
+  ...TACTICAL_V14,
+  id: "tactical-v15",
+  secondOrderIdentityModel: true,
+};
+export const TACTICAL_V16: BotPolicy = {
+  ...TACTICAL_V15,
+  id: "tactical-v16",
+  directColorDenialInference: true,
+};
+export const TACTICAL_V17: BotPolicy = {
+  ...TACTICAL_V16,
+  id: "tactical-v17",
+  supportiveReverseMailInference: true,
+};
+export const TACTICAL_V18: BotPolicy = {
+  ...TACTICAL_V17,
+  id: "tactical-v18",
+  alliedProgressConcentration: true,
+};
+export const TACTICAL_V19: BotPolicy = {
+  ...TACTICAL_V18,
+  id: "tactical-v19",
+  avoidRedundantAllySecretOrder: true,
+};
 export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V14;
 
 const PASS_REACTION_SCORE = 5;
@@ -243,6 +299,16 @@ const SWAP_CARD_COST_FACTOR = 0.6;
 const SETTLED_RECEIPT_SWAP_THRESHOLD = 40;
 const SECRET_ORDER_CARD_COST = 4;
 const DECRYPT_REJECTION_BLACK_PROBABILITY = 0.7;
+const HOSTILE_DIRECT_BLACK_PROBABILITY = 0.62;
+const ALLIED_DIRECT_BLACK_DISCOUNT = 0.36;
+const SUPPORTIVE_PROBE_MAIL_BLACK_PROBABILITY = 0.22;
+const LIMITED_HAND_SUPPORTIVE_MAIL_BLACK_PROBABILITY = 0.4;
+const SUPPORTIVE_REVERSE_MAIL_FACTION_EVIDENCE = 0.65;
+const HIGH_AFFINITY_THRESHOLD = 0.5;
+const REVERSE_MAIL_BLACK_DISCOUNT = 0.113;
+const LIMITED_HAND_REVERSE_MAIL_BLACK_DISCOUNT = 0.033;
+const ALLIED_PROGRESS_CONCENTRATION_BONUS = 12;
+const REDUNDANT_ALLY_SECRET_ORDER_COST = 8;
 const SECRET_ORDER_COLOR_EVIDENCE = 0.45;
 const DEFINITIVE_FACTION_EVIDENCE = 100;
 const TERMINAL_LOSS_UTILITY = -1_000;
@@ -255,6 +321,7 @@ interface PublicObservation {
     senderId: string;
     targetId: string;
     method: Exclude<PhysicalCard["transmission"], "任意">;
+    direction?: Direction;
     card?: PhysicalCard;
   };
   functionAction?: {
@@ -289,12 +356,20 @@ export interface BotMemory {
   readonly botId: string;
   /** Additive evidence, retained between decisions. It contains no hidden state. */
   evidence: Record<string, FactionBelief>;
+  /** Estimated faction belief that each observer assigns to this bot. Public information only. */
+  perceivedIdentityByPlayer: Record<string, FactionBelief>;
+  /** Players whose resolved +1 试探 on this bot publicly signaled likely cooperation. */
+  supportiveProbeByPlayer: Record<string, boolean>;
+  /** Estimated public relationship: positive means observer likely sees subject as an ally. */
+  perceivedAllianceByPlayer: Record<string, Record<string, number>>;
   transmissionInference?: {
     signature: string;
+    initialTargetId: string;
     completedDecryptors: string[];
     blackProbability?: number;
     forcedColor?: SingleColor;
     forcedByPlayerId?: string;
+    replaced: boolean;
   };
   pendingLockInference?: {
     sourceId: string;
@@ -347,6 +422,9 @@ export function createBotMemory(
   const memory: BotMemory = {
     botId: projection.own.id,
     evidence: {},
+    perceivedIdentityByPlayer: {},
+    supportiveProbeByPlayer: {},
+    perceivedAllianceByPlayer: {},
   };
   observeBotProjection(memory, projection, policy);
   return memory;
@@ -402,9 +480,23 @@ export function observeBotProjection(
 
   observeDefinitivePublicTextInference(memory, projection);
 
+  if (policy.secondOrderIdentityModel) {
+    memory.perceivedIdentityByPlayer = estimatePerceivedIdentityByPlayer(
+      memory,
+      projection,
+      policy,
+    );
+  }
+
   const priorTransmission = memory.previous?.transmission;
+  observeResolvedDirectColorDenial(
+    memory,
+    projection,
+    priorTransmission,
+    policy,
+  );
   const currentTransmission = transmissionObservation(projection);
-  observeTransmissionInference(memory, projection, currentTransmission);
+  observeTransmissionInference(memory, projection, currentTransmission, policy);
   if (currentTransmission && currentTransmission.signature !== priorTransmission?.signature) {
     const target = projection.players.find((player) => player.id === currentTransmission.targetId);
     const targetFaction = target?.faction ??
@@ -450,6 +542,15 @@ export function observeBotProjection(
     ) {
       const sourceEvidence = memory.evidence[priorFunction.sourceId] ??= emptyBelief();
       sourceEvidence[projection.own.faction] += 1.1;
+      if (policy.secondOrderIdentityModel) {
+        memory.supportiveProbeByPlayer[priorFunction.sourceId] = true;
+        addPerceivedAlliance(
+          memory,
+          priorFunction.sourceId,
+          projection.own.id,
+          SUPPORTIVE_REVERSE_MAIL_FACTION_EVIDENCE,
+        );
+      }
     }
   }
   if (currentFunction && currentFunction.signature !== priorFunction?.signature) {
@@ -486,11 +587,22 @@ export function observeBotProjection(
     }
   }
   if (
-    policy.inferResolvedActionAffinity &&
     priorFunction &&
     currentFunction?.signature !== priorFunction.signature
   ) {
-    observeResolvedActionAffinity(memory, projection, priorFunction);
+    if (
+      (policy.dangerousDiscardChoiceEvidence ?? 0) > 0 &&
+      priorFunction.kind === "dangerousIntelligence"
+    ) {
+      observeDangerousDiscardChoiceInference(
+        memory,
+        projection,
+        priorFunction,
+        policy.dangerousDiscardChoiceEvidence ?? 0,
+      );
+    } else if (policy.inferResolvedActionAffinity) {
+      observeResolvedActionAffinity(memory, projection, priorFunction);
+    }
   }
 
   const priorSecretOrder = memory.previous?.secretOrder;
@@ -502,6 +614,14 @@ export function observeBotProjection(
     } else if (currentSecretOrder.requiredColor === "红") {
       sourceEvidence.潜伏 += SECRET_ORDER_COLOR_EVIDENCE;
     }
+  }
+
+  if (policy.secondOrderIdentityModel) {
+    memory.perceivedIdentityByPlayer = estimatePerceivedIdentityByPlayer(
+      memory,
+      projection,
+      policy,
+    );
   }
 
   memory.previous = snapshot(projection, currentFunction);
@@ -560,6 +680,185 @@ export function factionBeliefsForPolicy(
   return policy.beliefModel === "exact"
     ? factionBeliefs(memory, projection)
     : independentFactionBeliefs(memory, projection);
+}
+
+function estimatePerceivedIdentityByPlayer(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  policy: BotPolicy,
+): Record<string, FactionBelief> {
+  const result: Record<string, FactionBelief> = {};
+  const publicBot = projection.players.find((player) => player.id === memory.botId);
+  if (publicBot?.faction) {
+    for (const observer of projection.players) {
+      if (observer.id !== memory.botId) result[observer.id] = oneHot(publicBot.faction);
+    }
+    return result;
+  }
+
+  const distribution = factionsForPlayerCount(projection.players.length);
+  const totals = Object.fromEntries(FACTIONS.map((faction) => [
+    faction,
+    distribution.filter((entry) => entry === faction).length,
+  ])) as Record<Faction, number>;
+  const publiclyRevealed = Object.fromEntries(FACTIONS.map((faction) => [
+    faction,
+    projection.players.filter((player) => player.faction === faction).length,
+  ])) as Record<Faction, number>;
+  const publicHiddenCount = projection.players.filter((player) => !player.faction).length;
+  const botBeliefs = factionBeliefsForPolicy(memory, projection, policy);
+  const publicSelfEvidence = memory.evidence[memory.botId] ?? emptyBelief();
+
+  for (const observer of projection.players) {
+    if (observer.id === memory.botId) continue;
+    const observerFactions = observer.faction
+      ? oneHot(observer.faction)
+      : botBeliefs[observer.id] ?? uniformBelief();
+    const prior = emptyBelief();
+    for (const observerFaction of FACTIONS) {
+      const observerProbability = observerFactions[observerFaction];
+      if (observerProbability <= 0) continue;
+      const denominator = observer.faction
+        ? publicHiddenCount
+        : Math.max(1, publicHiddenCount - 1);
+      for (const candidateFaction of FACTIONS) {
+        const remaining = totals[candidateFaction] - publiclyRevealed[candidateFaction] -
+          (!observer.faction && observerFaction === candidateFaction ? 1 : 0);
+        prior[candidateFaction] += observerProbability * Math.max(0, remaining) / denominator;
+      }
+    }
+    const weighted: FactionBelief = {
+      军情: prior.军情 * Math.exp(Math.max(-20, Math.min(20, publicSelfEvidence.军情))),
+      潜伏: prior.潜伏 * Math.exp(Math.max(-20, Math.min(20, publicSelfEvidence.潜伏))),
+      特工: prior.特工 * Math.exp(Math.max(-20, Math.min(20, publicSelfEvidence.特工))),
+    };
+    const totalWeight = FACTIONS.reduce((sum, faction) => sum + weighted[faction], 0);
+    result[observer.id] = totalWeight > 0
+      ? {
+          军情: weighted.军情 / totalWeight,
+          潜伏: weighted.潜伏 / totalWeight,
+          特工: weighted.特工 / totalWeight,
+        }
+      : uniformBelief();
+  }
+  return result;
+}
+
+function hiddenDirectBlackProbability(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  senderId: string,
+  policy: BotPolicy,
+): number {
+  const senderBelief = factionBeliefsForPolicy(memory, projection, policy)[senderId] ??
+    uniformBelief();
+  const perceivedBot = memory.perceivedIdentityByPlayer[senderId] ?? uniformBelief();
+  const alignedProbability = senderBelief.军情 * perceivedBot.军情 +
+    senderBelief.潜伏 * perceivedBot.潜伏;
+  return Math.max(
+    0,
+    Math.min(1, HOSTILE_DIRECT_BLACK_PROBABILITY - ALLIED_DIRECT_BLACK_DISCOUNT * alignedProbability),
+  );
+}
+
+function supportiveProbeMailBlackProbability(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  senderId: string,
+): number | undefined {
+  if (!memory.supportiveProbeByPlayer[senderId]) return undefined;
+  const sender = projection.players.find((player) => player.id === senderId);
+  if (!sender) return undefined;
+  // The transmitted card has already left the sender's hand. No remaining card
+  // means they had no choice; one remaining card means only a limited choice.
+  if (sender.handCount === 0) return undefined;
+  return sender.handCount === 1
+    ? LIMITED_HAND_SUPPORTIVE_MAIL_BLACK_PROBABILITY
+    : SUPPORTIVE_PROBE_MAIL_BLACK_PROBABILITY;
+}
+
+function reverseMailAffinityBlackProbability(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  current: NonNullable<PublicObservation["transmission"]>,
+  policy: BotPolicy,
+): number | undefined {
+  if (
+    !policy.supportiveReverseMailInference ||
+    current.method !== "密电" ||
+    current.direction !== "counterclockwise" ||
+    current.targetId !== projection.own.id ||
+    nextLivingPlayerFrom(current.senderId, "clockwise", projection) === projection.own.id
+  ) {
+    return undefined;
+  }
+  const affinity = memory.perceivedAllianceByPlayer[current.senderId]?.[projection.own.id] ?? 0;
+  if (affinity < HIGH_AFFINITY_THRESHOLD) return undefined;
+  const sender = projection.players.find((player) => player.id === current.senderId);
+  if (!sender || sender.handCount === 0) return undefined;
+  const discount = sender.handCount === 1
+    ? LIMITED_HAND_REVERSE_MAIL_BLACK_DISCOUNT
+    : REVERSE_MAIL_BLACK_DISCOUNT;
+  return (1 / 3) - discount * affinity;
+}
+
+function observeSupportiveReverseMailInference(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  current: NonNullable<PublicObservation["transmission"]>,
+  policy: BotPolicy,
+): void {
+  if (
+    !policy.supportiveReverseMailInference ||
+    current.method !== "密电" ||
+    current.direction !== "counterclockwise" ||
+    current.targetId !== projection.own.id ||
+    nextLivingPlayerFrom(current.senderId, "clockwise", projection) === projection.own.id
+  ) {
+    return;
+  }
+  const affinity = memory.perceivedAllianceByPlayer[current.senderId]?.[projection.own.id] ?? 0;
+  if (affinity < HIGH_AFFINITY_THRESHOLD) return;
+  const sourceEvidence = memory.evidence[current.senderId] ??= emptyBelief();
+  sourceEvidence[projection.own.faction] += SUPPORTIVE_REVERSE_MAIL_FACTION_EVIDENCE;
+  addPerceivedAlliance(
+    memory,
+    current.senderId,
+    projection.own.id,
+    SUPPORTIVE_REVERSE_MAIL_FACTION_EVIDENCE,
+  );
+}
+
+function addPerceivedAlliance(
+  memory: BotMemory,
+  observerId: string,
+  subjectId: string,
+  strength: number,
+): void {
+  const relationships = memory.perceivedAllianceByPlayer[observerId] ??= {};
+  relationships[subjectId] = Math.max(
+    -1,
+    Math.min(1, (relationships[subjectId] ?? 0) + strength),
+  );
+}
+
+function nextLivingPlayerFrom(
+  playerId: string,
+  direction: Direction,
+  projection: PlayerProjection,
+): string | undefined {
+  const start = projection.seatOrder.indexOf(playerId);
+  if (start < 0) return undefined;
+  const step = direction === "clockwise" ? 1 : -1;
+  for (let offset = 1; offset < projection.seatOrder.length; offset += 1) {
+    const candidateId = projection.seatOrder[
+      (start + step * offset + projection.seatOrder.length) % projection.seatOrder.length
+    ];
+    if (projection.players.find((player) => player.id === candidateId)?.alive) {
+      return candidateId;
+    }
+  }
+  return undefined;
 }
 
 function independentFactionBeliefs(memory: BotMemory, projection: PlayerProjection): Record<string, FactionBelief> {
@@ -681,6 +980,7 @@ export function chooseBotDecision(
             beliefs,
             policy,
             memory.transmissionInference,
+            memory.perceivedAllianceByPlayer,
           );
       return policy.reactionConservation > 0
         ? applyCardConservation(action, scored, projection, beliefs, policy)
@@ -753,6 +1053,7 @@ function scoreAction(
   beliefs: Record<string, FactionBelief>,
   policy: BotPolicy,
   transmissionInference?: BotMemory["transmissionInference"],
+  perceivedAllianceByPlayer: BotMemory["perceivedAllianceByPlayer"] = {},
 ): BotDecision {
   const command = action as GameCommand;
   const ownFaction = projection.own.faction;
@@ -775,9 +1076,14 @@ function scoreAction(
           incomingIntelligenceIsSafeForAgent(projection, transmissionInference)
         ? AGENT_FOUR_TRUE_RECEIPT_BONUS
         : 0;
+      const agentKnownBlackPenalty = projection.own.faction === "特工" &&
+          projection.transmission?.card?.color === "黑"
+        ? policy.agentKnownBlackReceiptPenalty ?? 0
+        : 0;
       return decision(
         command,
-        5 + receiptUtility + safeTruePossessionBonus + agentEndgameBonus,
+        5 + receiptUtility + safeTruePossessionBonus + agentEndgameBonus -
+          agentKnownBlackPenalty,
         agentEndgameBonus > 0
           ? "prioritize a safe fifth or sixth intelligence after reaching four true intelligence"
           : safeTruePossessionBonus > 0 && receiptUtility === 0
@@ -793,11 +1099,26 @@ function scoreAction(
         beliefs,
         transmissionInference,
       );
+      const alliedProgressBonus = currentTransmissionAlliedProgressBonus(
+        nextRecipientId,
+        projection,
+        beliefs,
+        transmissionInference,
+        policy,
+      );
+      const routedReceiptUtility = nextReceiptUtility + alliedProgressBonus;
       if (nextReceiptUtility <= TERMINAL_LOSS_UTILITY) {
         return decision(
           command,
           5 + nextReceiptUtility,
           "do not route intelligence to a recipient with a guaranteed terminal win",
+        );
+      }
+      if (alliedProgressBonus > 0) {
+        return decision(
+          command,
+          5 + routedReceiptUtility,
+          "route matching real intelligence toward a trusted ally who is closer to victory",
         );
       }
       if (policy.declineRouting === "acceptance-weighted") {
@@ -997,19 +1318,34 @@ function scoreAction(
         beliefs,
         transmissionInference,
       );
+      const targetProgressBonus = currentTransmissionAlliedProgressBonus(
+        action.targetId,
+        projection,
+        beliefs,
+        transmissionInference,
+        policy,
+      );
+      const currentProgressBonus = currentTransmissionAlliedProgressBonus(
+        projection.transmission?.intendedRecipientId,
+        projection,
+        beliefs,
+        transmissionInference,
+        policy,
+      );
       return policy.transferAgainstBestFreeAlternative
         ? decision(
             command,
-            PASS_REACTION_SCORE + targetValue - SEPARATION_CARD_COST,
+            PASS_REACTION_SCORE + targetValue + targetProgressBonus - SEPARATION_CARD_COST,
             "transfer only when its forced receipt beats the best free accept-or-decline outcome",
           )
         : policy.incrementalTransfer
         ? decision(
             command,
-            PASS_REACTION_SCORE + targetValue - currentValue - SEPARATION_CARD_COST,
+            PASS_REACTION_SCORE + targetValue + targetProgressBonus -
+              currentValue - currentProgressBonus - SEPARATION_CARD_COST,
             "transfer only when the new recipient improves enough to justify spending the card",
           )
-        : decision(command, 7 + targetValue, "redirect toward the best tactical recipient");
+        : decision(command, 7 + targetValue + targetProgressBonus, "redirect toward the best tactical recipient");
     }
     case "PLAY_FUNCTION_SEPARATION": {
       const currentTargetId = projection.activeFunctionAction?.targetPlayerId;
@@ -1034,7 +1370,21 @@ function scoreAction(
     case "PLAY_SEPARATION": {
       const pendingTargetId = projection.transmission?.pendingTransfer?.targetId;
       const improvement = currentTransmissionReceiptUtility(action.targetId, projection, beliefs, transmissionInference)
-        - currentTransmissionReceiptUtility(pendingTargetId, projection, beliefs, transmissionInference);
+        + currentTransmissionAlliedProgressBonus(
+          action.targetId,
+          projection,
+          beliefs,
+          transmissionInference,
+          policy,
+        )
+        - currentTransmissionReceiptUtility(pendingTargetId, projection, beliefs, transmissionInference)
+        - currentTransmissionAlliedProgressBonus(
+          pendingTargetId,
+          projection,
+          beliefs,
+          transmissionInference,
+          policy,
+        );
       return decision(
         command,
         PASS_REACTION_SCORE + improvement - SEPARATION_CARD_COST,
@@ -1174,10 +1524,20 @@ function scoreAction(
           "preserve secret order when the target has at most one card",
         );
       }
+      const targetAffinityTowardBot = targetId
+        ? perceivedAllianceByPlayer[targetId]?.[projection.own.id] ?? 0
+        : 0;
+      const redundantAllyCost = policy.avoidRedundantAllySecretOrder &&
+          targetAffinityTowardBot >= HIGH_AFFINITY_THRESHOLD
+        ? REDUNDANT_ALLY_SECRET_ORDER_COST * targetAffinityTowardBot
+        : 0;
       return decision(
         command,
-        PASS_REACTION_SCORE + secretOrderImprovement(card, action.word, projection, beliefs) - SECRET_ORDER_CARD_COST,
-        "force a likely opponent away from their most favorable intelligence color",
+        PASS_REACTION_SCORE + secretOrderImprovement(card, action.word, projection, beliefs) -
+          SECRET_ORDER_CARD_COST - redundantAllyCost,
+        redundantAllyCost > 0
+          ? "preserve secret order when the target already tends to transmit favorably toward this bot"
+          : "force a likely opponent away from their most favorable intelligence color",
       );
     }
     case "START_TRANSMISSION":
@@ -1503,6 +1863,12 @@ function tacticalTransmissionScore(
     recipientId,
     projection,
     beliefs,
+  ) + alliedProgressConcentrationBonus(
+    card.color,
+    recipientId,
+    projection,
+    beliefs,
+    policy,
   );
   if (policy.routeAwareTransmission) {
     const routeUtility = expectedTransmissionRouteUtility(
@@ -1814,6 +2180,86 @@ function currentTransmissionReceiptUtility(
   return blackProbability * receiptColorUtility("黑", recipientId, projection, beliefs)
     + otherColorProbability * receiptColorUtility("红", recipientId, projection, beliefs)
     + otherColorProbability * receiptColorUtility("蓝", recipientId, projection, beliefs);
+}
+
+function currentTransmissionAlliedProgressBonus(
+  recipientId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  inference: BotMemory["transmissionInference"] | undefined,
+  policy: BotPolicy,
+): number {
+  if (!recipientId) return 0;
+  const card = projection.transmission?.card;
+  if (card) {
+    return alliedProgressConcentrationBonus(
+      card.color,
+      recipientId,
+      projection,
+      beliefs,
+      policy,
+    );
+  }
+  if (inference?.forcedColor) {
+    const possibleColors: readonly PhysicalCard["color"][] = inference.forcedColor === "黑"
+      ? ["黑"]
+      : [inference.forcedColor, "红蓝"];
+    return possibleColors.reduce(
+      (total, color) => total + alliedProgressConcentrationBonus(
+        color,
+        recipientId,
+        projection,
+        beliefs,
+        policy,
+      ),
+      0,
+    ) / possibleColors.length;
+  }
+  if (inference?.blackProbability === undefined) return 0;
+  const blackProbability = Math.max(0, Math.min(1, inference.blackProbability));
+  const otherColorProbability = (1 - blackProbability) / 2;
+  return otherColorProbability * (
+    alliedProgressConcentrationBonus("红", recipientId, projection, beliefs, policy) +
+    alliedProgressConcentrationBonus("蓝", recipientId, projection, beliefs, policy)
+  );
+}
+
+function alliedProgressConcentrationBonus(
+  color: PhysicalCard["color"],
+  recipientId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  policy: BotPolicy,
+): number {
+  if (
+    !policy.alliedProgressConcentration ||
+    !recipientId ||
+    recipientId === projection.own.id ||
+    projection.own.faction === "特工"
+  ) {
+    return 0;
+  }
+  const desiredColor = projection.own.faction === "军情" ? "蓝" : "红";
+  if (color !== desiredColor && color !== "红蓝") return 0;
+  const allyProbability = beliefs[recipientId]?.[projection.own.faction] ?? 0;
+  if (allyProbability < 0.7) return 0;
+  const recipient = projection.players.find((player) => player.id === recipientId);
+  const ownPlayer = projection.players.find((player) => player.id === projection.own.id);
+  if (!recipient || !ownPlayer) return 0;
+  const recipientCounts = countIntelligence(recipient.intelligence);
+  const ownCounts = countIntelligence(ownPlayer.intelligence);
+  if (recipientCounts.black > 1) return 0;
+  const recipientProgress = projection.own.faction === "军情"
+    ? recipientCounts.blue
+    : recipientCounts.red;
+  const ownProgress = projection.own.faction === "军情"
+    ? ownCounts.blue
+    : ownCounts.red;
+  const progressLead = recipientProgress - ownProgress;
+  if (progressLead <= 0) return 0;
+  const confidence = Math.max(0, Math.min(1, (allyProbability - 0.5) * 2));
+  const blackSafety = recipientCounts.black === 0 ? 1 : 0.7;
+  return progressLead * ALLIED_PROGRESS_CONCENTRATION_BONUS * confidence * blackSafety;
 }
 
 function recipientColorUtility(
@@ -2565,14 +3011,84 @@ function transmissionObservation(projection: PlayerProjection): PublicObservatio
     senderId: current.senderId,
     targetId: current.intendedRecipientId,
     method: current.method,
+    direction: current.direction,
     card: current.card,
   };
+}
+
+function observeResolvedDirectColorDenial(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  priorTransmission: PublicObservation["transmission"],
+  policy: BotPolicy,
+): void {
+  if (
+    !policy.directColorDenialInference ||
+    !priorTransmission ||
+    priorTransmission.method !== "直达" ||
+    projection.transmission ||
+    memory.transmissionInference?.signature !== priorTransmission.signature ||
+    memory.transmissionInference.initialTargetId !== priorTransmission.targetId ||
+    memory.transmissionInference.forcedByPlayerId !== undefined ||
+    memory.transmissionInference.replaced
+  ) {
+    return;
+  }
+  const sourceId = priorTransmission.senderId;
+  const targetId = priorTransmission.targetId;
+  if (sourceId === targetId) return;
+  const previousTarget = memory.previous?.players[targetId];
+  const currentTarget = projection.players.find((player) => player.id === targetId);
+  if (!previousTarget || !currentTarget) return;
+  const priorCardIds = new Set(previousTarget.intelligence.map((card) => card.id));
+  const receivedCard = currentTarget.intelligence.find((card) => !priorCardIds.has(card.id));
+  if (!receivedCard || (receivedCard.color !== "红" && receivedCard.color !== "蓝")) return;
+
+  const matchingFaction: Faction = receivedCard.color === "蓝" ? "军情" : "潜伏";
+  const beliefs = factionBeliefsForPolicy(memory, projection, policy);
+  const hasStrongReferencePlayer = projection.players.some((player) =>
+    player.id !== sourceId &&
+    player.id !== targetId &&
+    (
+      player.faction === matchingFaction ||
+      (
+        player.id === memory.botId
+          ? averagePerceivedFactionProbability(memory, matchingFaction) >= 0.85
+          : (beliefs[player.id]?.[matchingFaction] ?? 0) >= 0.85
+      )
+    )
+  );
+  if (!hasStrongReferencePlayer) return;
+
+  const senderRemainingHand = memory.previous?.players[sourceId]?.handCount ?? 0;
+  if (senderRemainingHand === 0) return;
+  const strength = senderRemainingHand === 1 ? 0.25 : 0.55;
+  const sourceEvidence = memory.evidence[sourceId] ??= emptyBelief();
+  sourceEvidence[matchingFaction] -= strength;
+  for (const faction of FACTIONS) {
+    if (faction !== matchingFaction) sourceEvidence[faction] += strength * 0.35;
+  }
+  const sourceRelationships = memory.perceivedAllianceByPlayer[sourceId] ??= {};
+  sourceRelationships[targetId] = Math.max(
+    -1,
+    Math.min(1, (sourceRelationships[targetId] ?? 0) + strength),
+  );
+}
+
+function averagePerceivedFactionProbability(
+  memory: BotMemory,
+  faction: Faction,
+): number {
+  const perceptions = Object.values(memory.perceivedIdentityByPlayer);
+  if (perceptions.length === 0) return 0;
+  return perceptions.reduce((sum, belief) => sum + belief[faction], 0) / perceptions.length;
 }
 
 function observeTransmissionInference(
   memory: BotMemory,
   projection: PlayerProjection,
   current: PublicObservation["transmission"],
+  policy: BotPolicy,
 ): void {
   if (!current) {
     memory.transmissionInference = undefined;
@@ -2587,18 +3103,35 @@ function observeTransmissionInference(
         entry.includes("秘密下达被识破") ||
         entry.includes("服务器自动验证并解除颜色限制"),
     );
+    const forcedColor =
+      priorSecretOrder?.targetId === current.senderId && !secretOrderInvalidated
+        ? priorSecretOrder.requiredColor
+        : undefined;
+    const relationshipBlackProbability =
+      policy.secondOrderIdentityModel &&
+      forcedColor === undefined &&
+      current.card === undefined &&
+      current.targetId === projection.own.id
+        ? current.method === "直达"
+          ? hiddenDirectBlackProbability(memory, projection, current.senderId, policy)
+          : current.method === "密电"
+            ? reverseMailAffinityBlackProbability(memory, projection, current, policy) ??
+              supportiveProbeMailBlackProbability(memory, projection, current.senderId)
+            : undefined
+        : undefined;
     memory.transmissionInference = {
       signature: current.signature,
+      initialTargetId: current.targetId,
       completedDecryptors: [],
-      forcedColor:
-        priorSecretOrder?.targetId === current.senderId && !secretOrderInvalidated
-          ? priorSecretOrder.requiredColor
-          : undefined,
+      blackProbability: relationshipBlackProbability,
+      forcedColor,
       forcedByPlayerId:
         priorSecretOrder?.targetId === current.senderId && !secretOrderInvalidated
           ? priorSecretOrder.sourceId
           : undefined,
+      replaced: false,
     };
+    observeSupportiveReverseMailInference(memory, projection, current, policy);
   }
   const inference = memory.transmissionInference!;
   const scanFrom = isNewTransmission
@@ -2608,6 +3141,8 @@ function observeTransmissionInference(
     if (entry.startsWith("掉包结算：")) {
       inference.forcedColor = undefined;
       inference.forcedByPlayerId = undefined;
+      inference.blackProbability = undefined;
+      inference.replaced = true;
       continue;
     }
     const completedDecrypt = /^(.+)完成破译$/.exec(entry)?.[1];
@@ -2619,7 +3154,7 @@ function observeTransmissionInference(
     if (rejectingPlayer && inference.completedDecryptors.includes(rejectingPlayer)) {
       inference.blackProbability = Math.max(
         inference.blackProbability ?? 0,
-        DECRYPT_REJECTION_BLACK_PROBABILITY,
+        policy.decryptRejectionBlackProbability ?? DECRYPT_REJECTION_BLACK_PROBABILITY,
       );
     }
   }
@@ -2829,6 +3364,47 @@ function observeResolvedActionAffinity(
   }
 }
 
+function observeDangerousDiscardChoiceInference(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  action: NonNullable<PublicObservation["functionAction"]>,
+  maximumEvidence: number,
+): void {
+  if (
+    action.sourceId === memory.botId ||
+    action.targetId !== memory.botId ||
+    action.redirected ||
+    projection.own.faction === "特工"
+  ) {
+    return;
+  }
+  const previousHand = memory.previous?.ownHand;
+  if (!previousHand || previousHand.length < 2) return;
+  const currentIds = new Set(projection.own.hand.map((card) => card.id));
+  const removed = previousHand.filter((card) => !currentIds.has(card.id));
+  if (removed.length !== 1) return;
+
+  const utilities = previousHand.map((card) => cardUtility(card, projection.own.faction));
+  const minimum = Math.min(...utilities);
+  const maximum = Math.max(...utilities);
+  if (maximum - minimum < 0.0001) return;
+  const removedUtility = cardUtility(removed[0], projection.own.faction);
+  const relativeChoice = (removedUtility - minimum) / (maximum - minimum);
+  const hostileSignal = (relativeChoice - 0.5) * 2;
+  if (Math.abs(hostileSignal) < 0.0001) return;
+
+  const evidenceStrength = Math.abs(hostileSignal) * maximumEvidence;
+  const sourceEvidence = memory.evidence[action.sourceId] ??= emptyBelief();
+  if (hostileSignal > 0) {
+    sourceEvidence[projection.own.faction] -= evidenceStrength;
+    for (const faction of FACTIONS) {
+      if (faction !== projection.own.faction) sourceEvidence[faction] += evidenceStrength * 0.4;
+    }
+  } else {
+    sourceEvidence[projection.own.faction] += evidenceStrength;
+  }
+}
+
 function secretOrderObservation(projection: PlayerProjection): PublicObservation["secretOrder"] {
   const current = projection.pendingSecretOrder;
   if (!current?.sourcePlayerId || !current.requiredColor || current.verifiedNoMatch) return undefined;
@@ -2888,6 +3464,10 @@ function observeTransmissionSenderEvidence(
 
 function emptyBelief(): FactionBelief {
   return { 军情: 0, 潜伏: 0, 特工: 0 };
+}
+
+function uniformBelief(): FactionBelief {
+  return { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
 }
 
 function excludeFaction(evidence: FactionBelief, faction: Faction): void {

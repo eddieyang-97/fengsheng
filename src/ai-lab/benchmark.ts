@@ -43,7 +43,7 @@ export interface BotDisagreement {
   ];
   beliefs: readonly [Record<string, FactionBelief>, Record<string, FactionBelief>];
   counterfactual?: {
-    metric: "full-information-discard-denial" | "full-information-receipt-branch";
+    metric: "full-information-discard-denial" | "full-information-receipt-branch" | "full-information-secret-order-branch";
     targetFaction?: string;
     recipientIds?: readonly [string, string];
     cardName?: string;
@@ -67,6 +67,10 @@ export interface SelfPlayGameResult {
   waitingFor?: string;
   lastPublicEvent?: string;
   lastRejection?: string;
+  decryptRejections: {
+    total: number;
+    black: number;
+  };
   participants: Array<{
     id: string;
     seat: number;
@@ -169,6 +173,8 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
   const maxCommands = options.maxCommands ?? 10_000;
   let commands = 0;
   let rejectedCommands = 0;
+  let decryptRejectionTotal = 0;
+  let decryptRejectionBlack = 0;
   let lastRejection: string | undefined;
   const disagreements: BotDisagreement[] = [];
 
@@ -225,8 +231,21 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
       });
       if (!command) continue;
       attempted = true;
+      const stateBeforeCommand = games.getState(roomCode);
+      const isDecryptRejection =
+        command.type === "DECLINE_INTELLIGENCE" &&
+        stateBeforeCommand.transmission?.decryptedById === id;
+      const rejectedCard = isDecryptRejection
+        ? PHYSICAL_DECK.find(
+            (card) => card.id === stateBeforeCommand.transmission?.cardId,
+          )
+        : undefined;
       try {
         games.dispatch(roomCode, id, command);
+        if (isDecryptRejection) {
+          decryptRejectionTotal += 1;
+          if (rejectedCard?.color === "黑") decryptRejectionBlack += 1;
+        }
         commands += 1;
         advanced = true;
         break;
@@ -250,7 +269,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
       }
     }
     if (!advanced && !attempted) {
-      return summarizeGame(games, roomCode, options, policies, memories, commands, rejectedCommands, "stalled", disagreements, lastRejection);
+      return summarizeGame(games, roomCode, options, policies, memories, commands, rejectedCommands, "stalled", disagreements, { total: decryptRejectionTotal, black: decryptRejectionBlack }, lastRejection);
     }
   }
 
@@ -264,6 +283,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
     rejectedCommands,
     games.getState(roomCode).winner ? "completed" : "commandLimit",
     disagreements,
+    { total: decryptRejectionTotal, black: decryptRejectionBlack },
     lastRejection,
   );
 }
@@ -436,6 +456,7 @@ function summarizeGame(
   rejectedCommands: number,
   status: SelfPlayGameResult["status"],
   disagreements: BotDisagreement[],
+  decryptRejections: SelfPlayGameResult["decryptRejections"],
   lastRejection?: string,
 ): SelfPlayGameResult {
   const state = games.getState(roomCode);
@@ -458,6 +479,7 @@ function summarizeGame(
       ?? state.activePlayerId,
     lastPublicEvent: state.auditLog.at(-1),
     lastRejection,
+    decryptRejections,
     participants: state.seatOrder.map((id, index) => {
       const policy = policyByPlayerId.get(id);
       if (!policy) throw new Error(`missing policy assignment for ${id}`);
@@ -539,6 +561,17 @@ function describeDisagreement(
         state,
         policies,
         decisions,
+        livePolicies,
+        liveMemories,
+      ) ??
+      secretOrderCounterfactual(
+        seed,
+        commandNumber,
+        projection,
+        state,
+        policies,
+        decisions,
+        memories,
         livePolicies,
         liveMemories,
       ),
@@ -632,6 +665,96 @@ function receiptCounterfactual(
     utilities,
     preferredPolicy,
   };
+}
+
+function secretOrderCounterfactual(
+  seed: number,
+  commandNumber: number,
+  projection: ReturnType<GameSessionService["project"]>,
+  state: GameState,
+  policies: readonly [BotPolicy, BotPolicy],
+  decisions: readonly [BotDecision | undefined, BotDecision | undefined],
+  comparisonMemories: readonly [BotMemory, BotMemory],
+  livePolicies: readonly BotPolicy[],
+  liveMemories: ReadonlyMap<string, BotMemory>,
+): BotDisagreement["counterfactual"] {
+  const commandTypes = decisions.map((decision) => decision?.command.type);
+  if (
+    projection.reactionWindow?.kind !== "secretOrder" ||
+    !commandTypes.includes("PLAY_SECRET_ORDER") ||
+    !commandTypes.includes("PASS_REACTION")
+  ) {
+    return undefined;
+  }
+  const actorIndex = state.seatOrder.indexOf(projection.own.id);
+  if (actorIndex < 0) return undefined;
+  const utilities = decisions.map((decision, branchIndex) => {
+    if (!decision) return Number.NEGATIVE_INFINITY;
+    const branchPolicies = [...livePolicies];
+    branchPolicies[actorIndex] = policies[branchIndex]!;
+    const branchMemories = new Map([...liveMemories].map(([id, memory]) => [
+      id,
+      structuredClone(memory),
+    ]));
+    branchMemories.set(projection.own.id, structuredClone(comparisonMemories[branchIndex]!));
+    return runFullGameBranch(
+      state,
+      projection.own.id,
+      decision.command,
+      branchPolicies,
+      branchMemories,
+      seed * 10_000 + commandNumber,
+    );
+  }) as [number, number];
+  const preferredPolicy = Math.abs(utilities[0] - utilities[1]) < 0.0001
+    ? "tie"
+    : utilities[0] > utilities[1]
+      ? policies[0].id
+      : policies[1].id;
+  return {
+    metric: "full-information-secret-order-branch",
+    utilities,
+    preferredPolicy,
+  };
+}
+
+function runFullGameBranch(
+  sourceState: GameState,
+  observerId: string,
+  initialCommand: GameCommand,
+  policies: readonly BotPolicy[],
+  memories: Map<string, BotMemory>,
+  randomSeed: number,
+): number {
+  const state = structuredClone(sourceState);
+  const ids = Object.keys(state.players);
+  const randoms = new Map(ids.map((id, index) => [
+    id,
+    createSeededBotRandom(randomSeed * 131 + index + 1),
+  ]));
+  dispatchGameCommand(state, observerId, initialCommand);
+  let commands = 0;
+  while (!state.winner && commands < 10_000) {
+    let advanced = false;
+    for (const [index, id] of ids.entries()) {
+      const botProjection = projectGameForPlayer(state, id);
+      const policy = policies[index] ?? LIVE_BOT_POLICY;
+      const memory = memories.get(id) ?? createBotMemory(botProjection, policy);
+      memories.set(id, memory);
+      const command = chooseBotCommand(botProjection, memory, {
+        policy,
+        random: randoms.get(id),
+      });
+      if (!command) continue;
+      dispatchGameCommand(state, id, command);
+      commands += 1;
+      advanced = true;
+      break;
+    }
+    if (!advanced) break;
+  }
+  const finalProjection = projectGameForPlayer(state, observerId);
+  return evaluatePublicPosition(finalProjection, actualFactionBeliefs(state));
 }
 
 function runReceiptBranch(

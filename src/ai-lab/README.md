@@ -6,6 +6,8 @@ the production server runtime.
 - `benchmark.ts`: deterministic self-play, paired policy tournaments, and
   final pre-reveal belief-calibration metrics
 - `benchmark-cli.ts`: command-line entry point used by `npm run ai:benchmark`
+- `decrypt-rejection-sweep-cli.ts`: empirical calibration and policy sweep for
+  the 破译→拒绝 假情报 posterior
 - `campaign.ts` / `campaign-cli.ts`: chunked, resumable A/B campaigns with
   faction, seat, and belief-calibration breakdowns
 - `benchmark.test.ts`: determinism, pairing, and non-interference checks
@@ -65,6 +67,87 @@ receive any nonlethal visible or hidden intelligence. A materially stronger
 concrete outcome, such as forcing a known 假情报 onto another player for a kill,
 can still override receipt; `tactical-v13` is the rollback policy.
 
+V15 is evaluation-only. It estimates how each player perceives the bot's
+identity using only public evidence and a marginal over that observer's likely
+private faction. A hidden 直达 sent to the bot is treated as more likely to be
+假情报 when the sender probably perceives the bot as a different faction, and
+less likely when the sender probably perceives the bot as an ally. A hidden
+密电 sent directly after that sender gave the bot a +1 试探 outcome is likewise
+treated as likelier 真情报; the signal is weakened for a two-card pre-send hand,
+ignored when the transmitted card was their only option, and superseded by a
+known 秘密下达 color constraint.
+
+V16 is evaluation-only. When a real red or blue 直达 is accepted by C after A
+has publicly revealed or strongly signaled the matching faction, it treats B's
+choice to send that color away from A as evidence that B differs from A. It
+also records that B likely perceives C as an ally. The signal is ignored when
+B had no card choice or 秘密下达 forced the color, and weakened when B had only
+one alternative card.
+
+V17 is evaluation-only. A deliberate counterclockwise 密电 toward the bot from
+any player already inferred to have high affinity toward it is treated as more
+likely true, with weaker confidence when the sender had limited card choice. It
+also adds further shared-faction and perceived-alliance evidence. A +1 试探 is
+one way to establish that affinity, but is not required. This applies only when
+clockwise would have reached a different living player, so two-player and
+equivalent collapsed routes add no signal.
+
+V18 is evaluation-only. When a high-confidence ally already has more matching
+real intelligence than the bot and at most one black intelligence, matching
+real intelligence receives an extra concentration bonus toward that ally. The
+same preference applies when starting a transmission, declining onward, or
+redirecting with 转移/离间, so the faction pursues its closest credible win
+rather than spreading progress evenly across teammates.
+
+V19 is evaluation-only. 秘密下达 receives an additional preservation cost when
+the target already has high inferred affinity toward the bot, because that
+player's ordinary transmission pattern should already favor the bot and the
+order adds little new identity signaling. The cost is proportional to affinity,
+so a sufficiently decisive tactical order can still override it.
+
+The disagreement evaluator now plays both 秘密下达 branches through game end
+with identical downstream policies and randomness. An initial strong affinity
+penalty changed 13 decisions in 300 games on seeds 32001-32300, but the branch
+audit favored using the order twice, preserving it once, and tied ten times;
+one skipped order flipped a win into a loss. Reducing the penalty to a modest
+reluctance changed only five marginal orders on the same seeds, and all five
+full-game branches tied. A final 500-pair mixed-seat run on seeds 33501-34000
+was exactly neutral: both policies won 927/2500 entries with identical faction
+and seat results. All games completed without stalls, command limits, or
+rejected commands. V19 therefore remains a safe evaluation candidate rather
+than a production promotion.
+
+The decrypt-rejection sweep makes the previously fixed 0.70 posterior
+configurable per evaluation policy. It also records the actual hidden card at
+the command boundary whenever a player completes 破译 and immediately rejects.
+Across 300 five-player development games (seeds 30001-30300), 262 of 264 such
+cards were 假情报: 99.24%, Wilson 95% interval [97.28%, 99.79%]. A 0.99
+candidate changed 12 decisions across 100 development games, but 100-pair
+focal-seat, mixed-seat, and population comparisons were all exactly neutral in
+wins. The live value therefore remains 0.70 for now: 0.99 is much better
+empirically calibrated, but its sparse decision changes have not demonstrated
+gameplay value or harm. Run the audit or full sweep with:
+
+```powershell
+npm run ai:decrypt-sweep -- 5 300 30001 audit
+npm run ai:decrypt-sweep -- 5 100 30001 0.4,0.55,0.7,0.85,0.99
+```
+
+The known-black receipt sweep isolates the extra cost assigned when a 特工 can
+freely accept or reject visible 假情报. The current score values the first black
+at +1 overall, so penalties 0-1 retain acceptance, penalties 2-61 reject the
+ordinary first black while preserving the four-true-intelligence endgame
+priority, and penalties 62+ reject in both situations. In a 200-pair
+five-player comparison (seeds 43001-43200), penalty 2 was +1.0 percentage point
+in focal-seat play (95% CI [-1.4, 3.4]), +1.5 in mixed seats ([-1.02, 4.02]),
+and -0.9 in population play ([-1.79, -0.01]). It improved 特工 results but did
+not qualify as a global production upgrade, so the live penalty remains zero.
+Run a fresh sweep with:
+
+```powershell
+npm run ai:agent-black-sweep -- 5 200 43001 0,2,64 200
+```
+
 V9 remains evaluation-only. It adds
 假情报-only 直达 faction evidence and strong opposing-faction evidence when a
 knowingly lethal 锁定 resolves without 掉包 or 离间 changing responsibility.
@@ -75,9 +158,24 @@ The independent 500-pair result did not establish an improvement over V8, so
 these changes are not part of the production policy.
 
 The selectable policy registry retains tactical versions for rollback and only
-the active experimental candidates v14-v17 and v19-v33. Historical candidates
+the active experimental candidates v14-v17, v19-v33, and v40-v42. Historical candidates
 v3-v13 were retired after their results were recorded below; their
 implementations remain available through Git history.
+
+Candidates v40-v42 add private, alternative-aware faction inference for a bot
+targeted by 危险情报. Because the target knows its own complete pre-discard hand,
+it ranks the selected card by its value to the target: deliberately removing
+the most valuable option is opposing evidence, while sparing it and removing
+the least valuable option is allied evidence. Automatic one-card discards,
+redirected actions, equal-value choices, and observations by players who did
+not know the inspected hand produce no signal. V40, v41, and v42 use maximum
+evidence weights 0.8, 0.4, and 0.2 respectively.
+
+Weight 0.4 was best on the 100-pair development sample (seeds 47001-47100):
+focal +1.0 percentage point, mixed +1.8, population +0.2, with improved Brier
+calibration. A frozen 200-pair validation (seeds 48001-48200) did not reproduce
+the gameplay gain: focal -0.5, mixed 0.0, population -0.1, all inconclusive.
+The feature therefore remains evaluation-only and tactical-v14 remains live.
 
 `candidate-v31` replaces 公开文本 离间's target-affinity shortcut with an
 exchange model. The resolving function card is already public and is included
