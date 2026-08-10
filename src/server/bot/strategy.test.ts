@@ -92,8 +92,8 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes four-true 特工 receipt priority as tactical-v14", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V14);
+  it("promotes the validated inference and cooperation policy as tactical-v19", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V19);
     expect(TACTICAL_V4).toMatchObject({
       incrementalLure: true,
       lureRequiresLikelyAcceptance: true,
@@ -814,6 +814,71 @@ describe("bot strategy", () => {
     expect(score(bluePublicText, "e")?.reason).toContain("immediate upstream ally");
     expect(score(redPublicText, "e")?.reason).toContain("use public text as a hostile exchange");
     expect(score(redPublicText, "b")?.score).toBeGreaterThan(score(redPublicText, "e")!.score);
+  });
+
+  it("preserves hostile targeted cards when the only remaining target is an ally", () => {
+    const projectionFor = (card: PhysicalCard) => makeProjection({
+      phase: "initialized",
+      own: { id: "bot", faction: "军情", hand: [card] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? { ...player, faction: "军情" as Faction }
+          : player.id === "bot"
+            ? player
+            : { ...player, alive: false }
+      ),
+      legalActions: [
+        { type: "ENTER_TRANSMISSION_PHASE" },
+        card.name === "危险情报"
+          ? {
+              type: "PLAY_DANGEROUS_INTELLIGENCE" as const,
+              cardId: card.id as PhysicalCardId,
+              targetId: "b",
+            }
+          : {
+              type: "PLAY_PUBLIC_TEXT" as const,
+              cardId: card.id as PhysicalCardId,
+              targetId: "b",
+            },
+      ],
+    });
+
+    for (const card of [dangerousCard, redPublicText]) {
+      const projection = projectionFor(card);
+      expect(chooseBotCommand(
+        projection,
+        createBotMemory(projection, TACTICAL_V19),
+        { policy: TACTICAL_V19 },
+      )?.type).toBe("ENTER_TRANSMISSION_PHASE");
+    }
+  });
+
+  it("keeps the matching-color upstream 公开文本 ally handoff exception", () => {
+    const projection = makeProjection({
+      phase: "initialized",
+      own: { id: "bot", faction: "军情", hand: [bluePublicText] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? { ...player, faction: "军情" as Faction }
+          : player.id === "bot"
+            ? player
+            : { ...player, alive: false }
+      ),
+      legalActions: [
+        { type: "ENTER_TRANSMISSION_PHASE" },
+        {
+          type: "PLAY_PUBLIC_TEXT",
+          cardId: bluePublicText.id as PhysicalCardId,
+          targetId: "b",
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V19),
+      { policy: TACTICAL_V19 },
+    )?.type).toBe("PLAY_PUBLIC_TEXT");
   });
 
   it("can treat a completed harmful action as opposing evidence", () => {

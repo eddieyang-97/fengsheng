@@ -99,7 +99,7 @@ same preference applies when starting a transmission, declining onward, or
 redirecting with 转移/离间, so the faction pursues its closest credible win
 rather than spreading progress evenly across teammates.
 
-V19 is evaluation-only. 秘密下达 receives an additional preservation cost when
+V19 is the live production policy. 秘密下达 receives an additional preservation cost when
 the target already has high inferred affinity toward the bot, because that
 player's ordinary transmission pattern should already favor the bot and the
 order adds little new identity signaling. The cost is proportional to affinity,
@@ -114,8 +114,17 @@ reluctance changed only five marginal orders on the same seeds, and all five
 full-game branches tied. A final 500-pair mixed-seat run on seeds 33501-34000
 was exactly neutral: both policies won 927/2500 entries with identical faction
 and seat results. All games completed without stalls, command limits, or
-rejected commands. V19 therefore remains a safe evaluation candidate rather
-than a production promotion.
+rejected commands.
+
+The frozen V19 policy then passed validation against production V14. On seeds
+40001-41000 it gained +2.00 percentage points in 1000 focal-seat pairs (95%
+interval -0.40 to +4.40) and +3.74 points in 1000 mixed-seat pairs (95%
+interval +1.95 to +5.53). The untouched holdout on seeds 50001-51000 confirmed
+both modes: +4.50 points focal-seat (95% interval +1.94 to +7.06) and +5.64
+points mixed-seat (95% interval +3.86 to +7.42). Holdout gains covered both
+team factions, 特工, and every seat in mixed play; calibration also improved.
+All 8000 validation and holdout games completed without stalls, command limits,
+or rejected commands, satisfying the promotion gate for V19.
 
 The decrypt-rejection sweep makes the previously fixed 0.70 posterior
 configurable per evaluation policy. It also records the actual hidden card at

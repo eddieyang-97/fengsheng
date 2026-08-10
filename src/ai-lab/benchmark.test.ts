@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
 import { CANDIDATE_V23, CANDIDATE_V28, CANDIDATE_V29 } from "./policies";
-import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12, TACTICAL_V18, TACTICAL_V19 } from "../server/bot/strategy";
+import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12, TACTICAL_V14, TACTICAL_V18, TACTICAL_V19 } from "../server/bot/strategy";
 
 const INCREMENTAL_TRANSFER_POLICY = {
   ...TACTICAL_V3,
@@ -200,6 +200,7 @@ describe("AI self-play benchmark", () => {
     const result = runSelfPlayGame({
       playerCount: 5,
       seed: 32013,
+      policies: Array.from({ length: 5 }, () => TACTICAL_V14),
       comparePolicies: [TACTICAL_V18, TACTICAL_V19],
     });
     const evaluated = result.disagreements.find((entry) =>

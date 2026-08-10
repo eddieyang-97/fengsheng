@@ -290,7 +290,7 @@ export const TACTICAL_V19: BotPolicy = {
   id: "tactical-v19",
   avoidRedundantAllySecretOrder: true,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V14;
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V19;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
