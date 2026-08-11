@@ -31,6 +31,7 @@ if (mode === "ab") {
 } else if (mode === "disagreements") {
   const firstPolicy = evaluationPolicyById(process.argv[6] ?? LIVE_BOT_POLICY.id);
   const secondPolicy = evaluationPolicyById(process.argv[7] ?? "candidate-v29");
+  const decisiveOnly = process.argv.includes("--decisive");
   const results = Array.from({ length: games }, (_, index) => runSelfPlayGame({
     playerCount,
     seed: startSeed + index,
@@ -86,7 +87,12 @@ if (mode === "ab") {
       + `range=[${worstSecondPolicyGain.toFixed(3)}, ${bestSecondPolicyGain.toFixed(3)}]`,
     );
   }
-  for (const entry of disagreements.slice(0, 10)) {
+  const reportedDisagreements = decisiveOnly
+    ? disagreements.filter((entry) =>
+        entry.counterfactual && entry.counterfactual.preferredPolicy !== "tie"
+      )
+    : disagreements.slice(0, 10);
+  for (const entry of reportedDisagreements) {
     console.log(JSON.stringify(entry));
   }
 } else {
