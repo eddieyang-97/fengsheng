@@ -95,6 +95,10 @@ export interface BotPolicy {
   readonly dangerousDiscardChoiceEvidence?: number;
   /** Weight known inspected cards when selecting a 危险情报 target. */
   readonly knownHandDangerousTargetWeight?: number;
+  /** Avoid a 秘密下达 declaration known to match no card, which would lift the restriction. */
+  readonly avoidKnownSecretOrderNoMatch?: boolean;
+  /** Weight exact inspected-hand knowledge when selecting a 秘密下达 color. */
+  readonly knownHandSecretOrderWeight?: number;
   /** Which offensive target choices should prefer the more dangerous opposing faction. */
   readonly factionThreatTargeting: "none" | "dangerous" | "probe" | "all";
   /** Preserve 秘密下达 when its target has too few cards for meaningful color control. */
@@ -315,7 +319,12 @@ export const TACTICAL_V21: BotPolicy = {
   id: "tactical-v21",
   avoidOwnTransferInterceptUndo: true,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V21;
+export const TACTICAL_V22: BotPolicy = {
+  ...TACTICAL_V21,
+  id: "tactical-v22",
+  avoidKnownSecretOrderNoMatch: true,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V22;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -1746,12 +1755,30 @@ function scoreAction(
           targetAffinityTowardBot >= HIGH_AFFINITY_THRESHOLD
         ? REDUNDANT_ALLY_SECRET_ORDER_COST * targetAffinityTowardBot
         : 0;
+      const knownHandConstraint = knownHandSecretOrderConstraint(
+        card,
+        action.word,
+        projection,
+        beliefs,
+        policy,
+        knownHands,
+      );
+      if (knownHandConstraint?.verifiedNoMatch) {
+        return decision(
+          command,
+          -100_000,
+          "do not waste secret order on a color absent from the target's exactly known hand",
+        );
+      }
       return decision(
         command,
-        PASS_REACTION_SCORE + secretOrderImprovement(card, action.word, projection, beliefs) -
+        PASS_REACTION_SCORE + (knownHandConstraint?.improvement ??
+          secretOrderImprovement(card, action.word, projection, beliefs)) -
           SECRET_ORDER_CARD_COST - redundantAllyCost,
         redundantAllyCost > 0
           ? "preserve secret order when the target already tends to transmit favorably toward this bot"
+          : knownHandConstraint
+          ? "force the most restrictive color supported by the target's exactly known hand"
           : "force a likely opponent away from their most favorable intelligence color",
       );
     }
@@ -2561,6 +2588,45 @@ function secretOrderImprovement(
     ? 1
     : 1 - (beliefs[targetId]?.[projection.own.faction] ?? 1 / 3);
   return Math.max(0, forcedUtility - targetBestUtility) * opponentConfidence;
+}
+
+function knownHandSecretOrderConstraint(
+  orderCard: PhysicalCard | undefined,
+  word: Extract<LegalAction, { type: "PLAY_SECRET_ORDER" }>["word"],
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  policy: BotPolicy,
+  knownHands: BotMemory["knownHands"],
+): { verifiedNoMatch: boolean; improvement: number } | undefined {
+  const weight = policy.knownHandSecretOrderWeight ?? 0;
+  if (
+    (!policy.avoidKnownSecretOrderNoMatch && weight <= 0) ||
+    orderCard?.variant?.kind !== "secretOrder"
+  ) return undefined;
+  const targetId = projection.pendingSecretOrder?.targetPlayerId;
+  if (!targetId) return undefined;
+  const tracked = knownHands[targetId];
+  if (!tracked || tracked.unknownCount !== 0) return undefined;
+
+  const requiredColor = orderCard.variant.mapping[word];
+  const matchingCards = tracked.cards.filter((heldCard) => matchesColor(heldCard, requiredColor));
+  if (matchingCards.length === 0) return { verifiedNoMatch: true, improvement: 0 };
+
+  const belief = beliefs[targetId] ?? { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
+  const expectedTransmissionValue = (heldCard: PhysicalCard): number =>
+    FACTIONS.reduce(
+      (total, faction) => total + belief[faction] * transmissionCardValue(heldCard, faction),
+      0,
+    );
+  const unrestrictedBest = Math.max(...tracked.cards.map(expectedTransmissionValue));
+  const forcedBest = Math.max(...matchingCards.map(expectedTransmissionValue));
+  const opponentConfidence = projection.own.faction === "特工"
+    ? 1
+    : 1 - (beliefs[targetId]?.[projection.own.faction] ?? 1 / 3);
+  return {
+    verifiedNoMatch: false,
+    improvement: Math.max(0, unrestrictedBest - forcedBest) * opponentConfidence * weight,
+  };
 }
 
 /** A public-board score useful for benchmarks and future shallow search. */

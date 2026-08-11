@@ -14,7 +14,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v21`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v22`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -167,7 +167,7 @@ The independent 500-pair result did not establish an improvement over V8, so
 these changes are not part of the production policy.
 
 The selectable policy registry retains tactical versions for rollback and only
-the active experimental candidates v14-v17, v19-v33, and v40-v58. Historical candidates
+the active experimental candidates v14-v17, v19-v33, and v40-v60. Historical candidates
 v3-v13 were retired after their results were recorded below; their
 implementations remain available through Git history.
 
@@ -185,7 +185,7 @@ focal +1.0 percentage point, mixed +1.8, population +0.2, with improved Brier
 calibration. A frozen 200-pair validation (seeds 48001-48200) did not reproduce
 the gameplay gain: focal -0.5, mixed 0.0, population -0.1, all inconclusive.
 The feature therefore remains evaluation-only; the current live policy is
-tactical-v20.
+tactical-v22.
 
 All bot memories now retain privacy-safe opponent-hand knowledge learned from
 秘密下达 and 危险情报 inspections. Exact known cards survive public draws and
@@ -288,6 +288,17 @@ does not apply after 离间, 掉包, or the bot learning the card through 破译
 narrow conservation rule was promoted as tactical-v21 despite neutral aggregate
 branches because it removes an unchanged two-card self-undo while preserving
 all cases with new information or a changed outcome.
+
+Tactical-v22 uses the retained exact-hand model when offering 秘密下达. If the
+bot knows with certainty that the target holds no card of the declared color,
+it does not spend 秘密下达 because server verification would immediately lift
+the restriction. A deterministic scenario covers the exact single-color hand.
+A 300-game disagreement run against tactical-v21 found no natural occurrences,
+so this was promoted only as a
+narrow rules-level dominance case. Candidates v59-v60 remain evaluation-only;
+they additionally score which available color most reduces the target's best
+known transmission, at weights 0.25 and 0.5 respectively; a separate scenario
+verifies that preference against an exactly known opposing hand.
 
 `candidate-v33` extends candidate-v32 through the resolved identity-probe
 choice. Instead of using hand count, it compares the inferred cost of revealing

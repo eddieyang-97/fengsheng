@@ -32,8 +32,9 @@ import {
   TACTICAL_V19,
   TACTICAL_V20,
   TACTICAL_V21,
+  TACTICAL_V22,
 } from "./strategy";
-import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58 } from "../../ai-lab/policies";
+import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58, CANDIDATE_V59 } from "../../ai-lab/policies";
 
 const LOW_REACTION_CONSERVATION_POLICY = {
   ...TACTICAL_V3,
@@ -94,8 +95,12 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes the validated self-transfer conservation policy as tactical-v21", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V21);
+  it("promotes exact-hand secret-order conservation as tactical-v22", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V22);
+    expect(TACTICAL_V22).toMatchObject({
+      avoidOwnTransferInterceptUndo: true,
+      avoidKnownSecretOrderNoMatch: true,
+    });
     expect(TACTICAL_V4).toMatchObject({
       incrementalLure: true,
       lureRequiresLikelyAcceptance: true,
@@ -2534,6 +2539,85 @@ describe("bot strategy", () => {
     expect(command?.type).toBe("PLAY_SECRET_ORDER");
     if (command?.type !== "PLAY_SECRET_ORDER") throw new Error("Expected secret order");
     expect(secretOrderCard.variant.mapping[command.word]).not.toBe("蓝");
+  });
+
+  it("does not choose a 秘密下达 color absent from an exactly known hand", () => {
+    if (secretOrderCard.variant?.kind !== "secretOrder") throw new Error("Expected secret-order fixture");
+    const knownRedCard = cardWhere((card) => card.color === "红" && card.id !== secretOrderCard.id);
+    const secondRedCard = cardWhere(
+      (card) => card.color === "红" && card.id !== secretOrderCard.id && card.id !== knownRedCard.id,
+    );
+    const projection = makeProjection({
+      phase: "preTransmission",
+      activePlayerId: "b",
+      own: { id: "bot", faction: "军情", hand: [secretOrderCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 2 } : player
+      ),
+      privateNotices: [{
+        kind: "dangerousHandInspected",
+        otherPlayerId: "b",
+        cards: [knownRedCard, secondRedCard],
+      }],
+      pendingSecretOrder: {
+        stage: "offering",
+        targetPlayerId: "b",
+        verifiedNoMatch: false,
+      },
+      legalActions: (["听风", "看雨", "日落"] as const).map((word) => ({
+        type: "PLAY_SECRET_ORDER" as const,
+        cardId: secretOrderCard.id as PhysicalCardId,
+        word,
+      })),
+    });
+
+    const memory = createBotMemory(projection, TACTICAL_V22);
+    expect(memory.knownHands.b).toMatchObject({ unknownCount: 0, handCount: 2 });
+    const command = chooseBotCommand(projection, memory, { policy: TACTICAL_V22 });
+    expect(command?.type).toBe("PLAY_SECRET_ORDER");
+    if (command?.type !== "PLAY_SECRET_ORDER") throw new Error("Expected secret order");
+    expect(secretOrderCard.variant.mapping[command.word]).toBe("红");
+  });
+
+  it("uses 秘密下达 to deny an exactly known opponent their best transmission color", () => {
+    if (secretOrderCard.variant?.kind !== "secretOrder") throw new Error("Expected secret-order fixture");
+    const knownRedCard = cardWhere((card) => card.color === "红" && card.id !== secretOrderCard.id);
+    const knownBlueCard = cardWhere((card) => card.color === "蓝" && card.id !== secretOrderCard.id);
+    const projection = makeProjection({
+      phase: "preTransmission",
+      activePlayerId: "b",
+      own: { id: "bot", faction: "军情", hand: [secretOrderCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? { ...player, faction: "潜伏" as Faction, handCount: 2 }
+          : player
+      ),
+      privateNotices: [{
+        kind: "dangerousHandInspected",
+        otherPlayerId: "b",
+        cards: [knownRedCard, knownBlueCard],
+      }],
+      pendingSecretOrder: {
+        stage: "offering",
+        targetPlayerId: "b",
+        verifiedNoMatch: false,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        ...(["听风", "看雨", "日落"] as const).map((word) => ({
+          type: "PLAY_SECRET_ORDER" as const,
+          cardId: secretOrderCard.id as PhysicalCardId,
+          word,
+        })),
+      ],
+    });
+
+    const memory = createBotMemory(projection, CANDIDATE_V59);
+    expect(memory.knownHands.b).toMatchObject({ unknownCount: 0, handCount: 2 });
+    const command = chooseBotCommand(projection, memory, { policy: CANDIDATE_V59 });
+    expect(command?.type).toBe("PLAY_SECRET_ORDER");
+    if (command?.type !== "PLAY_SECRET_ORDER") throw new Error("Expected secret order");
+    expect(secretOrderCard.variant.mapping[command.word]).toBe("蓝");
   });
 
   it("preserves 秘密下达 when the target has only one card", () => {
