@@ -25,6 +25,8 @@ export interface BotDisagreement {
   faction: string;
   phase: string;
   reactionKind?: string;
+  ownHand: Array<{ name: string; color: string; transmission: string }>;
+  actualFactions: Record<string, string>;
   transmission?: {
     method: string;
     recipientId: string;
@@ -520,6 +522,14 @@ function describeDisagreement(
     faction: projection.own.faction,
     phase: projection.phase,
     reactionKind: projection.reactionWindow?.kind,
+    ownHand: projection.own.hand.map((card) => ({
+      name: card.name,
+      color: card.color,
+      transmission: card.transmission,
+    })),
+    actualFactions: Object.fromEntries(
+      Object.entries(state.players).map(([id, player]) => [id, player.faction]),
+    ),
     transmission: projection.transmission
       ? {
           method: projection.transmission.method,
