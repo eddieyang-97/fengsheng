@@ -174,6 +174,55 @@ export const CANDIDATE_V42: BotPolicy = {
   dangerousDiscardChoiceEvidence: 0.2,
 };
 
+export const CANDIDATE_V43: BotPolicy = {
+  ...TACTICAL_V19,
+  id: "candidate-v43",
+  probeCounterAffinityScoring: true,
+  incomingProbeAffinityWeight: 0,
+};
+
+export const CANDIDATE_V44: BotPolicy = {
+  ...CANDIDATE_V43,
+  id: "candidate-v44",
+  incomingProbeAffinityWeight: 4,
+};
+
+export const CANDIDATE_V45: BotPolicy = {
+  ...CANDIDATE_V43,
+  id: "candidate-v45",
+  incomingProbeAffinityWeight: 8,
+};
+
+export const CANDIDATE_V46: BotPolicy = {
+  ...CANDIDATE_V43,
+  id: "candidate-v46",
+  incomingProbeAffinityWeight: 12,
+};
+
+export const CANDIDATE_V47: BotPolicy = {
+  ...CANDIDATE_V43,
+  id: "candidate-v47",
+  incomingProbeCounterCost: 4,
+};
+
+export const CANDIDATE_V48: BotPolicy = {
+  ...CANDIDATE_V43,
+  id: "candidate-v48",
+  incomingProbeCounterCost: 8,
+};
+
+export const CANDIDATE_V49: BotPolicy = {
+  ...CANDIDATE_V43,
+  id: "candidate-v49",
+  incomingProbeCounterCost: 12,
+};
+
+export const CANDIDATE_V50: BotPolicy = {
+  ...CANDIDATE_V43,
+  id: "candidate-v50",
+  incomingProbeCounterCost: 16,
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
@@ -215,6 +264,14 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V40,
   CANDIDATE_V41,
   CANDIDATE_V42,
+  CANDIDATE_V43,
+  CANDIDATE_V44,
+  CANDIDATE_V45,
+  CANDIDATE_V46,
+  CANDIDATE_V47,
+  CANDIDATE_V48,
+  CANDIDATE_V49,
+  CANDIDATE_V50,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

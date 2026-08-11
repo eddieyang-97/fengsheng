@@ -167,7 +167,7 @@ The independent 500-pair result did not establish an improvement over V8, so
 these changes are not part of the production policy.
 
 The selectable policy registry retains tactical versions for rollback and only
-the active experimental candidates v14-v17, v19-v33, and v40-v42. Historical candidates
+the active experimental candidates v14-v17, v19-v33, and v40-v50. Historical candidates
 v3-v13 were retired after their results were recorded below; their
 implementations remain available through Git history.
 
@@ -184,7 +184,7 @@ Weight 0.4 was best on the 100-pair development sample (seeds 47001-47100):
 focal +1.0 percentage point, mixed +1.8, population +0.2, with improved Brier
 calibration. A frozen 200-pair validation (seeds 48001-48200) did not reproduce
 the gameplay gain: focal -0.5, mixed 0.0, population -0.1, all inconclusive.
-The feature therefore remains evaluation-only and tactical-v14 remains live.
+The feature therefore remains evaluation-only and tactical-v19 remains live.
 
 `candidate-v31` replaces 公开文本 离间's target-affinity shortcut with an
 exchange model. The resolving function card is already public and is included
@@ -212,6 +212,32 @@ tactical-v11 eleven times, always preserving 识破 by passing. Preliminary
 100-pair focal-seat, mixed-seat, and population runs were all exactly neutral
 in wins, with no stalls, command-limit failures, or rejected commands. It
 remains evaluation-only pending more targeted evidence about those rare passes.
+
+Candidates v43-v46 isolate incoming hidden 试探 treatment on top of live V19.
+V43 uses candidate-v32's public hidden-variant expectation without an additional
+intent adjustment. V44-v46 add source-faction affinity weights of 4, 8, and 12:
+likely allies are progressively less likely to be countered, while likely
+opponents are progressively more likely to be countered. In 500 games against
+V43, V44 changed 11 incoming-probe decisions; full-game branch continuations
+favored V44 three times, V43 twice, and tied six times. Larger weights produced
+no additional decisive branch wins. Paired 500-seed focal and mixed evaluations
+against V19 were exactly neutral, while a 500-seed population evaluation gave
+V44 945/2500 seat-wins versus V19's 944/2500 (difference +0.04 percentage
+points, 95% CI [-0.04, +0.12]) with zero stalls or rejections. Production
+therefore remains V19: V44 is the preferred experiment, but its aggregate gain
+is not established.
+
+Candidates v47-v50 correct the stronger practical concern that even a hostile
+试探 usually costs less than spending a scarce 识破. They retain V43's hidden
+variant expectation, remove the extra source-affinity multiplier, and assign
+explicit incoming-probe counter costs of 4, 8, 12, and 16. Across 500 fixed-seed
+disagreement games against V43, V47's saved counters won seven full-game branches
+and lost two; V48 won ten and lost three. V49-v50 changed four more decisions but
+added no decisive wins, making V48 the preferred conservative threshold. Against
+live V19 over separate 500-pair evaluations, V48 was -0.20 percentage points in
+focal-seat mode, +0.16 in mixed-seats, and exactly neutral in population mode;
+all intervals were inconclusive and all 3,000 games completed without stalls or
+rejections. V48 remains evaluation-only pending stronger aggregate evidence.
 
 `candidate-v33` extends candidate-v32 through the resolved identity-probe
 choice. Instead of using hand count, it compares the inferred cost of revealing

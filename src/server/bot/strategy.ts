@@ -55,6 +55,10 @@ export interface BotPolicy {
   readonly avoidRedundantAllySecretOrder: boolean;
   /** Evaluate a face-down 试探 from its hidden-variant prior and the prober's affinity. */
   readonly probeCounterAffinityScoring: boolean;
+  /** Additional utility assigned to an incoming hidden 试探 per unit of source affinity. */
+  readonly incomingProbeAffinityWeight?: number;
+  /** Extra opportunity cost for spending 识破 on an incoming hidden 试探. */
+  readonly incomingProbeCounterCost?: number;
   /** Compare identity announcement with the exact expected random-card transfer. */
   readonly probeIdentityChoiceScoring: boolean;
   /** Score 截获 by both its forced receipt and the receipt denied to the current target. */
@@ -1197,8 +1201,20 @@ function scoreAction(
           )
         : decision(command, PASS_REACTION_SCORE, "preserve reaction cards");
     }
-    case "PLAY_COUNTER":
-      return decision(command, 5 - pendingInteractionUtility(projection, beliefs, policy), "counter only when the pending action is unfavorable");
+    case "PLAY_COUNTER": {
+      const isIncomingHiddenProbe = projection.activeFunctionAction?.kind === "probe" &&
+        projection.activeFunctionAction.targetPlayerId === projection.own.id;
+      const probeCounterCost = isIncomingHiddenProbe
+        ? policy.incomingProbeCounterCost ?? 0
+        : 0;
+      return decision(
+        command,
+        5 - pendingInteractionUtility(projection, beliefs, policy) - probeCounterCost,
+        probeCounterCost > 0
+          ? `counter only when the hidden probe costs more than preserving 识破 (${probeCounterCost})`
+          : "counter only when the pending action is unfavorable",
+      );
+    }
     case "PLAY_DECRYPT":
       return projection.transmission?.card
         ? decision(
@@ -2694,7 +2710,12 @@ function cardActionUtility(
       return -10 * affinity;
     case "试探":
       return policy.probeCounterAffinityScoring && targetId === projection.own.id
-        ? hiddenProbeUtility(sourceId, projection, beliefs)
+        ? hiddenProbeUtility(sourceId, projection, beliefs) +
+          (policy.incomingProbeAffinityWeight ?? 0) * targetAffinity(
+            sourceId,
+            projection.own.faction,
+            beliefs,
+          )
         : -10 * affinity;
     case "秘密下达":
       return -10 * affinity;

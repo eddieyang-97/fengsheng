@@ -1380,9 +1380,12 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     acceptIntelligence(state, "丙");
     expect(state.transmission).toBeUndefined();
     expect(state.players["丙"].intelligence).toContain(swap);
-    expect(state.publicDiscard).toContain(intelligence);
     const originalCard = PHYSICAL_DECK.find((card) => card.id === intelligence)!;
     const replacementCard = PHYSICAL_DECK.find((card) => card.id === swap)!;
+    expect(state.players["丙"].intelligenceMethods?.[swap]).toBe(
+      replacementCard.transmission,
+    );
+    expect(state.publicDiscard).toContain(intelligence);
     expect(state.auditLog).toContain(
       `掉包结算：原情报「${originalCard.name}（${originalCard.color} · ${originalCard.transmission}）」公开弃置；替换牌「${replacementCard.name}（${replacementCard.color} · ${replacementCard.transmission}）」正面朝上`,
     );

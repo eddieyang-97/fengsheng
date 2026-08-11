@@ -43,7 +43,7 @@ export interface BotDisagreement {
   ];
   beliefs: readonly [Record<string, FactionBelief>, Record<string, FactionBelief>];
   counterfactual?: {
-    metric: "full-information-discard-denial" | "full-information-receipt-branch" | "full-information-secret-order-branch";
+    metric: "full-information-discard-denial" | "full-information-receipt-branch" | "full-information-secret-order-branch" | "full-information-probe-counter-branch";
     targetFaction?: string;
     recipientIds?: readonly [string, string];
     cardName?: string;
@@ -574,6 +574,17 @@ function describeDisagreement(
         memories,
         livePolicies,
         liveMemories,
+      ) ??
+      probeCounterfactual(
+        seed,
+        commandNumber,
+        projection,
+        state,
+        policies,
+        decisions,
+        memories,
+        livePolicies,
+        liveMemories,
       ),
     publicEvent: projection.auditLog.at(-1),
   };
@@ -713,6 +724,59 @@ function secretOrderCounterfactual(
       : policies[1].id;
   return {
     metric: "full-information-secret-order-branch",
+    utilities,
+    preferredPolicy,
+  };
+}
+
+function probeCounterfactual(
+  seed: number,
+  commandNumber: number,
+  projection: ReturnType<GameSessionService["project"]>,
+  state: GameState,
+  policies: readonly [BotPolicy, BotPolicy],
+  decisions: readonly [BotDecision | undefined, BotDecision | undefined],
+  comparisonMemories: readonly [BotMemory, BotMemory],
+  livePolicies: readonly BotPolicy[],
+  liveMemories: ReadonlyMap<string, BotMemory>,
+): BotDisagreement["counterfactual"] {
+  const commandTypes = decisions.map((decision) => decision?.command.type);
+  const functionKind = projection.activeFunctionAction?.kind;
+  if (
+    !functionKind ||
+    !["probe", "probeIdentity", "probeDrawDiscard"].includes(functionKind) ||
+    !commandTypes.includes("PLAY_COUNTER") ||
+    !commandTypes.includes("PASS_REACTION")
+  ) {
+    return undefined;
+  }
+  const actorIndex = state.seatOrder.indexOf(projection.own.id);
+  if (actorIndex < 0) return undefined;
+  const utilities = decisions.map((decision, branchIndex) => {
+    if (!decision) return Number.NEGATIVE_INFINITY;
+    const branchPolicies = [...livePolicies];
+    branchPolicies[actorIndex] = policies[branchIndex]!;
+    const branchMemories = new Map([...liveMemories].map(([id, memory]) => [
+      id,
+      structuredClone(memory),
+    ]));
+    branchMemories.set(projection.own.id, structuredClone(comparisonMemories[branchIndex]!));
+    return runFullGameBranch(
+      state,
+      projection.own.id,
+      decision.command,
+      branchPolicies,
+      branchMemories,
+      seed * 10_000 + commandNumber,
+    );
+  }) as [number, number];
+  const preferredPolicy = Math.abs(utilities[0] - utilities[1]) < 0.0001
+    ? "tie"
+    : utilities[0] > utilities[1]
+      ? policies[0].id
+      : policies[1].id;
+  return {
+    metric: "full-information-probe-counter-branch",
     utilities,
     preferredPolicy,
   };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V23, CANDIDATE_V28, CANDIDATE_V29 } from "./policies";
+import { CANDIDATE_V23, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V43, CANDIDATE_V44 } from "./policies";
 import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12, TACTICAL_V14, TACTICAL_V18, TACTICAL_V19 } from "../server/bot/strategy";
 
 const INCREMENTAL_TRANSFER_POLICY = {
@@ -209,5 +209,20 @@ describe("AI self-play benchmark", () => {
 
     expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
     expect(evaluated?.counterfactual?.preferredPolicy).toMatch(/^(tactical-v18|tactical-v19|tie)$/);
+  });
+
+  it("scores incoming 试探 counter-versus-pass disagreements through the end of the game", () => {
+    const result = runSelfPlayGame({
+      playerCount: 5,
+      seed: 61569,
+      policies: Array.from({ length: 5 }, () => TACTICAL_V19),
+      comparePolicies: [CANDIDATE_V43, CANDIDATE_V44],
+    });
+    const evaluated = result.disagreements.find((entry) =>
+      entry.counterfactual?.metric === "full-information-probe-counter-branch"
+    );
+
+    expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
+    expect(evaluated?.counterfactual?.preferredPolicy).toMatch(/^(candidate-v43|candidate-v44|tie)$/);
   });
 });

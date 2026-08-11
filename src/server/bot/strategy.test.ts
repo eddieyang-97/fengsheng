@@ -31,7 +31,7 @@ import {
   TACTICAL_V18,
   TACTICAL_V19,
 } from "./strategy";
-import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40 } from "../../ai-lab/policies";
+import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50 } from "../../ai-lab/policies";
 
 const LOW_REACTION_CONSERVATION_POLICY = {
   ...TACTICAL_V3,
@@ -3461,6 +3461,109 @@ describe("bot strategy", () => {
       createBotMemory(opponentProbe, CANDIDATE_V32),
       { policy: CANDIDATE_V32 },
     )?.type).toBe("PLAY_COUNTER");
+  });
+
+  it("tests monotonic source-affinity weights for incoming hidden 试探", () => {
+    const projection = (sourceFaction: Faction, includePass: boolean) => makeProjection({
+      own: { id: "bot", faction: "军情", hand: [counterCard, redDirectCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, faction: sourceFaction } : player
+      ),
+      activeFunctionAction: {
+        kind: "probe",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "reactions",
+      },
+      responseStack: [{
+        id: "probe",
+        kind: "card",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        cardName: "试探",
+      }],
+      legalActions: [
+        ...(includePass ? [{ type: "PASS_REACTION" as const }] : []),
+        {
+          type: "PLAY_COUNTER" as const,
+          cardId: counterCard.id as PhysicalCardId,
+          targetInteractionId: "probe",
+        },
+      ],
+    });
+    const policies = [CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46];
+    const counterScores = (sourceFaction: Faction) => policies.map((policy) => {
+      const state = projection(sourceFaction, false);
+      return chooseBotDecision(
+        state,
+        createBotMemory(state, policy),
+        { policy },
+      )!.score;
+    });
+
+    const allyScores = counterScores("军情");
+    const opponentScores = counterScores("潜伏");
+    expect(allyScores).toEqual([...allyScores].sort((left, right) => right - left));
+    expect(opponentScores).toEqual([...opponentScores].sort((left, right) => left - right));
+    expect(new Set(allyScores).size).toBe(policies.length);
+    expect(new Set(opponentScores).size).toBe(policies.length);
+
+    const allyProbe = projection("军情", true);
+    const opponentProbe = projection("潜伏", true);
+    expect(chooseBotCommand(
+      allyProbe,
+      createBotMemory(allyProbe, CANDIDATE_V43),
+      { policy: CANDIDATE_V43 },
+    )?.type).toBe("PASS_REACTION");
+    expect(chooseBotCommand(
+      opponentProbe,
+      createBotMemory(opponentProbe, CANDIDATE_V43),
+      { policy: CANDIDATE_V43 },
+    )?.type).toBe("PLAY_COUNTER");
+  });
+
+  it("tests increasing opportunity costs for spending 识破 on an incoming hidden 试探", () => {
+    const projection = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [counterCard, redDirectCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, faction: "潜伏" as const } : player
+      ),
+      activeFunctionAction: {
+        kind: "probe",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "reactions",
+      },
+      responseStack: [{
+        id: "probe",
+        kind: "card",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        cardName: "试探",
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_COUNTER",
+          cardId: counterCard.id as PhysicalCardId,
+          targetInteractionId: "probe",
+        },
+      ],
+    });
+    const policies = [CANDIDATE_V43, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50];
+    const counterScores = policies.map((policy) => chooseBotDecision(
+      { ...projection, legalActions: projection.legalActions.filter((action) => action.type === "PLAY_COUNTER") },
+      createBotMemory(projection, policy),
+      { policy },
+    )!.score);
+
+    expect(counterScores).toEqual([...counterScores].sort((left, right) => right - left));
+    expect(new Set(counterScores).size).toBe(policies.length);
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, CANDIDATE_V48),
+      { policy: CANDIDATE_V48 },
+    )?.type).toBe("PASS_REACTION");
   });
 
   it("uses source affinity and exact hand value for identity-probe choices", () => {

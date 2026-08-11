@@ -3108,7 +3108,10 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
   const acceptedCard = cardById(transmission.cardId);
   receiver.intelligence.push(transmission.cardId);
   receiver.intelligenceMethods ??= {};
-  receiver.intelligenceMethods[transmission.cardId] = transmission.method;
+  receiver.intelligenceMethods[transmission.cardId] =
+    acceptedCard.transmission === "任意"
+      ? transmission.method
+      : acceptedCard.transmission;
   state.transmission = undefined;
   state.phase = "resolvingReceipt";
   removeResolutionContext(state, "receipt");
