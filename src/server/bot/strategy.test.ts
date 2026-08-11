@@ -30,6 +30,7 @@ import {
   TACTICAL_V17,
   TACTICAL_V18,
   TACTICAL_V19,
+  TACTICAL_V20,
 } from "./strategy";
 import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50 } from "../../ai-lab/policies";
 
@@ -92,8 +93,8 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes the validated inference and cooperation policy as tactical-v19", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V19);
+  it("promotes the validated conservative incoming-probe policy as tactical-v20", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V20);
     expect(TACTICAL_V4).toMatchObject({
       incrementalLure: true,
       lureRequiresLikelyAcceptance: true,

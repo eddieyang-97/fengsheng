@@ -294,7 +294,13 @@ export const TACTICAL_V19: BotPolicy = {
   id: "tactical-v19",
   avoidRedundantAllySecretOrder: true,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V19;
+export const TACTICAL_V20: BotPolicy = {
+  ...TACTICAL_V19,
+  id: "tactical-v20",
+  probeCounterAffinityScoring: true,
+  incomingProbeCounterCost: 8,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V20;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;

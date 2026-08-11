@@ -14,7 +14,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v14`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v20`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -223,9 +223,9 @@ favored V44 three times, V43 twice, and tied six times. Larger weights produced
 no additional decisive branch wins. Paired 500-seed focal and mixed evaluations
 against V19 were exactly neutral, while a 500-seed population evaluation gave
 V44 945/2500 seat-wins versus V19's 944/2500 (difference +0.04 percentage
-points, 95% CI [-0.04, +0.12]) with zero stalls or rejections. Production
-therefore remains V19: V44 is the preferred experiment, but its aggregate gain
-is not established.
+points, 95% CI [-0.04, +0.12]) with zero stalls or rejections. Production stayed
+on V19 at that stage: V44 remained experimental because its aggregate gain was
+not established.
 
 Candidates v47-v50 correct the stronger practical concern that even a hostile
 试探 usually costs less than spending a scarce 识破. They retain V43's hidden
@@ -237,7 +237,11 @@ added no decisive wins, making V48 the preferred conservative threshold. Against
 live V19 over separate 500-pair evaluations, V48 was -0.20 percentage points in
 focal-seat mode, +0.16 in mixed-seats, and exactly neutral in population mode;
 all intervals were inconclusive and all 3,000 games completed without stalls or
-rejections. V48 remains evaluation-only pending stronger aggregate evidence.
+rejections. On an untouched 2,000-pair holdout, V48 was +0.25 percentage points
+in focal-seat mode and -0.08 in mixed-seats; all 8,000 games completed without
+stalls, limits, or rejected commands. The targeted branch advantage, human-play
+rationale, and absence of an aggregate regression promoted this treatment as
+live tactical-v20.
 
 `candidate-v33` extends candidate-v32 through the resolved identity-probe
 choice. Instead of using hand count, it compares the inferred cost of revealing
