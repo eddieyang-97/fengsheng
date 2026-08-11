@@ -63,6 +63,10 @@ export interface BotPolicy {
   readonly probeIdentityChoiceScoring: boolean;
   /** Score 截获 by both its forced receipt and the receipt denied to the current target. */
   readonly incrementalInterceptScoring: boolean;
+  /** Compare 截获 with the committed receipt it replaces after 转移. */
+  readonly committedTransferInterceptScoring?: boolean;
+  /** Never immediately undo this bot's own unchanged 转移 by playing 截获. */
+  readonly avoidOwnTransferInterceptUndo?: boolean;
   /** Fraction of the held 截获 card's transmission value charged when spending it. */
   readonly interceptOpportunityCostFactor: number;
   /** Evaluate the expected receipt across the complete passive transmission route. */
@@ -83,8 +87,14 @@ export interface BotPolicy {
   readonly dangerousDiscardStrategy: "random" | "color-denial" | "color-then-function" | "expected-denial" | "target-value";
   /** Learn weak faction evidence from completed voluntary actions that help or harm this bot. */
   readonly inferResolvedActionAffinity: boolean;
+  /** Scale sender-affinity evidence from a resolved 试探 that changes this bot's hand value. */
+  readonly resolvedProbeAffinityScale?: number;
+  /** Discount harmful-试探 evidence when its sender may not know this bot's faction. */
+  readonly resolvedProbeIdentityAwarenessWeighting?: boolean;
   /** Evidence weight for attacker affinity inferred from a chosen 危险情报 discard. */
   readonly dangerousDiscardChoiceEvidence?: number;
+  /** Weight known inspected cards when selecting a 危险情报 target. */
+  readonly knownHandDangerousTargetWeight?: number;
   /** Which offensive target choices should prefer the more dangerous opposing faction. */
   readonly factionThreatTargeting: "none" | "dangerous" | "probe" | "all";
   /** Preserve 秘密下达 when its target has too few cards for meaningful color control. */
@@ -300,7 +310,12 @@ export const TACTICAL_V20: BotPolicy = {
   probeCounterAffinityScoring: true,
   incomingProbeCounterCost: 8,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V20;
+export const TACTICAL_V21: BotPolicy = {
+  ...TACTICAL_V20,
+  id: "tactical-v21",
+  avoidOwnTransferInterceptUndo: true,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V21;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -372,10 +387,19 @@ export interface BotMemory {
   supportiveProbeByPlayer: Record<string, boolean>;
   /** Estimated public relationship: positive means observer likely sees subject as an ally. */
   perceivedAllianceByPlayer: Record<string, Record<string, number>>;
+  /** Cards still known with certainty in inspected opponents' hands. */
+  knownHands: Record<string, {
+    cards: PhysicalCard[];
+    unknownCount: number;
+    handCount: number;
+  }>;
+  /** Number of private notices already incorporated into knownHands. */
+  observedPrivateNoticeCount: number;
   transmissionInference?: {
     signature: string;
     initialTargetId: string;
     completedDecryptors: string[];
+    knownCard?: PhysicalCard;
     blackProbability?: number;
     forcedColor?: SingleColor;
     forcedByPlayerId?: string;
@@ -435,6 +459,8 @@ export function createBotMemory(
     perceivedIdentityByPlayer: {},
     supportiveProbeByPlayer: {},
     perceivedAllianceByPlayer: {},
+    knownHands: {},
+    observedPrivateNoticeCount: 0,
   };
   observeBotProjection(memory, projection, policy);
   return memory;
@@ -452,6 +478,8 @@ export function observeBotProjection(
   if (memory.botId !== projection.own.id) {
     throw new Error("Bot memory cannot observe another player's private projection");
   }
+
+  const knownTransmissionCard = observeKnownHands(memory, projection);
 
   for (const player of projection.players) {
     const evidence = memory.evidence[player.id] ??= emptyBelief();
@@ -506,7 +534,13 @@ export function observeBotProjection(
     policy,
   );
   const currentTransmission = transmissionObservation(projection);
-  observeTransmissionInference(memory, projection, currentTransmission, policy);
+  observeTransmissionInference(
+    memory,
+    projection,
+    currentTransmission,
+    policy,
+    knownTransmissionCard,
+  );
   if (currentTransmission && currentTransmission.signature !== priorTransmission?.signature) {
     const target = projection.players.find((player) => player.id === currentTransmission.targetId);
     const targetFaction = target?.faction ??
@@ -611,7 +645,20 @@ export function observeBotProjection(
         policy.dangerousDiscardChoiceEvidence ?? 0,
       );
     } else if (policy.inferResolvedActionAffinity) {
-      observeResolvedActionAffinity(memory, projection, priorFunction);
+      observeResolvedActionAffinity(memory, projection, priorFunction, 1);
+    } else if (
+      priorFunction.kind === "probe" &&
+      (policy.resolvedProbeAffinityScale ?? 0) > 0
+    ) {
+      const identityAwareness = policy.resolvedProbeIdentityAwarenessWeighting
+        ? memory.perceivedIdentityByPlayer[priorFunction.sourceId]?.[projection.own.faction] ?? 1 / 3
+        : 1;
+      observeResolvedActionAffinity(
+        memory,
+        projection,
+        priorFunction,
+        (policy.resolvedProbeAffinityScale ?? 0) * identityAwareness,
+      );
     }
   }
 
@@ -635,6 +682,137 @@ export function observeBotProjection(
   }
 
   memory.previous = snapshot(projection, currentFunction);
+}
+
+function observeKnownHands(
+  memory: BotMemory,
+  projection: PlayerProjection,
+): PhysicalCard | undefined {
+  const newNotices = projection.privateNotices.slice(memory.observedPrivateNoticeCount);
+  for (const notice of newNotices) {
+    if (
+      notice.kind === "secretOrderHandInspected" ||
+      notice.kind === "dangerousHandInspected"
+    ) {
+      memory.knownHands[notice.otherPlayerId] = {
+        cards: [...notice.cards],
+        unknownCount: 0,
+        handCount: notice.cards.length,
+      };
+      continue;
+    }
+    if (notice.kind === "publicTextLost") {
+      const player = projection.players.find((candidate) => candidate.id === notice.otherPlayerId);
+      const tracked = memory.knownHands[notice.otherPlayerId];
+      if (player && tracked && !tracked.cards.some((card) => card.id === notice.card.id)) {
+        tracked.cards.push(notice.card);
+      }
+    }
+  }
+  memory.observedPrivateNoticeCount = projection.privateNotices.length;
+
+  const currentTransmission = transmissionObservation(projection);
+  const currentFunction = functionObservation(projection, memory.previous);
+  const departureIdsByPlayer = new Map<string, Set<string>>();
+  const hiddenDeparturesByPlayer = new Map<string, number>();
+  const addDepartureId = (playerId: string, cardId: string) => {
+    const ids = departureIdsByPlayer.get(playerId) ?? new Set<string>();
+    ids.add(cardId);
+    departureIdsByPlayer.set(playerId, ids);
+  };
+  const addHiddenDeparture = (playerId: string) => {
+    hiddenDeparturesByPlayer.set(playerId, (hiddenDeparturesByPlayer.get(playerId) ?? 0) + 1);
+  };
+  if (currentTransmission?.signature !== memory.previous?.transmission?.signature) {
+    if (currentTransmission?.card) addDepartureId(currentTransmission.senderId, currentTransmission.card.id);
+    else if (currentTransmission) addHiddenDeparture(currentTransmission.senderId);
+  }
+  if (currentFunction && currentFunction.signature !== memory.previous?.functionAction?.signature) {
+    if (projection.activeFunctionAction?.sourceCard) {
+      addDepartureId(currentFunction.sourceId, projection.activeFunctionAction.sourceCard.id);
+    } else if (currentFunction) {
+      addHiddenDeparture(currentFunction.sourceId);
+    }
+  }
+
+  const publiclyLocatedCardIds = new Set<string>([
+    ...projection.publicDiscard.map((card) => card.id),
+    ...projection.players.flatMap((player) => player.intelligence.map((card) => card.id)),
+    ...projection.own.hand.map((card) => card.id),
+    ...(projection.transmission?.card ? [projection.transmission.card.id] : []),
+    ...(projection.activeFunctionAction?.sourceCard
+      ? [projection.activeFunctionAction.sourceCard.id]
+      : []),
+  ]);
+  for (const notice of newNotices) {
+    if (
+      notice.kind !== "publicTextGained" &&
+      notice.kind !== "dangerousDiscardMade" &&
+      notice.kind !== "probeReceived" &&
+      notice.kind !== "secretOrderReceived"
+    ) {
+      continue;
+    }
+    addDepartureId(notice.otherPlayerId, notice.card.id);
+    if (
+      (notice.kind === "probeReceived" || notice.kind === "secretOrderReceived") &&
+      (hiddenDeparturesByPlayer.get(notice.otherPlayerId) ?? 0) > 0
+    ) {
+      hiddenDeparturesByPlayer.set(
+        notice.otherPlayerId,
+        (hiddenDeparturesByPlayer.get(notice.otherPlayerId) ?? 1) - 1,
+      );
+    }
+  }
+
+  let inferredTransmissionCard: PhysicalCard | undefined;
+  for (const [playerId, tracked] of Object.entries(memory.knownHands)) {
+    const player = projection.players.find((candidate) => candidate.id === playerId);
+    if (!player) {
+      delete memory.knownHands[playerId];
+      continue;
+    }
+    const departureIds = departureIdsByPlayer.get(playerId) ?? new Set<string>();
+    const isNewHiddenTransmission =
+      currentTransmission?.senderId === playerId &&
+      currentTransmission.card === undefined &&
+      currentTransmission.signature !== memory.previous?.transmission?.signature;
+    if (
+      isNewHiddenTransmission &&
+      tracked.handCount === 1 &&
+      tracked.unknownCount === 0 &&
+      tracked.cards.length === 1
+    ) {
+      inferredTransmissionCard = tracked.cards[0];
+      departureIds.add(tracked.cards[0]!.id);
+      hiddenDeparturesByPlayer.set(
+        playerId,
+        Math.max(0, (hiddenDeparturesByPlayer.get(playerId) ?? 0) - 1),
+      );
+    }
+    const retainedCards = tracked.cards.filter((card) =>
+      !publiclyLocatedCardIds.has(card.id) && !departureIds.has(card.id)
+    );
+    const knownDepartures = tracked.cards.length - retainedCards.length;
+    const confirmedUnknownDepartures = [...departureIds].filter((cardId) =>
+      !tracked.cards.some((card) => card.id === cardId)
+    ).length;
+    const explainedLosses = knownDepartures + confirmedUnknownDepartures +
+      (hiddenDeparturesByPlayer.get(playerId) ?? 0);
+    const expectedCountAfterExplainedLosses = Math.max(0, tracked.handCount - explainedLosses);
+    if (player.handCount < expectedCountAfterExplainedLosses) {
+      // At least one hidden card left the hand. Any previously known card could
+      // have been that card, so no individual identity remains certain.
+      tracked.cards = [];
+      tracked.unknownCount = player.handCount;
+      tracked.handCount = player.handCount;
+      continue;
+    }
+    tracked.cards = retainedCards;
+    tracked.unknownCount = Math.max(0, player.handCount - retainedCards.length);
+    tracked.handCount = player.handCount;
+  }
+  return inferredTransmissionCard;
 }
 
 export function factionBeliefs(memory: BotMemory, projection: PlayerProjection): Record<string, FactionBelief> {
@@ -991,6 +1169,7 @@ export function chooseBotDecision(
             policy,
             memory.transmissionInference,
             memory.perceivedAllianceByPlayer,
+            memory.knownHands,
           );
       return policy.reactionConservation > 0
         ? applyCardConservation(action, scored, projection, beliefs, policy)
@@ -1064,6 +1243,7 @@ function scoreAction(
   policy: BotPolicy,
   transmissionInference?: BotMemory["transmissionInference"],
   perceivedAllianceByPlayer: BotMemory["perceivedAllianceByPlayer"] = {},
+  knownHands: BotMemory["knownHands"] = {},
 ): BotDecision {
   const command = action as GameCommand;
   const ownFaction = projection.own.faction;
@@ -1230,13 +1410,26 @@ function scoreAction(
           )
         : decision(command, 14, "learn hidden intelligence");
     case "PLAY_INTERCEPT": {
+      if (
+        policy.avoidOwnTransferInterceptUndo &&
+        isUnchangedOwnTransferCommitment(projection)
+      ) {
+        return decision(
+          command,
+          -100_000,
+          "do not spend 截获 to undo this bot's own unchanged 转移",
+        );
+      }
       const ownReceipt = currentTransmissionReceiptUtility(
         projection.own.id,
         projection,
         beliefs,
         transmissionInference,
       );
-      return policy.incrementalInterceptScoring
+      const compareWithCurrentReceipt = policy.incrementalInterceptScoring ||
+        (policy.committedTransferInterceptScoring &&
+          projection.transmission?.transferredRecipientCommitted === true);
+      return compareWithCurrentReceipt
         ? decision(
             command,
             PASS_REACTION_SCORE + ownReceipt -
@@ -1461,7 +1654,7 @@ function scoreAction(
       return decision(
         command,
         policy.factionThreatTargeting === "dangerous" || policy.factionThreatTargeting === "all"
-          ? normalizedStrategicTargetScore(action, projection, beliefs, 4)
+          ? normalizedStrategicTargetScore(action, projection, beliefs, 4, policy, knownHands)
           : baseScore,
         policy.factionThreatTargeting === "dangerous" || policy.factionThreatTargeting === "all"
           ? "pressure the opposing faction with the greatest combined size and visible win threat"
@@ -2185,6 +2378,9 @@ function currentTransmissionReceiptUtility(
   if (!recipientId || projection.transmission?.card) {
     return receiptUtility(projection.transmission?.card, recipientId, projection, beliefs);
   }
+  if (inference?.knownCard) {
+    return receiptUtility(inference.knownCard, recipientId, projection, beliefs);
+  }
   if (inference?.forcedColor) {
     const possibleColors: readonly PhysicalCard["color"][] = inference.forcedColor === "黑"
       ? ["黑"]
@@ -2216,6 +2412,15 @@ function currentTransmissionAlliedProgressBonus(
   if (card) {
     return alliedProgressConcentrationBonus(
       card.color,
+      recipientId,
+      projection,
+      beliefs,
+      policy,
+    );
+  }
+  if (inference?.knownCard) {
+    return alliedProgressConcentrationBonus(
+      inference.knownCard.color,
       recipientId,
       projection,
       beliefs,
@@ -2317,6 +2522,9 @@ function currentTransmissionRecipientUtility(
   if (!recipientId) return 0;
   const card = projection.transmission?.card;
   if (card) return recipientColorUtility(card.color, recipientId, projection, beliefs);
+  if (inference?.knownCard) {
+    return recipientColorUtility(inference.knownCard.color, recipientId, projection, beliefs);
+  }
   if (inference?.forcedColor) {
     const possibleColors: readonly PhysicalCard["color"][] = inference.forcedColor === "黑"
       ? ["黑"]
@@ -2440,6 +2648,33 @@ function expectedCurrentReceiptUtilityOnPass(
     projection,
     beliefs,
     transmissionInference,
+  );
+}
+
+function isUnchangedOwnTransferCommitment(projection: PlayerProjection): boolean {
+  const transmission = projection.transmission;
+  if (!transmission?.transferredRecipientCommitted) return false;
+  let resolutionIndex = -1;
+  for (let index = projection.auditLog.length - 1; index >= 0; index -= 1) {
+    if (projection.auditLog[index] === `转移结算，当前接收者：${transmission.intendedRecipientId}`) {
+      resolutionIndex = index;
+      break;
+    }
+  }
+  if (resolutionIndex < 0) return false;
+  let useIndex = -1;
+  for (let index = resolutionIndex - 1; index >= 0; index -= 1) {
+    if (projection.auditLog[index] === `${projection.own.id}使用转移，声明新的接收者：${transmission.intendedRecipientId}`) {
+      useIndex = index;
+      break;
+    }
+  }
+  if (useIndex < 0) return false;
+  return !projection.auditLog.slice(useIndex + 1).some(
+    (entry) =>
+      entry.startsWith("离间结算：") ||
+      entry.startsWith("掉包结算：") ||
+      entry === `${projection.own.id}完成破译`,
   );
 }
 
@@ -2798,6 +3033,7 @@ function incomingIntelligenceIsSafeForAgent(
   if (!player) return false;
   const blackCount = countIntelligence(player.intelligence).black;
   const knownOrForcedBlack = projection.transmission?.card?.color === "黑" ||
+    (!projection.transmission?.card && inference?.knownCard?.color === "黑") ||
     (!projection.transmission?.card && inference?.forcedColor === "黑");
   return !knownOrForcedBlack || blackCount < 2;
 }
@@ -2929,6 +3165,8 @@ function normalizedStrategicTargetScore(
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
   scale: number,
+  policy?: BotPolicy,
+  knownHands: BotMemory["knownHands"] = {},
 ): number {
   const comparable = projection.legalActions.filter(
     (candidate): candidate is typeof action =>
@@ -2940,12 +3178,41 @@ function normalizedStrategicTargetScore(
   const strategicallyAdjustedBest = Math.max(
     ...comparable.map((candidate) =>
       offensiveTargetBaseScore(candidate, projection, beliefs) +
-      strategicOpponentThreat(candidate.targetId, projection, beliefs) * scale
+      strategicOpponentThreat(candidate.targetId, projection, beliefs) * scale +
+      knownDangerousDiscardTargetBonus(candidate, projection, beliefs, policy, knownHands)
     ),
   );
   return offensiveTargetBaseScore(action, projection, beliefs) +
-    strategicOpponentThreat(action.targetId, projection, beliefs) * scale -
+    strategicOpponentThreat(action.targetId, projection, beliefs) * scale +
+    knownDangerousDiscardTargetBonus(action, projection, beliefs, policy, knownHands) -
     (strategicallyAdjustedBest - originalBest);
+}
+
+function knownDangerousDiscardTargetBonus(
+  action: Extract<LegalAction, { type: "PLAY_DANGEROUS_INTELLIGENCE" | "PLAY_PROBE" }>,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  policy: BotPolicy | undefined,
+  knownHands: BotMemory["knownHands"],
+): number {
+  const weight = policy?.knownHandDangerousTargetWeight ?? 0;
+  const tracked = knownHands[action.targetId];
+  if (action.type !== "PLAY_DANGEROUS_INTELLIGENCE" || weight <= 0 || !tracked?.cards.length) {
+    return 0;
+  }
+  const discardStrategy = policy?.dangerousDiscardStrategy ?? "color-then-function";
+  return Math.max(
+    0,
+    ...tracked.cards.map((card) => dangerousDiscardUtility(
+      card,
+      action.targetId,
+      projection,
+      beliefs,
+      discardStrategy === "random"
+        ? "color-then-function"
+        : discardStrategy,
+    )),
+  ) * weight;
 }
 
 function informationUncertainty(playerId: string, beliefs: Record<string, FactionBelief>): number {
@@ -3116,6 +3383,7 @@ function observeTransmissionInference(
   projection: PlayerProjection,
   current: PublicObservation["transmission"],
   policy: BotPolicy,
+  knownTransmissionCard?: PhysicalCard,
 ): void {
   if (!current) {
     memory.transmissionInference = undefined;
@@ -3150,6 +3418,7 @@ function observeTransmissionInference(
       signature: current.signature,
       initialTargetId: current.targetId,
       completedDecryptors: [],
+      knownCard: knownTransmissionCard,
       blackProbability: relationshipBlackProbability,
       forcedColor,
       forcedByPlayerId:
@@ -3166,6 +3435,7 @@ function observeTransmissionInference(
     : memory.previous?.auditLength ?? projection.auditLog.length;
   for (const entry of projection.auditLog.slice(scanFrom)) {
     if (entry.startsWith("掉包结算：")) {
+      inference.knownCard = undefined;
       inference.forcedColor = undefined;
       inference.forcedByPlayerId = undefined;
       inference.blackProbability = undefined;
@@ -3348,6 +3618,7 @@ function observeResolvedActionAffinity(
   memory: BotMemory,
   projection: PlayerProjection,
   action: NonNullable<PublicObservation["functionAction"]>,
+  evidenceScale: number,
 ): void {
   if (
     action.sourceId === memory.botId ||
@@ -3382,12 +3653,14 @@ function observeResolvedActionAffinity(
 
   const sourceEvidence = memory.evidence[action.sourceId] ??= emptyBelief();
   if (change > 0) {
-    sourceEvidence[projection.own.faction] += 0.35;
+    sourceEvidence[projection.own.faction] += 0.35 * evidenceScale;
     return;
   }
-  sourceEvidence[projection.own.faction] -= 0.35;
+  sourceEvidence[projection.own.faction] -= 0.35 * evidenceScale;
   for (const faction of FACTIONS) {
-    if (faction !== projection.own.faction) sourceEvidence[faction] += 0.15;
+    if (faction !== projection.own.faction) {
+      sourceEvidence[faction] += 0.15 * evidenceScale;
+    }
   }
 }
 

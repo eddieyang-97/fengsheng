@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V23, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V43, CANDIDATE_V44 } from "./policies";
-import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12, TACTICAL_V14, TACTICAL_V18, TACTICAL_V19 } from "../server/bot/strategy";
+import { CANDIDATE_V23, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V57 } from "./policies";
+import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12, TACTICAL_V14, TACTICAL_V18, TACTICAL_V19, TACTICAL_V20 } from "../server/bot/strategy";
 
 const INCREMENTAL_TRANSFER_POLICY = {
   ...TACTICAL_V3,
@@ -224,5 +224,20 @@ describe("AI self-play benchmark", () => {
 
     expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
     expect(evaluated?.counterfactual?.preferredPolicy).toMatch(/^(candidate-v43|candidate-v44|tie)$/);
+  });
+
+  it("scores post-转移 截获-versus-pass disagreements through the end of the game", () => {
+    const result = runSelfPlayGame({
+      playerCount: 5,
+      seed: 110099,
+      policies: Array.from({ length: 5 }, () => TACTICAL_V20),
+      comparePolicies: [TACTICAL_V20, CANDIDATE_V57],
+    });
+    const evaluated = result.disagreements.find((entry) =>
+      entry.counterfactual?.metric === "full-information-intercept-branch"
+    );
+
+    expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
+    expect(evaluated?.counterfactual?.preferredPolicy).toMatch(/^(tactical-v20|candidate-v57|tie)$/);
   });
 });

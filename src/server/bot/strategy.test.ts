@@ -31,8 +31,9 @@ import {
   TACTICAL_V18,
   TACTICAL_V19,
   TACTICAL_V20,
+  TACTICAL_V21,
 } from "./strategy";
-import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50 } from "../../ai-lab/policies";
+import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58 } from "../../ai-lab/policies";
 
 const LOW_REACTION_CONSERVATION_POLICY = {
   ...TACTICAL_V3,
@@ -93,8 +94,8 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes the validated conservative incoming-probe policy as tactical-v20", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V20);
+  it("promotes the validated self-transfer conservation policy as tactical-v21", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V21);
     expect(TACTICAL_V4).toMatchObject({
       incrementalLure: true,
       lureRequiresLikelyAcceptance: true,
@@ -230,6 +231,220 @@ describe("bot strategy", () => {
     observeBotProjection(memory, updated);
     expect(memory.evidence.b.军情).toBeGreaterThan(0);
     expect(factionBeliefs(memory, updated).b.军情).toBeGreaterThan(before);
+  });
+
+  it("tracks inspected opponent cards through draws and explained public losses", () => {
+    const inspected = makeProjection({
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 2 } : player
+      ),
+      privateNotices: [{
+        kind: "dangerousHandInspected",
+        otherPlayerId: "b",
+        cards: [counterCard, interceptCard],
+      }],
+    });
+    const memory = createBotMemory(inspected);
+
+    expect(memory.knownHands.b).toEqual({
+      cards: [counterCard, interceptCard],
+      unknownCount: 0,
+      handCount: 2,
+    });
+
+    const afterDraw = makeProjection({
+      players: inspected.players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 4 } : player
+      ),
+      privateNotices: inspected.privateNotices,
+    });
+    observeBotProjection(memory, afterDraw);
+    expect(memory.knownHands.b).toEqual({
+      cards: [counterCard, interceptCard],
+      unknownCount: 2,
+      handCount: 4,
+    });
+
+    const afterKnownPlay = makeProjection({
+      players: inspected.players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 3 } : player
+      ),
+      publicDiscard: [counterCard],
+      privateNotices: inspected.privateNotices,
+    });
+    observeBotProjection(memory, afterKnownPlay);
+    expect(memory.knownHands.b).toEqual({
+      cards: [interceptCard],
+      unknownCount: 2,
+      handCount: 3,
+    });
+  });
+
+  it("drops card certainty after an unexplained hidden loss and resets on reinspection", () => {
+    const inspectedNotice = {
+      kind: "dangerousHandInspected" as const,
+      otherPlayerId: "b",
+      cards: [counterCard, interceptCard],
+    };
+    const inspected = makeProjection({
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 2 } : player
+      ),
+      privateNotices: [inspectedNotice],
+    });
+    const memory = createBotMemory(inspected);
+
+    const afterHiddenLoss = makeProjection({
+      players: inspected.players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 1 } : player
+      ),
+      privateNotices: inspected.privateNotices,
+    });
+    observeBotProjection(memory, afterHiddenLoss);
+    expect(memory.knownHands.b).toEqual({ cards: [], unknownCount: 1, handCount: 1 });
+
+    const reinspected = makeProjection({
+      players: inspected.players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 1 } : player
+      ),
+      privateNotices: [
+        inspectedNotice,
+        {
+          kind: "secretOrderHandInspected",
+          otherPlayerId: "b",
+          cards: [redMailCard],
+        },
+      ],
+    });
+    observeBotProjection(memory, reinspected);
+    expect(memory.knownHands.b).toEqual({
+      cards: [redMailCard],
+      unknownCount: 0,
+      handCount: 1,
+    });
+  });
+
+  it("preserves the known remainder after drawn cards are visibly played and identifies a final hidden transmission", () => {
+    const inspected = makeProjection({
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 1 } : player
+      ),
+      privateNotices: [{
+        kind: "dangerousHandInspected",
+        otherPlayerId: "b",
+        cards: [counterCard],
+      }],
+    });
+    const memory = createBotMemory(inspected);
+
+    const afterDraw = makeProjection({
+      players: inspected.players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 3 } : player
+      ),
+      privateNotices: inspected.privateNotices,
+    });
+    observeBotProjection(memory, afterDraw);
+
+    const afterVisibleTransmission = makeProjection({
+      phase: "transmitting",
+      players: inspected.players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 2 } : player
+      ),
+      privateNotices: inspected.privateNotices,
+      transmission: transmission(burnCard),
+    });
+    observeBotProjection(memory, afterVisibleTransmission);
+    expect(memory.knownHands.b).toEqual({
+      cards: [counterCard],
+      unknownCount: 1,
+      handCount: 2,
+    });
+
+    const afterVisibleFunction = makeProjection({
+      players: inspected.players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 1 } : player
+      ),
+      privateNotices: inspected.privateNotices,
+      activeFunctionAction: {
+        kind: "reinforcement",
+        sourcePlayerId: "b",
+        targetPlayerId: "b",
+        stage: "reactions",
+        sourceCard: reinforcementCard,
+      },
+      auditLog: ["b使用增援"],
+    });
+    observeBotProjection(memory, afterVisibleFunction);
+    expect(memory.knownHands.b).toEqual({
+      cards: [counterCard],
+      unknownCount: 0,
+      handCount: 1,
+    });
+
+    const hiddenFinalTransmission = makeProjection({
+      phase: "transmitting",
+      players: inspected.players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 0 } : player
+      ),
+      privateNotices: inspected.privateNotices,
+      transmission: {
+        ...transmission(counterCard),
+        card: undefined,
+        faceUp: false,
+      },
+      auditLog: ["b开始以密电传递情报，当前接收者：bot"],
+    });
+    observeBotProjection(memory, hiddenFinalTransmission);
+
+    expect(memory.knownHands.b).toEqual({ cards: [], unknownCount: 0, handCount: 0 });
+    expect(memory.transmissionInference?.knownCard).toEqual(counterCard);
+  });
+
+  it("uses an inspected final card's exact color when responding to its hidden transmission", () => {
+    const inspected = makeProjection({
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 1 } : player
+      ),
+      privateNotices: [{
+        kind: "dangerousHandInspected",
+        otherPlayerId: "b",
+        cards: [blackCard],
+      }],
+    });
+    const informedMemory = createBotMemory(inspected, TACTICAL_V14);
+    const hiddenTransmission = makeProjection({
+      phase: "transmitting",
+      players: inspected.players.map((player) =>
+        player.id === "b" ? { ...player, handCount: 0 } : player
+      ),
+      privateNotices: inspected.privateNotices,
+      transmission: {
+        ...transmission(blackCard),
+        card: undefined,
+        faceUp: false,
+      },
+      auditLog: ["b开始以直达传递情报，当前接收者：bot"],
+      legalActions: [{ type: "ACCEPT_INTELLIGENCE" }, { type: "DECLINE_INTELLIGENCE" }],
+    });
+
+    expect(chooseBotCommand(
+      hiddenTransmission,
+      informedMemory,
+      { policy: TACTICAL_V14 },
+    )?.type)
+      .toBe("DECLINE_INTELLIGENCE");
+    expect(informedMemory.transmissionInference?.knownCard).toEqual(blackCard);
+
+    const uninformedMemory = createBotMemory({
+      ...hiddenTransmission,
+      privateNotices: [],
+    }, TACTICAL_V14);
+    expect(chooseBotCommand(
+      hiddenTransmission,
+      uninformedMemory,
+      { policy: TACTICAL_V14 },
+    )?.type)
+      .toBe("ACCEPT_INTELLIGENCE");
   });
 
   it("treats voluntary 直达真情报 to itself as stronger same-faction evidence", () => {
@@ -1324,6 +1539,41 @@ describe("bot strategy", () => {
     expect(memory.supportiveProbeByPlayer.b).toBe(true);
   });
 
+  it("can treat a harmful resolved 试探 discard as evidence against the sender", () => {
+    const duringProbe = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [counterCard, transferCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot" ? { ...player, handCount: 2 } : player
+      ),
+      activeFunctionAction: {
+        kind: "probeDrawDiscard",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        stage: "awaitingProbeDiscard",
+      },
+    });
+    const afterDiscard = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [counterCard] },
+      players: duringProbe.players.map((player) =>
+        player.id === "bot" ? { ...player, handCount: 1 } : player
+      ),
+      activeFunctionAction: undefined,
+    });
+    const liveMemory = createBotMemory(duringProbe, TACTICAL_V20);
+    const candidateMemory = createBotMemory(duringProbe, CANDIDATE_V53);
+    const liveBefore = liveMemory.evidence.b?.军情 ?? 0;
+    const candidateBefore = candidateMemory.evidence.b?.军情 ?? 0;
+
+    observeBotProjection(liveMemory, afterDiscard, TACTICAL_V20);
+    observeBotProjection(candidateMemory, afterDiscard, CANDIDATE_V53);
+
+    expect(liveMemory.evidence.b.军情).toBe(liveBefore);
+    expect(candidateMemory.evidence.b.军情).toBeLessThan(candidateBefore);
+    expect(candidateMemory.evidence.b.潜伏).toBeGreaterThan(
+      liveMemory.evidence.b.潜伏,
+    );
+  });
+
   it("treats 密电 after an upstream +1 试探 as likelier true unless hand choice was limited", () => {
     const inferredBlackProbability = (senderRemainingHandCount: number) => {
       const duringProbe = makeProjection({
@@ -1942,6 +2192,39 @@ describe("bot strategy", () => {
       agentBot,
       createBotMemory(agentBot, TACTICAL_V12),
       { policy: TACTICAL_V12 },
+    )).toMatchObject({ targetId: "b" });
+  });
+
+  it("uses retained inspected cards to choose the more valuable 危险情报 target", () => {
+    const projection = makeProjection({
+      phase: "initialized",
+      own: { id: "bot", faction: "军情", hand: [dangerousCard] },
+      players: makeProjection().players.map((player) => ({
+        ...player,
+        faction: player.id === "bot"
+          ? undefined
+          : player.id === "b" || player.id === "d"
+            ? "潜伏" as const
+            : player.id === "c"
+              ? "军情" as const
+              : "特工" as const,
+      })),
+      privateNotices: [{
+        kind: "dangerousHandInspected",
+        otherPlayerId: "b",
+        cards: [counterCard],
+      }],
+      legalActions: ["d", "b"].map((targetId) => ({
+        type: "PLAY_DANGEROUS_INTELLIGENCE" as const,
+        cardId: dangerousCard.id as PhysicalCardId,
+        targetId,
+      })),
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, CANDIDATE_V51),
+      { policy: CANDIDATE_V51 },
     )).toMatchObject({ targetId: "b" });
   });
 
@@ -3086,6 +3369,88 @@ describe("bot strategy", () => {
     )?.type).toBe("PLAY_INTERCEPT");
   });
 
+  it("does not 截获 intelligence back from the committed ally chosen by 转移", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [interceptCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, faction: "军情" as const } : player
+      ),
+      transmission: {
+        ...transmission(blueCard),
+        senderId: "c",
+        intendedRecipientId: "b",
+        card: blueCard,
+        faceUp: true,
+        transferredRecipientCommitted: true,
+      },
+      reactionWindow: {
+        kind: "intelligence",
+        currentResponderId: "bot",
+      },
+      responseStack: [{
+        id: "intelligence",
+        kind: "intelligence",
+        sourcePlayerId: "c",
+        targetPlayerId: "b",
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_INTERCEPT",
+          cardId: interceptCard.id as PhysicalCardId,
+        },
+      ],
+      auditLog: [
+        "bot使用转移，声明新的接收者：b",
+        "转移结算，当前接收者：b",
+      ],
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V20),
+      { policy: TACTICAL_V20 },
+    )?.type).toBe("PLAY_INTERCEPT");
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, CANDIDATE_V57),
+      { policy: CANDIDATE_V57 },
+    )?.type).toBe("PASS_REACTION");
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, CANDIDATE_V58),
+      { policy: CANDIDATE_V58 },
+    )?.type).toBe("PASS_REACTION");
+
+    const transferredByAnotherPlayer = {
+      ...projection,
+      auditLog: [
+        "c使用转移，声明新的接收者：b",
+        "转移结算，当前接收者：b",
+      ],
+    };
+    expect(chooseBotCommand(
+      transferredByAnotherPlayer,
+      createBotMemory(transferredByAnotherPlayer, CANDIDATE_V58),
+      { policy: CANDIDATE_V58 },
+    )?.type).toBe("PLAY_INTERCEPT");
+
+    const learnedAfterTransfer = {
+      ...projection,
+      auditLog: [
+        "bot使用转移，声明新的接收者：b",
+        "转移结算，当前接收者：b",
+        "bot完成破译",
+      ],
+    };
+    expect(chooseBotCommand(
+      learnedAfterTransfer,
+      createBotMemory(learnedAfterTransfer, CANDIDATE_V58),
+      { policy: CANDIDATE_V58 },
+    )?.type).toBe("PLAY_INTERCEPT");
+  });
+
   it("does not use 破译 on visible intelligence that it originally transmitted", () => {
     const knownReturnedTransmission = {
       ...transmission(blueCard),
@@ -3566,6 +3931,7 @@ describe("bot strategy", () => {
       { policy: CANDIDATE_V48 },
     )?.type).toBe("PASS_REACTION");
   });
+
 
   it("uses source affinity and exact hand value for identity-probe choices", () => {
     const projection = (sourceFaction: Faction, hand: PhysicalCard[]) =>

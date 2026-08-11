@@ -14,7 +14,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v20`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v21`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -167,7 +167,7 @@ The independent 500-pair result did not establish an improvement over V8, so
 these changes are not part of the production policy.
 
 The selectable policy registry retains tactical versions for rollback and only
-the active experimental candidates v14-v17, v19-v33, and v40-v50. Historical candidates
+the active experimental candidates v14-v17, v19-v33, and v40-v58. Historical candidates
 v3-v13 were retired after their results were recorded below; their
 implementations remain available through Git history.
 
@@ -184,7 +184,30 @@ Weight 0.4 was best on the 100-pair development sample (seeds 47001-47100):
 focal +1.0 percentage point, mixed +1.8, population +0.2, with improved Brier
 calibration. A frozen 200-pair validation (seeds 48001-48200) did not reproduce
 the gameplay gain: focal -0.5, mixed 0.0, population -0.1, all inconclusive.
-The feature therefore remains evaluation-only and tactical-v19 remains live.
+The feature therefore remains evaluation-only; the current live policy is
+tactical-v20.
+
+All bot memories now retain privacy-safe opponent-hand knowledge learned from
+秘密下达 and 危险情报 inspections. Exact known cards survive public draws and
+known public plays/discards, with newly drawn cards represented only as unknown
+slots. Any unexplained hidden hand loss clears individual card certainty, and a
+later inspection replaces the estimate with a fresh exact snapshot. The model
+uses only the observing bot's projection and private notices.
+Visible plays of newly drawn cards consume unknown slots without erasing the
+known remainder. If an opponent then transmits an exactly known final card face
+down, the bot carries that exact physical card—including 红蓝—into its private
+transmission inference and scores receipt actions using the known color. 掉包
+still invalidates that knowledge because it replaces the physical card.
+
+Candidates v51-v52 use that memory narrowly when choosing among 危险情报
+targets, with weights 0.5 and 1.0. The adjustment is normalized so it can change
+the target but not whether 危险情报 is played. On 300 five-player disagreement
+games (seeds 62001-62300), v51 changed three target choices and v52 changed four,
+with no unrelated action categories. A separate 100-pair comparison of v51
+against live tactical-v20 (seeds 64001-64100) was exactly neutral in focal,
+mixed, and population modes, with no stalls or rejected commands. The tracker
+is retained as strategy infrastructure, while its target-selection consumer
+remains evaluation-only because the gameplay effect is too rare to establish.
 
 `candidate-v31` replaces 公开文本 离间's target-affinity shortcut with an
 exchange model. The resolving function card is already public and is included
@@ -242,6 +265,29 @@ in focal-seat mode and -0.08 in mixed-seats; all 8,000 games completed without
 stalls, limits, or rejected commands. The targeted branch advantage, human-play
 rationale, and absence of an aggregate regression promoted this treatment as
 live tactical-v20.
+
+Candidates v53-v56 test faction evidence learned after V20 allows a harmful
+试探 to resolve. V53 applies the existing resolved-action evidence at full
+strength, V54 uses half strength, V55 uses 1.5x strength, and V56 weights full
+strength by how likely the sender was to know the target's faction. V54 was the
+best-balanced development candidate: mixed-seat +0.32 percentage points,
+population +0.20, and improved population Brier calibration. On an untouched
+1,000-pair holdout it was +0.30 focal, -0.04 mixed, and +0.04 population, with
+better focal and mixed calibration but all win-rate intervals inconclusive.
+V56 was -0.16 mixed and +0.04 population on the development seeds. These
+inference variants remain evaluation-only; they were not included in the later
+tactical-v21 promotion.
+
+Candidates v57-v58 address 截获 immediately after 转移. V57 broadly compares
+self-receipt with every committed transferred receipt; across 500 games it
+changed 11 pass/intercept decisions, with full-game branches split 2-2 and seven
+ties. V58 isolates the dominated sequence reported in gameplay: the same bot
+uses 转移, the declared target resolves unchanged, then it spends 截获 to take
+the intelligence back. It changed only three decisions on the same seeds and
+does not apply after 离间, 掉包, or the bot learning the card through 破译. This
+narrow conservation rule was promoted as tactical-v21 despite neutral aggregate
+branches because it removes an unchanged two-card self-undo while preserving
+all cases with new information or a changed outcome.
 
 `candidate-v33` extends candidate-v32 through the resolved identity-probe
 choice. Instead of using hand count, it compares the inferred cost of revealing
