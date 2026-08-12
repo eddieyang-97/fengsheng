@@ -223,6 +223,14 @@ export const CANDIDATE_V70: BotPolicy = {
   id: "candidate-v70",
 };
 
+/** Applies acceptance-aware decline routing only with exact card knowledge. */
+export const CANDIDATE_V79: BotPolicy = {
+  ...TACTICAL_V27,
+  id: "candidate-v79",
+  declineRouting: "acceptance-weighted",
+  acceptanceWeightedDeclineRequiresKnownCard: true,
+};
+
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
   TACTICAL_V3,
@@ -283,6 +291,7 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V59,
   CANDIDATE_V69,
   CANDIDATE_V70,
+  CANDIDATE_V79,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {

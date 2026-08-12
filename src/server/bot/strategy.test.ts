@@ -39,7 +39,7 @@ import {
   TACTICAL_V26,
   TACTICAL_V27,
 } from "./strategy";
-import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58, CANDIDATE_V59, CANDIDATE_V69, CANDIDATE_V70 } from "../../ai-lab/policies";
+import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58, CANDIDATE_V59, CANDIDATE_V69, CANDIDATE_V70, CANDIDATE_V79 } from "../../ai-lab/policies";
 
 const LOW_REACTION_CONSERVATION_POLICY = {
   ...TACTICAL_V3,
@@ -238,6 +238,11 @@ describe("bot strategy", () => {
       dangerousDiscardStrategy: "expected-denial",
       directTransmissionEvidence: "none",
       lethalLockEvidence: 0,
+    });
+    expect(CANDIDATE_V79).toMatchObject({
+      id: "candidate-v79",
+      declineRouting: "acceptance-weighted",
+      acceptanceWeightedDeclineRequiresKnownCard: true,
     });
     expect(TACTICAL_V2.id).toBe("tactical-v2");
   });
@@ -2015,6 +2020,47 @@ describe("bot strategy", () => {
     )).toBe(0);
     expect(chooseBotCommand(projection, memory, { random: () => 0.99 })?.type)
       .toBe("ACCEPT_INTELLIGENCE");
+  });
+
+  it("limits acceptance-weighted decline routing to exact card knowledge", () => {
+    const known = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "特工", hand: [] },
+      transmission: {
+        ...transmission(blackCard),
+        method: "密电",
+        intendedRecipientId: "bot",
+        direction: "clockwise",
+      },
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "DECLINE_INTELLIGENCE" },
+      ],
+    });
+    expect(chooseBotCommand(
+      known,
+      createBotMemory(known),
+      { policy: TACTICAL_V27, random: () => 0 },
+    )?.type).toBe("ACCEPT_INTELLIGENCE");
+    expect(chooseBotCommand(
+      known,
+      createBotMemory(known),
+      { policy: CANDIDATE_V79, random: () => 0 },
+    )?.type).toBe("DECLINE_INTELLIGENCE");
+
+    const unknown = {
+      ...known,
+      transmission: { ...known.transmission!, card: undefined, faceUp: false },
+    };
+    expect(chooseBotCommand(
+      unknown,
+      createBotMemory(unknown),
+      { policy: CANDIDATE_V79, random: () => 0 },
+    )).toEqual(chooseBotCommand(
+      unknown,
+      createBotMemory(unknown),
+      { policy: TACTICAL_V27, random: () => 0 },
+    ));
   });
 
   it("accepts black intelligence instead of forcing worse risk back to an ally", () => {

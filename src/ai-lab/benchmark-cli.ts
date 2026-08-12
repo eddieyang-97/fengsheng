@@ -32,6 +32,7 @@ if (mode === "ab") {
   const firstPolicy = evaluationPolicyById(process.argv[6] ?? LIVE_BOT_POLICY.id);
   const secondPolicy = evaluationPolicyById(process.argv[7] ?? "candidate-v29");
   const decisiveOnly = process.argv.includes("--decisive");
+  const ranked = process.argv.includes("--ranked");
   const results = Array.from({ length: games }, (_, index) => runSelfPlayGame({
     playerCount,
     seed: startSeed + index,
@@ -87,10 +88,17 @@ if (mode === "ab") {
       + `range=[${worstSecondPolicyGain.toFixed(3)}, ${bestSecondPolicyGain.toFixed(3)}]`,
     );
   }
-  const reportedDisagreements = decisiveOnly
-    ? disagreements.filter((entry) =>
-        entry.counterfactual && entry.counterfactual.preferredPolicy !== "tie"
-      )
+  const decisiveDisagreements = disagreements.filter((entry) =>
+    entry.counterfactual && entry.counterfactual.preferredPolicy !== "tie"
+  );
+  const reportedDisagreements = ranked
+    ? decisiveDisagreements
+        .sort((left, right) =>
+          counterfactualGain(left) - counterfactualGain(right)
+        )
+        .slice(0, 20)
+    : decisiveOnly
+    ? decisiveDisagreements
     : disagreements.slice(0, 10);
   for (const entry of reportedDisagreements) {
     console.log(JSON.stringify(entry));
@@ -102,6 +110,13 @@ if (mode === "ab") {
   console.log(`completed=${result.completed} stalled=${result.stalled} commandLimit=${result.commandLimited}`);
   console.log(`avgCommands=${result.averageCommands.toFixed(1)} avgTurns=${result.averageTurns.toFixed(1)} rejected=${result.rejectedCommands}`);
   console.log(`winners=${JSON.stringify(result.winners)}`);
+}
+
+function counterfactualGain(
+  disagreement: ReturnType<typeof runSelfPlayGame>["disagreements"][number],
+): number {
+  const utilities = disagreement.counterfactual?.utilities;
+  return utilities ? utilities[1] - utilities[0] : 0;
 }
 
 function percent(value: number): string {

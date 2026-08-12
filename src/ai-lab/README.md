@@ -763,3 +763,21 @@ produced one loss and no wins, and an 8-player screen likewise produced one
 loss and no wins. Tactical-v27 therefore retains the tactical-v26 rule only
 for tables of at most six players; 7- and 8-player bots preserve 识破. This
 guard is public-state-only and leaves all other tactical-v26 behavior intact.
+
+The next routing study rebased acceptance-weighted decline scoring onto
+tactical-v27. The broad variant changed 27 decisions in 100 five-player games
+(seeds 35101-35200) and won 12 full receipt branches to 10, but its mean gain
+was negative because an unknown hidden-card choice discarded an immediate win
+(-10,075.55 branch utility). Candidate-v79 therefore applies the model only
+when the bot knows the exact card and otherwise reproduces tactical-v27,
+including 直达 forced-return scoring. On the same games it changed 19 decisions,
+won 10 receipt branches to 7, and improved mean branch utility by 582.074 with
+a [-134, 9,898.9] range. A public-face-up-only variant was even rarer (six
+decisions, four branch wins to two) but regressed mixed-seat development by
+1.0 percentage point and was removed.
+
+Candidate-v79's first 100-pair development screen (seeds 35201-35300) was
+focal 0.0 percentage points, mixed +0.8, and population -0.4. It remains
+evaluation-only: the direct branch evidence is encouraging, but the population
+regression does not meet the promotion gate and no validation or holdout range
+has been consumed.

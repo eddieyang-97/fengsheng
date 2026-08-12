@@ -25,6 +25,8 @@ export interface BotPolicy {
   readonly transferOpportunityCost?: number;
   /** How much downstream routing to include when scoring a decline. */
   readonly declineRouting: "flat" | "forced-return" | "acceptance-weighted";
+  /** Limit acceptance-weighted decline routing to intelligence whose exact card is known. */
+  readonly acceptanceWeightedDeclineRequiresKnownCard?: boolean;
   /** Score 调虎离山 by the receipt change caused by forcing the current recipient to decline. */
   readonly incrementalLure: boolean;
   /** Avoid 调虎离山 when the current recipient is already likely to decline voluntarily. */
@@ -1371,7 +1373,14 @@ function scoreAction(
           "route matching real intelligence toward a trusted ally who is closer to victory",
         );
       }
-      if (policy.declineRouting === "acceptance-weighted") {
+      const exactCardKnown = projection.transmission?.card !== undefined ||
+        transmissionInference?.knownCard !== undefined;
+      const acceptanceRoutingKnowledgeSatisfied =
+        !policy.acceptanceWeightedDeclineRequiresKnownCard || exactCardKnown;
+      const useAcceptanceWeightedRouting =
+        policy.declineRouting === "acceptance-weighted" &&
+        acceptanceRoutingKnowledgeSatisfied;
+      if (useAcceptanceWeightedRouting) {
         return decision(
           command,
           5 + expectedNextReceiptUtilityAfterDecline(
@@ -1384,7 +1393,9 @@ function scoreAction(
         );
       }
       if (
-        policy.declineRouting === "forced-return" &&
+        (policy.declineRouting === "forced-return" ||
+          (policy.declineRouting === "acceptance-weighted" &&
+            !acceptanceRoutingKnowledgeSatisfied)) &&
         projection.transmission?.method === "直达"
       ) {
         return decision(
