@@ -29,6 +29,8 @@ export interface BotPolicy {
   readonly incrementalLure: boolean;
   /** Avoid 调虎离山 when the current recipient is already likely to decline voluntarily. */
   readonly lureRequiresLikelyAcceptance: boolean;
+  /** Do not assume the current recipient can decline when receipt is already committed. */
+  readonly lureRespectsCommittedRecipient?: boolean;
   /** Avoid 锁定 when the current recipient is already likely to accept voluntarily. */
   readonly lockRequiresLikelyDecline: boolean;
   /** Score 危险情报 transmission methods by visibility, return risk, and concrete combos. */
@@ -333,7 +335,12 @@ export const TACTICAL_V23: BotPolicy = {
   id: "tactical-v23",
   upstreamSecretOrderSupportWeight: 1,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V23;
+export const TACTICAL_V24: BotPolicy = {
+  ...TACTICAL_V23,
+  id: "tactical-v24",
+  lureRespectsCommittedRecipient: true,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V24;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -1711,7 +1718,11 @@ function scoreAction(
         beliefs,
         transmissionInference,
       );
-      if (policy.lureRequiresLikelyAcceptance && currentRecipientUtility <= 0) {
+      if (
+        policy.lureRequiresLikelyAcceptance &&
+        currentRecipientUtility <= 0 &&
+        !(policy.lureRespectsCommittedRecipient && projection.transmission?.recipientMustAccept)
+      ) {
         return decision(
           command,
           PASS_REACTION_SCORE - 1,

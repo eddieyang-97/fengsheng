@@ -34,6 +34,7 @@ import {
   TACTICAL_V21,
   TACTICAL_V22,
   TACTICAL_V23,
+  TACTICAL_V24,
 } from "./strategy";
 import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58, CANDIDATE_V59, CANDIDATE_V69 } from "../../ai-lab/policies";
 
@@ -96,8 +97,12 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes upstream secret-order support as tactical-v23", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V23);
+  it("promotes committed-recipient lure handling as tactical-v24", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V24);
+    expect(TACTICAL_V24).toMatchObject({
+      lureRespectsCommittedRecipient: true,
+      upstreamSecretOrderSupportWeight: 1,
+    });
     expect(TACTICAL_V23).toMatchObject({
       avoidKnownSecretOrderNoMatch: true,
       upstreamSecretOrderSupportWeight: 1,
@@ -2534,6 +2539,71 @@ describe("bot strategy", () => {
       "军情",
       [blackCard, { ...blackCard, id: "second-black" }],
     )).toBe("PASS_REACTION");
+  });
+
+  it("tactical-v24 evaluates 调虎离山 when the current recipient must accept", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [lureCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? { ...player, faction: "军情" as Faction }
+          : player.id === "c"
+            ? { ...player, faction: "潜伏" as Faction }
+            : player
+      ),
+      transmission: {
+        ...transmission(blackCard),
+        intendedRecipientId: "b",
+        direction: "clockwise",
+        recipientMustAccept: true,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        { type: "PLAY_LURE", cardId: lureCard.id as PhysicalCardId },
+      ],
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V23),
+      { policy: TACTICAL_V23 },
+    )?.type).toBe("PASS_REACTION");
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V24),
+      { policy: TACTICAL_V24 },
+    )?.type).toBe("PLAY_LURE");
+  });
+
+  it("tactical-v24 preserves 调虎离山 when committed receipt is already favorable", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [lureCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "b"
+          ? { ...player, faction: "潜伏" as Faction }
+          : player.id === "c"
+            ? { ...player, faction: "军情" as Faction }
+            : player
+      ),
+      transmission: {
+        ...transmission(blackCard),
+        intendedRecipientId: "b",
+        direction: "clockwise",
+        recipientMustAccept: true,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        { type: "PLAY_LURE", cardId: lureCard.id as PhysicalCardId },
+      ],
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V24),
+      { policy: TACTICAL_V24 },
+    )?.type).toBe("PASS_REACTION");
   });
 
   it("does not order a known opponent to transmit their game-winning color", () => {

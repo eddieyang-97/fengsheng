@@ -14,7 +14,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v23`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v24`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -185,7 +185,7 @@ focal +1.0 percentage point, mixed +1.8, population +0.2, with improved Brier
 calibration. A frozen 200-pair validation (seeds 48001-48200) did not reproduce
 the gameplay gain: focal -0.5, mixed 0.0, population -0.1, all inconclusive.
 The feature therefore remains evaluation-only; the current live policy is
-tactical-v23.
+tactical-v24.
 
 All bot memories now retain privacy-safe opponent-hand knowledge learned from
 秘密下达 and 危险情报 inspections. Exact known cards survive public draws and
@@ -588,7 +588,20 @@ focal -0.10 percentage points (95% CI [-0.75, +0.55]), mixed +0.32
 ([-0.25, +0.89]), and population +0.02 ([-0.16, +0.20]). Belief calibration
 also moved in different directions by mode. V69 remains evaluation-only:
 its direct branch evidence is useful, but the final focal result does not
-support production promotion. Tactical-v23 remains live.
+support production promotion.
+
+Tactical-v24 corrects a narrow 调虎离山 commitment case. Tactical-v4 normally
+preserves the card when the current recipient appears likely to decline, but a
+recipient committed by 锁定 or 转移 cannot decline. V24 therefore bypasses only
+that voluntary-decline shortcut and still compares the committed current
+receipt against the forced next recipient. Deterministic scenarios cover both
+directions: redirect black intelligence away from a committed ally and preserve
+调虎离山 when a committed opponent already receives it. A fresh 300-game sample
+(seeds 72001-72300) contained no natural v23/v24 disagreements, so this was
+promoted as a rules-state dominance correction rather than an aggregate win-rate
+claim. The new full-game lure evaluator was separately validated on tactical-v3
+versus tactical-v4: across 50 games it resolved 653 disagreements, favoring v4
+79 branches to 63 with 511 ties and positive mean gain.
 
 For the 锁定 change, a 100-pair isolated comparison of candidate-v10 against
 candidate-v9 completed all 200 games without stalls or rejected commands:
