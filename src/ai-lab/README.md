@@ -27,6 +27,13 @@ unpenalized. V8 scores the forced return to the sender when declining 直达,
 allowing a bot to take a safe card instead of returning harmful intelligence
 to an ally, or to return a winning card to an ally immediately.
 
+The evaluation registry contains current comparison baselines and candidates
+that still have deterministic consumers. Superseded parameter-only candidates
+are removed after their results are documented; Git history remains the source
+for recreating retired experiments. Historical tactical milestones stay in
+`strategy.ts` for inheritance and regression tests, but the production bot
+barrel exports only `LIVE_BOT_POLICY` rather than every tactical version.
+
 V10 adds a color-first 危险情报 discard policy. It first favors cards whose
 transmission color benefits a likely opponent, then uses function-card value as
 a conservative tie-breaker only when the target is more likely an opponent.

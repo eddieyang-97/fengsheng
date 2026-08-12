@@ -42,18 +42,6 @@ export const CANDIDATE_V20: BotPolicy = {
   directTransmissionEvidence: "black-only",
 };
 
-export const CANDIDATE_V21: BotPolicy = {
-  ...TACTICAL_V9,
-  id: "candidate-v21",
-  lethalLockEvidence: 1.2,
-};
-
-export const CANDIDATE_V22: BotPolicy = {
-  ...TACTICAL_V8,
-  id: "candidate-v22",
-  dangerousDiscardStrategy: "target-value",
-};
-
 export const CANDIDATE_V23: BotPolicy = {
   ...TACTICAL_V8,
   id: "candidate-v23",
@@ -138,40 +126,10 @@ export const CANDIDATE_V36: BotPolicy = {
   transferAgainstBestFreeAlternative: true,
 };
 
-export const CANDIDATE_V37: BotPolicy = {
-  ...TACTICAL_V11,
-  id: "candidate-v37",
-  factionThreatTargeting: "all",
-};
-
-export const CANDIDATE_V38: BotPolicy = {
-  ...TACTICAL_V11,
-  id: "candidate-v38",
-  factionThreatTargeting: "dangerous",
-};
-
-export const CANDIDATE_V39: BotPolicy = {
-  ...TACTICAL_V11,
-  id: "candidate-v39",
-  factionThreatTargeting: "probe",
-};
-
 export const CANDIDATE_V40: BotPolicy = {
   ...TACTICAL_V14,
   id: "candidate-v40",
   dangerousDiscardChoiceEvidence: 0.8,
-};
-
-export const CANDIDATE_V41: BotPolicy = {
-  ...TACTICAL_V14,
-  id: "candidate-v41",
-  dangerousDiscardChoiceEvidence: 0.4,
-};
-
-export const CANDIDATE_V42: BotPolicy = {
-  ...TACTICAL_V14,
-  id: "candidate-v42",
-  dangerousDiscardChoiceEvidence: 0.2,
 };
 
 export const CANDIDATE_V43: BotPolicy = {
@@ -229,35 +187,10 @@ export const CANDIDATE_V51: BotPolicy = {
   knownHandDangerousTargetWeight: 0.5,
 };
 
-export const CANDIDATE_V52: BotPolicy = {
-  ...TACTICAL_V20,
-  id: "candidate-v52",
-  knownHandDangerousTargetWeight: 1,
-};
-
 export const CANDIDATE_V53: BotPolicy = {
   ...TACTICAL_V20,
   id: "candidate-v53",
   resolvedProbeAffinityScale: 1,
-};
-
-export const CANDIDATE_V54: BotPolicy = {
-  ...TACTICAL_V20,
-  id: "candidate-v54",
-  resolvedProbeAffinityScale: 0.5,
-};
-
-export const CANDIDATE_V55: BotPolicy = {
-  ...TACTICAL_V20,
-  id: "candidate-v55",
-  resolvedProbeAffinityScale: 1.5,
-};
-
-export const CANDIDATE_V56: BotPolicy = {
-  ...TACTICAL_V20,
-  id: "candidate-v56",
-  resolvedProbeAffinityScale: 1,
-  resolvedProbeIdentityAwarenessWeighting: true,
 };
 
 export const CANDIDATE_V57: BotPolicy = {
@@ -279,12 +212,6 @@ export const CANDIDATE_V59: BotPolicy = {
   knownHandSecretOrderWeight: 0.25,
 };
 
-export const CANDIDATE_V60: BotPolicy = {
-  ...TACTICAL_V22,
-  id: "candidate-v60",
-  knownHandSecretOrderWeight: 0.5,
-};
-
 export const CANDIDATE_V69: BotPolicy = {
   ...TACTICAL_V23,
   id: "candidate-v69",
@@ -294,23 +221,6 @@ export const CANDIDATE_V69: BotPolicy = {
 export const CANDIDATE_V70: BotPolicy = {
   ...TACTICAL_V25,
   id: "candidate-v70",
-};
-
-export const CANDIDATE_V75: BotPolicy = {
-  ...TACTICAL_V25,
-  id: "candidate-v75",
-  hiddenSelfLockCounterBonus: 2,
-};
-
-export const CANDIDATE_V76: BotPolicy = {
-  ...CANDIDATE_V75,
-  id: "candidate-v76",
-  hiddenSelfLockCounterMinBlack: 1,
-};
-
-export const CANDIDATE_V77: BotPolicy = {
-  ...TACTICAL_V26,
-  id: "candidate-v77",
 };
 
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
@@ -345,8 +255,6 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V17,
   CANDIDATE_V19,
   CANDIDATE_V20,
-  CANDIDATE_V21,
-  CANDIDATE_V22,
   CANDIDATE_V23,
   CANDIDATE_V24,
   CANDIDATE_V25,
@@ -359,8 +267,6 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V32,
   CANDIDATE_V33,
   CANDIDATE_V40,
-  CANDIDATE_V41,
-  CANDIDATE_V42,
   CANDIDATE_V43,
   CANDIDATE_V44,
   CANDIDATE_V45,
@@ -370,20 +276,12 @@ export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   CANDIDATE_V49,
   CANDIDATE_V50,
   CANDIDATE_V51,
-  CANDIDATE_V52,
   CANDIDATE_V53,
-  CANDIDATE_V54,
-  CANDIDATE_V55,
-  CANDIDATE_V56,
   CANDIDATE_V57,
   CANDIDATE_V58,
   CANDIDATE_V59,
-  CANDIDATE_V60,
   CANDIDATE_V69,
   CANDIDATE_V70,
-  CANDIDATE_V75,
-  CANDIDATE_V76,
-  CANDIDATE_V77,
 ];
 
 export function evaluationPolicyById(id: string): BotPolicy {
