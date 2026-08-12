@@ -14,7 +14,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v22`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v23`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -167,7 +167,7 @@ The independent 500-pair result did not establish an improvement over V8, so
 these changes are not part of the production policy.
 
 The selectable policy registry retains tactical versions for rollback and only
-the active experimental candidates v14-v17, v19-v33, and v40-v60. Historical candidates
+the active experimental candidates v14-v17, v19-v33, and v40-v62. Historical candidates
 v3-v13 were retired after their results were recorded below; their
 implementations remain available through Git history.
 
@@ -185,7 +185,7 @@ focal +1.0 percentage point, mixed +1.8, population +0.2, with improved Brier
 calibration. A frozen 200-pair validation (seeds 48001-48200) did not reproduce
 the gameplay gain: focal -0.5, mixed 0.0, population -0.1, all inconclusive.
 The feature therefore remains evaluation-only; the current live policy is
-tactical-v22.
+tactical-v23.
 
 All bot memories now retain privacy-safe opponent-hand knowledge learned from
 秘密下达 and 危险情报 inspections. Exact known cards survive public draws and
@@ -299,6 +299,42 @@ narrow rules-level dominance case. Candidates v59-v60 remain evaluation-only;
 they additionally score which available color most reduces the target's best
 known transmission, at weights 0.25 and 0.5 respectively; a separate scenario
 verifies that preference against an exactly known opposing hand.
+
+Tactical-v23 adds a conservative upstream-route bonus for 秘密下达. Declaring
+this bot's real faction color is worth more when the target is immediately
+upstream, because a fixed clockwise 密电 or 文本 reaches the bot first. This also
+applies to opponents: with an exactly inspected hand, the route is treated as
+forced only when every matching card lacks an alternative direction, method,
+or 直达 target. Otherwise only inferred cooperation contributes; for unknown
+hands the public deck composition supplies a conservative forced-route prior.
+The bonus is additive, so it never removes an existing opponent-denial or allied
+play. Tactical-v23 changed 19 decisions in 300 disagreement games against v22:
+12 color selections and seven new plays, with no removed plays; all seven
+play/pass full-game branches tied. After the evaluator was extended to resolve
+different declaration words as separate full-game branches, the complete audit
+favored v22 once, v23 once, and tied 17 times, with zero mean and median gain.
+Fresh 100-pair checks were neutral in
+focal-seat and population modes and +0.40 percentage points in mixed seats
+(inconclusive), with no stalls, command-limit failures, or rejected commands.
+The conservative candidate-v61 weight was promoted as tactical-v23. The
+duplicate candidate-v61 entry and stronger candidate-v62 were retired after
+v62 produced no changed decisions in a fresh 300-game sample (seeds
+68701-69000). Candidate-v67 then combined production v23 with the exact-hand
+color-denial weight from v59; it likewise produced no changed decisions in a
+100-game diagnostic (seeds 69001-69100) and was removed rather than retained as
+an inactive candidate.
+
+The declaration-word evaluator also exposed why a broader route model should
+not be retained. Candidate-v63 used deck-average unknown hands and a one-step
+passive route estimate; in 100 disagreement games it lost 13-10 to
+tactical-v23 with 111 ties and a negative mean counterfactual gain.
+Candidate-v64 restricted that model to exactly known hands but changed no
+natural decisions in 300 games. Candidate-v65's narrower upstream-only result
+failed independent replication: its initial 3-2 result reversed to 1-6 on a
+fresh interval. Candidate-v66 added a terminal-risk guard and still lost 0-2.
+These candidates and their speculative route machinery were removed rather
+than left in the registry: the approximations were too noisy and could suppress
+valuable endgame denial plays.
 
 `candidate-v33` extends candidate-v32 through the resolved identity-probe
 choice. Instead of using hand count, it compares the inferred cost of revealing
@@ -523,9 +559,36 @@ commands: candidate-v9 36.4% versus tactical-v4 36.8%, paired difference -0.4
 percentage points with a 95% confidence interval of [-3.1, +2.3]. This is
 inconclusive, so candidate-v9 was not promoted and has since been retired.
 
-The next 转移 hypothesis should compare a redirect against the best free legal
+A later 转移 hypothesis compared a redirect against the best free legal
 alternative, including declining to the next recipient, rather than comparing
 only against leaving the intelligence with its current recipient.
+
+Candidate-v68 retested that hypothesis on top of production tactical-v23 after
+the disagreement evaluator gained full-game 转移 branches. An initial 50-game
+sample favored v68 four branches to two with five ties. A fresh 200-game sample
+(seeds 69201-69400) failed replication: tactical-v23 won ten branches, v68 won
+five, and 30 tied; candidate mean gain was -2222.222 because terminal losses
+outweighed its avoided transfers. V68 was removed. The branch evaluator remains
+as infrastructure, but the next transfer model must preserve the option value
+that this absolute best-free-alternative score discards.
+
+Candidate-v69 instead keeps tactical-v23's transfer model and charges only one
+additional score point for spending 转移. The transfer evaluator now accepts
+every legal alternative, including 破译, rather than only receipt commands. A
+combined 400-game disagreement audit (seeds 69401-69800) found 82 changed
+decisions: v69 won 15 full-game branches, v23 won nine, and 58 tied, for a
++1463.415 mean candidate gain. Independent 500-pair five-player validation was
+non-negative in all modes: focal +0.40 percentage points, mixed +0.56, and
+population +0.04. A 300-pair duel check was likewise non-negative at +0.33,
++0.67, and 0.00 respectively. All simulations completed without stalls,
+command limits, or rejected commands.
+
+The untouched 1,000-pair five-player holdout (seeds 71001-72000) was mixed:
+focal -0.10 percentage points (95% CI [-0.75, +0.55]), mixed +0.32
+([-0.25, +0.89]), and population +0.02 ([-0.16, +0.20]). Belief calibration
+also moved in different directions by mode. V69 remains evaluation-only:
+its direct branch evidence is useful, but the final focal result does not
+support production promotion. Tactical-v23 remains live.
 
 For the 锁定 change, a 100-pair isolated comparison of candidate-v10 against
 candidate-v9 completed all 200 games without stalls or rejected commands:

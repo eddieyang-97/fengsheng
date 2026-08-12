@@ -33,8 +33,9 @@ import {
   TACTICAL_V20,
   TACTICAL_V21,
   TACTICAL_V22,
+  TACTICAL_V23,
 } from "./strategy";
-import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58, CANDIDATE_V59 } from "../../ai-lab/policies";
+import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58, CANDIDATE_V59, CANDIDATE_V69 } from "../../ai-lab/policies";
 
 const LOW_REACTION_CONSERVATION_POLICY = {
   ...TACTICAL_V3,
@@ -95,8 +96,12 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes exact-hand secret-order conservation as tactical-v22", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V22);
+  it("promotes upstream secret-order support as tactical-v23", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V23);
+    expect(TACTICAL_V23).toMatchObject({
+      avoidKnownSecretOrderNoMatch: true,
+      upstreamSecretOrderSupportWeight: 1,
+    });
     expect(TACTICAL_V22).toMatchObject({
       avoidOwnTransferInterceptUndo: true,
       avoidKnownSecretOrderNoMatch: true,
@@ -2365,6 +2370,32 @@ describe("bot strategy", () => {
     expect(candidate?.score).toBe((live?.score ?? 0) - 3);
   });
 
+  it("candidate-v69 applies only a small opportunity cost to 转移", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [transferCard] },
+      transmission: transmission(blueCard),
+      legalActions: [{
+        type: "PLAY_TRANSFER",
+        cardId: transferCard.id as PhysicalCardId,
+        targetId: "b",
+      }],
+    });
+    const live = chooseBotDecision(
+      projection,
+      createBotMemory(projection, TACTICAL_V23),
+      { policy: TACTICAL_V23 },
+    );
+    const candidate = chooseBotDecision(
+      projection,
+      createBotMemory(projection, CANDIDATE_V69),
+      { policy: CANDIDATE_V69 },
+    );
+
+    expect(candidate?.score).toBe((live?.score ?? 0) - 1);
+    expect(candidate?.reason).toContain("justifies spending transfer");
+  });
+
   it("can combine incremental transfer with lure safeguards", () => {
     expect(GUARDED_INCREMENTAL_TRANSFER_POLICY).toMatchObject({
       incrementalTransfer: true,
@@ -2692,6 +2723,104 @@ describe("bot strategy", () => {
     expect(neutralDecision?.command.type).toBe("PLAY_SECRET_ORDER");
     expect(highAffinityDecision?.score).toBeLessThan(neutralDecision!.score);
     expect(highAffinityDecision?.reason).toContain("already tends to transmit favorably");
+  });
+
+  it("gives extra 秘密下达 value to real intelligence from a likely upstream ally", () => {
+    if (secretOrderCard.variant?.kind !== "secretOrder") throw new Error("Expected secret-order fixture");
+    const makeOrderProjection = (targetId: "b" | "e") => makeProjection({
+      phase: "preTransmission",
+      activePlayerId: targetId,
+      own: { id: "bot", faction: "军情", hand: [secretOrderCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === targetId ? { ...player, handCount: 3 } : player
+      ),
+      pendingSecretOrder: {
+        stage: "offering",
+        targetPlayerId: targetId,
+        verifiedNoMatch: false,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        ...(["听风", "看雨", "日落"] as const).map((word) => ({
+          type: "PLAY_SECRET_ORDER" as const,
+          cardId: secretOrderCard.id as PhysicalCardId,
+          word,
+        })),
+      ],
+    });
+    const chooseFor = (targetId: "b" | "e") => {
+      const projection = makeOrderProjection(targetId);
+      const memory = createBotMemory(projection, TACTICAL_V23);
+      memory.evidence[targetId] = { 军情: 8, 潜伏: -8, 特工: -8 };
+      memory.perceivedAllianceByPlayer[targetId] = { bot: 0.8 };
+      return chooseBotDecision(projection, memory, { policy: TACTICAL_V23 });
+    };
+
+    const downstreamDecision = chooseFor("b");
+    const upstreamDecision = chooseFor("e");
+    expect(downstreamDecision?.command).toEqual({ type: "PASS_REACTION" });
+    expect(upstreamDecision?.command.type).toBe("PLAY_SECRET_ORDER");
+    if (upstreamDecision?.command.type !== "PLAY_SECRET_ORDER") {
+      throw new Error("Expected upstream secret order");
+    }
+    expect(secretOrderCard.variant.mapping[upstreamDecision.command.word]).toBe("蓝");
+    expect(upstreamDecision.score).toBeGreaterThan(downstreamDecision!.score);
+    expect(upstreamDecision.reason).toContain("upstream route");
+  });
+
+  it("uses 秘密下达 when an upstream opponent is forced to route real intelligence to the bot", () => {
+    const secretOrderVariant = secretOrderCard.variant;
+    if (secretOrderVariant?.kind !== "secretOrder") throw new Error("Expected secret-order fixture");
+    const forcedBlueCard = cardWhere((card) =>
+      card.color === "蓝" &&
+      card.id !== secretOrderCard.id &&
+      card.transmission !== "直达" &&
+      card.transmission !== "任意" &&
+      !card.circle
+    );
+    const otherCard = cardWhere((card) =>
+      card.color === "红" && card.id !== secretOrderCard.id && card.id !== forcedBlueCard.id
+    );
+    const blueWord = (["听风", "看雨", "日落"] as const).find(
+      (word) => secretOrderVariant.mapping[word] === "蓝",
+    );
+    if (!blueWord) throw new Error("Expected blue secret-order word");
+    const projection = makeProjection({
+      phase: "preTransmission",
+      activePlayerId: "e",
+      own: { id: "bot", faction: "军情", hand: [secretOrderCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "e" ? { ...player, handCount: 2 } : player
+      ),
+      privateNotices: [{
+        kind: "dangerousHandInspected",
+        otherPlayerId: "e",
+        cards: [forcedBlueCard, otherCard],
+      }],
+      pendingSecretOrder: {
+        stage: "offering",
+        targetPlayerId: "e",
+        verifiedNoMatch: false,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_SECRET_ORDER",
+          cardId: secretOrderCard.id as PhysicalCardId,
+          word: blueWord,
+        },
+      ],
+    });
+    const chooseWith = (policy: typeof TACTICAL_V22 | typeof TACTICAL_V23) => {
+      const memory = createBotMemory(projection, policy);
+      memory.evidence.e = { 军情: -8, 潜伏: 8, 特工: -8 };
+      return chooseBotDecision(projection, memory, { policy });
+    };
+
+    expect(chooseWith(TACTICAL_V22)?.command).toEqual({ type: "PASS_REACTION" });
+    const candidateDecision = chooseWith(TACTICAL_V23);
+    expect(candidateDecision?.command.type).toBe("PLAY_SECRET_ORDER");
+    expect(candidateDecision?.reason).toContain("upstream route");
   });
 
   it("uses separation only for enough incremental improvement over the pending transfer target", () => {

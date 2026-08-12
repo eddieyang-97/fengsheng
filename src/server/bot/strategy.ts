@@ -21,6 +21,8 @@ export interface BotPolicy {
   readonly incrementalTransfer: boolean;
   /** Score 转移 as its absolute forced receipt, letting the chooser compare free alternatives. */
   readonly transferAgainstBestFreeAlternative: boolean;
+  /** Optional extra cost for spending 转移 while retaining its live tactical score model. */
+  readonly transferOpportunityCost?: number;
   /** How much downstream routing to include when scoring a decline. */
   readonly declineRouting: "flat" | "forced-return" | "acceptance-weighted";
   /** Score 调虎离山 by the receipt change caused by forcing the current recipient to decline. */
@@ -99,6 +101,8 @@ export interface BotPolicy {
   readonly avoidKnownSecretOrderNoMatch?: boolean;
   /** Weight exact inspected-hand knowledge when selecting a 秘密下达 color. */
   readonly knownHandSecretOrderWeight?: number;
+  /** Weight a forced real-color transmission from the bot's immediate upstream ally. */
+  readonly upstreamSecretOrderSupportWeight?: number;
   /** Which offensive target choices should prefer the more dangerous opposing faction. */
   readonly factionThreatTargeting: "none" | "dangerous" | "probe" | "all";
   /** Preserve 秘密下达 when its target has too few cards for meaningful color control. */
@@ -324,7 +328,12 @@ export const TACTICAL_V22: BotPolicy = {
   id: "tactical-v22",
   avoidKnownSecretOrderNoMatch: true,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V22;
+export const TACTICAL_V23: BotPolicy = {
+  ...TACTICAL_V22,
+  id: "tactical-v23",
+  upstreamSecretOrderSupportWeight: 1,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V23;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -1569,7 +1578,13 @@ function scoreAction(
               currentValue - currentProgressBonus - SEPARATION_CARD_COST,
             "transfer only when the new recipient improves enough to justify spending the card",
           )
-        : decision(command, 7 + targetValue + targetProgressBonus, "redirect toward the best tactical recipient");
+        : decision(
+            command,
+            7 + targetValue + targetProgressBonus - (policy.transferOpportunityCost ?? 0),
+            policy.transferOpportunityCost
+              ? "redirect only when the tactical gain justifies spending transfer"
+              : "redirect toward the best tactical recipient",
+          );
     }
     case "PLAY_FUNCTION_SEPARATION": {
       const currentTargetId = projection.activeFunctionAction?.targetPlayerId;
@@ -1770,12 +1785,26 @@ function scoreAction(
           "do not waste secret order on a color absent from the target's exactly known hand",
         );
       }
+      const upstreamSupport = upstreamSecretOrderSupportBonus(
+        card,
+        action.word,
+        projection,
+        beliefs,
+        targetAffinityTowardBot,
+        policy,
+        knownHands,
+      );
+      const strategicImprovement =
+        (knownHandConstraint?.improvement ??
+          secretOrderImprovement(card, action.word, projection, beliefs)) +
+        upstreamSupport;
       return decision(
         command,
-        PASS_REACTION_SCORE + (knownHandConstraint?.improvement ??
-          secretOrderImprovement(card, action.word, projection, beliefs)) -
+        PASS_REACTION_SCORE + strategicImprovement -
           SECRET_ORDER_CARD_COST - redundantAllyCost,
-        redundantAllyCost > 0
+        upstreamSupport > 0
+          ? "force useful real intelligence along an upstream route toward this bot"
+          : redundantAllyCost > 0
           ? "preserve secret order when the target already tends to transmit favorably toward this bot"
           : knownHandConstraint
           ? "force the most restrictive color supported by the target's exactly known hand"
@@ -2627,6 +2656,67 @@ function knownHandSecretOrderConstraint(
     verifiedNoMatch: false,
     improvement: Math.max(0, unrestrictedBest - forcedBest) * opponentConfidence * weight,
   };
+}
+
+function upstreamSecretOrderSupportBonus(
+  orderCard: PhysicalCard | undefined,
+  word: Extract<LegalAction, { type: "PLAY_SECRET_ORDER" }>["word"],
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+  targetAffinityTowardBot: number,
+  policy: BotPolicy,
+  knownHands: BotMemory["knownHands"],
+): number {
+  const weight = policy.upstreamSecretOrderSupportWeight ?? 0;
+  if (weight <= 0 || orderCard?.variant?.kind !== "secretOrder") return 0;
+  const desiredColor = projection.own.faction === "军情"
+    ? "蓝"
+    : projection.own.faction === "潜伏"
+      ? "红"
+      : undefined;
+  const targetId = projection.pendingSecretOrder?.targetPlayerId;
+  const requiredColor = orderCard.variant.mapping[word];
+  if (
+    !targetId ||
+    requiredColor !== desiredColor ||
+    immediateUpstreamPlayerId(projection.own.id, projection) !== targetId
+  ) return 0;
+
+  const allyConfidence = Math.max(
+    0,
+    Math.min(1, targetAffinity(targetId, projection.own.faction, beliefs)),
+  );
+  const cooperationChance = allyConfidence * (
+    0.55 + Math.max(0, Math.min(1, targetAffinityTowardBot)) * 0.25
+  );
+
+  const deckMatchingCards = PHYSICAL_DECK.filter((heldCard) =>
+    matchesColor(heldCard, requiredColor)
+  );
+  const forcedClockwisePrior = deckMatchingCards.filter(isForcedClockwiseTransmission).length /
+    Math.max(1, deckMatchingCards.length);
+  let forcedRouteProbability = forcedClockwisePrior;
+  const tracked = knownHands[targetId];
+  if (tracked?.unknownCount === 0) {
+    const matchingCards = tracked.cards.filter((heldCard) => matchesColor(heldCard, requiredColor));
+    if (matchingCards.length === 0) return 0;
+    // A hostile sender can escape whenever even one matching card can choose
+    // another direction, method, or direct target. Otherwise the clockwise
+    // route is forced and this bot is the first recipient.
+    forcedRouteProbability = matchingCards.every(isForcedClockwiseTransmission) ? 1 : 0;
+  }
+
+  const routeProbability = forcedRouteProbability +
+    (1 - forcedRouteProbability) * cooperationChance;
+  const receiptProgress = Math.min(
+    64,
+    Math.max(0, receiptColorUtility(requiredColor, projection.own.id, projection, beliefs)),
+  );
+  return receiptProgress * routeProbability * weight;
+}
+
+function isForcedClockwiseTransmission(card: PhysicalCard): boolean {
+  return card.transmission !== "直达" && card.transmission !== "任意" && !card.circle;
 }
 
 /** A public-board score useful for benchmarks and future shallow search. */

@@ -2,12 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
 import { CANDIDATE_V23, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V57 } from "./policies";
-import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12, TACTICAL_V14, TACTICAL_V18, TACTICAL_V19, TACTICAL_V20 } from "../server/bot/strategy";
+import { LIVE_BOT_POLICY, TACTICAL_V2, TACTICAL_V3, TACTICAL_V12, TACTICAL_V14, TACTICAL_V18, TACTICAL_V19, TACTICAL_V20, TACTICAL_V22, TACTICAL_V23 } from "../server/bot/strategy";
 
 const INCREMENTAL_TRANSFER_POLICY = {
   ...TACTICAL_V3,
   id: "test-incremental-transfer",
   incrementalTransfer: true,
+};
+
+const BEST_FREE_TRANSFER_POLICY = {
+  ...TACTICAL_V23,
+  id: "test-best-free-transfer",
+  transferAgainstBestFreeAlternative: true,
 };
 
 describe("AI self-play benchmark", () => {
@@ -168,7 +174,9 @@ describe("AI self-play benchmark", () => {
       seed: 30001,
       comparePolicies: [TACTICAL_V2, CANDIDATE_V23],
     });
-    const evaluated = result.disagreements.filter((entry) => entry.counterfactual);
+    const evaluated = result.disagreements.filter((entry) =>
+      entry.counterfactual?.metric === "full-information-discard-denial"
+    );
 
     expect(evaluated.length).toBeGreaterThan(0);
     expect(evaluated.every((entry) =>
@@ -196,6 +204,24 @@ describe("AI self-play benchmark", () => {
     expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
   });
 
+  it("scores 转移 disagreements through the end of the game", () => {
+    const result = runSelfPlayGame({
+      playerCount: 5,
+      seed: 1,
+      comparePolicies: [TACTICAL_V23, BEST_FREE_TRANSFER_POLICY],
+    });
+    const evaluated = result.disagreements.find((entry) =>
+      entry.counterfactual?.metric === "full-information-transfer-branch"
+    );
+
+    expect(evaluated?.decisions.some(
+      (decision) => decision?.command.type === "PLAY_TRANSFER",
+    )).toBe(true);
+    expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
+    expect(evaluated?.counterfactual?.preferredPolicy)
+      .toMatch(/^(tactical-v23|test-best-free-transfer|tie)$/);
+  });
+
   it("scores 秘密下达 use-versus-preserve disagreements through the end of the game", () => {
     const result = runSelfPlayGame({
       playerCount: 5,
@@ -209,6 +235,25 @@ describe("AI self-play benchmark", () => {
 
     expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
     expect(evaluated?.counterfactual?.preferredPolicy).toMatch(/^(tactical-v18|tactical-v19|tie)$/);
+  });
+
+  it("scores different 秘密下达 declarations through the end of the game", () => {
+    const result = runSelfPlayGame({
+      playerCount: 5,
+      seed: 68401,
+      policies: Array.from({ length: 5 }, () => TACTICAL_V22),
+      comparePolicies: [TACTICAL_V22, TACTICAL_V23],
+    });
+    const evaluated = result.disagreements.find((entry) =>
+      entry.decisions.every((decision) => decision?.command.type === "PLAY_SECRET_ORDER") &&
+      entry.counterfactual?.metric === "full-information-secret-order-branch"
+    );
+
+    expect(evaluated?.counterfactual?.secretOrderWords?.[0])
+      .not.toBe(evaluated?.counterfactual?.secretOrderWords?.[1]);
+    expect(evaluated?.counterfactual?.secretOrderColors).toHaveLength(2);
+    expect(evaluated?.counterfactual?.utilities.every(Number.isFinite)).toBe(true);
+    expect(evaluated?.counterfactual?.preferredPolicy).toMatch(/^(tactical-v22|tactical-v23|tie)$/);
   });
 
   it("scores incoming 试探 counter-versus-pass disagreements through the end of the game", () => {
