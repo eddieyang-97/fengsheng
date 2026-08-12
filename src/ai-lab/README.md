@@ -16,7 +16,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v25`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v26`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -187,7 +187,7 @@ focal +1.0 percentage point, mixed +1.8, population +0.2, with improved Brier
 calibration. A frozen 200-pair validation (seeds 48001-48200) did not reproduce
 the gameplay gain: focal -0.5, mixed 0.0, population -0.1, all inconclusive.
 The feature therefore remains evaluation-only; the current live policy is
-tactical-v25.
+tactical-v26.
 
 All bot memories now retain privacy-safe opponent-hand knowledge learned from
 秘密下达 and 危险情报 inspections. Exact known cards survive public draws and
@@ -737,3 +737,14 @@ disagreements: candidate-v70 won two and tied one, with mean gain +40, median
 intelligence. Across both blocks the candidate won four full receipt branches,
 tactical-v24 won one, and three tied, so the penalty was promoted unchanged as
 tactical-v25.
+
+The next isolated 锁定 study found 111 hidden self-lock windows in which the
+target held 识破: 95.5% of the actual cards were harmful, yet tactical-v25
+passed every time. Countering every such lock was unstable in a 600-game
+development block (18 branch wins, 15 losses, 106 ties), and requiring at least
+one existing black intelligence remained marginal (4 wins, 3 losses, 26 ties
+on 300 games). Requiring two existing black intelligence was safer: it won two
+branches, lost one, and tied 12 in development (seeds 34401-34700), then won
+six, lost one, and tied 16 on an independent 400-game block (seeds
+34701-35100). The narrow two-black rule was promoted as tactical-v26: a bot
+spends 识破 on a hidden 锁定 aimed at itself only in acute lethal-risk states.

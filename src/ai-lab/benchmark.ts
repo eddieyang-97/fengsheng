@@ -56,7 +56,7 @@ export interface BotDisagreement {
   ];
   beliefs: readonly [Record<string, FactionBelief>, Record<string, FactionBelief>];
   counterfactual?: {
-    metric: "full-information-discard-denial" | "full-information-receipt-branch" | "full-information-transfer-branch" | "full-information-lure-branch" | "full-information-separation-branch" | "full-information-secret-order-branch" | "full-information-probe-counter-branch" | "full-information-intercept-branch";
+    metric: "full-information-discard-denial" | "full-information-receipt-branch" | "full-information-transfer-branch" | "full-information-lure-branch" | "full-information-separation-branch" | "full-information-secret-order-branch" | "full-information-probe-counter-branch" | "full-information-lock-counter-branch" | "full-information-intercept-branch";
     targetFaction?: string;
     recipientIds?: readonly [string, string];
     cardName?: string;
@@ -649,6 +649,17 @@ function describeDisagreement(
         livePolicies,
         liveMemories,
       ) ??
+      lockCounterfactual(
+        seed,
+        commandNumber,
+        projection,
+        state,
+        policies,
+        decisions,
+        memories,
+        livePolicies,
+        liveMemories,
+      ) ??
       probeCounterfactual(
         seed,
         commandNumber,
@@ -661,6 +672,61 @@ function describeDisagreement(
         liveMemories,
       ),
     publicEvent: projection.auditLog.at(-1),
+  };
+}
+
+function lockCounterfactual(
+  seed: number,
+  commandNumber: number,
+  projection: ReturnType<GameSessionService["project"]>,
+  state: GameState,
+  policies: readonly [BotPolicy, BotPolicy],
+  decisions: readonly [BotDecision | undefined, BotDecision | undefined],
+  comparisonMemories: readonly [BotMemory, BotMemory],
+  livePolicies: readonly BotPolicy[],
+  liveMemories: ReadonlyMap<string, BotMemory>,
+): BotDisagreement["counterfactual"] {
+  const commandTypes = decisions.map((decision) => decision?.command.type);
+  const pending = projection.responseStack.at(-1);
+  if (
+    pending?.kind !== "card" ||
+    pending.cardName !== "锁定" ||
+    pending.targetPlayerId !== projection.own.id ||
+    projection.transmission?.card ||
+    !commandTypes.includes("PLAY_COUNTER") ||
+    !commandTypes.includes("PASS_REACTION")
+  ) return undefined;
+  const actorIndex = state.seatOrder.indexOf(projection.own.id);
+  if (actorIndex < 0) return undefined;
+  const utilities = decisions.map((decision, branchIndex) => {
+    if (!decision) return Number.NEGATIVE_INFINITY;
+    const branchPolicies = [...livePolicies];
+    branchPolicies[actorIndex] = policies[branchIndex]!;
+    const branchMemories = new Map([...liveMemories].map(([id, memory]) => [
+      id,
+      structuredClone(memory),
+    ]));
+    branchMemories.set(
+      projection.own.id,
+      structuredClone(comparisonMemories[branchIndex]!),
+    );
+    return runFullGameBranch(
+      state,
+      projection.own.id,
+      decision.command,
+      branchPolicies,
+      branchMemories,
+      seed * 10_000 + commandNumber,
+    );
+  }) as [number, number];
+  return {
+    metric: "full-information-lock-counter-branch",
+    utilities,
+    preferredPolicy: Math.abs(utilities[0] - utilities[1]) < 0.0001
+      ? "tie"
+      : utilities[0] > utilities[1]
+        ? policies[0].id
+        : policies[1].id,
   };
 }
 

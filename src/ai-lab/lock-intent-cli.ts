@@ -13,6 +13,7 @@ const games = parsePositiveInteger(process.argv[2] ?? "300", "game count");
 const startSeed = parsePositiveInteger(process.argv[3] ?? "30001", "start seed");
 const samples: IntentSample[] = [];
 const receiptDecisions: ReceiptDecisionSample[] = [];
+const lockResponses: LockResponseSample[] = [];
 
 for (let index = 0; index < games; index += 1) {
   runSelfPlayGame({
@@ -21,9 +22,16 @@ for (let index = 0; index < games; index += 1) {
     decisionObserver: (observation) => {
       collectIntentSample(observation, samples);
       collectRedirectedReceiptDecision(observation, receiptDecisions);
+      collectLockResponse(observation, lockResponses);
     },
   });
 }
+console.log(`hidden self-lock counter opportunities: count=${lockResponses.length}`);
+console.log(
+  `harmful=${percent(lockResponses.filter((sample) => sample.utility < 0).length, lockResponses.length)} ` +
+  `countered=${percent(lockResponses.filter((sample) => sample.command === "PLAY_COUNTER").length, lockResponses.length)} ` +
+  `passed=${percent(lockResponses.filter((sample) => sample.command === "PASS_REACTION").length, lockResponses.length)}`,
+);
 console.log(`redirected hidden receipt decisions: count=${receiptDecisions.length}`);
 console.log(
   `policy disagreements=${receiptDecisions.filter((sample) => sample.live !== sample.candidate).length} ` +
@@ -44,11 +52,23 @@ for (const action of ["锁定", "离间"] as const) {
     `harmful=${percent(group.filter((sample) => sample.targetReceiptUtility < 0).length, group.length)} ` +
     `mean=${mean(utilities).toFixed(3)} median=${median(utilities).toFixed(3)}`,
   );
+  if (action === "离间") {
+    for (const relationship of ["ally", "opponent"] as const) {
+      const related = group.filter((sample) => sample.relationship === relationship);
+      console.log(
+        `  separator ${relationship}: count=${related.length} ` +
+        `beneficial=${percent(related.filter((sample) => sample.targetReceiptUtility > 0).length, related.length)} ` +
+        `harmful=${percent(related.filter((sample) => sample.targetReceiptUtility < 0).length, related.length)} ` +
+        `mean=${mean(related.map((sample) => sample.targetReceiptUtility)).toFixed(3)}`,
+      );
+    }
+  }
 }
 
 interface IntentSample {
   action: "锁定" | "离间";
   targetReceiptUtility: number;
+  relationship?: "ally" | "opponent";
 }
 
 interface ReceiptDecisionSample {
@@ -57,6 +77,34 @@ interface ReceiptDecisionSample {
   live: "ACCEPT_INTELLIGENCE" | "DECLINE_INTELLIGENCE";
   candidate: "ACCEPT_INTELLIGENCE" | "DECLINE_INTELLIGENCE";
   preferred: "ACCEPT_INTELLIGENCE" | "DECLINE_INTELLIGENCE";
+}
+
+interface LockResponseSample {
+  command: string;
+  utility: number;
+}
+
+function collectLockResponse(
+  { actorId, command, projection, state }: SelfPlayDecisionObservation,
+  output: LockResponseSample[],
+): void {
+  const pending = projection.responseStack.at(-1);
+  if (
+    pending?.kind !== "card" ||
+    pending.cardName !== "锁定" ||
+    pending.targetPlayerId !== actorId ||
+    projection.transmission?.card ||
+    !projection.legalActions.some((action) => action.type === "PLAY_COUNTER")
+  ) return;
+  const card = PHYSICAL_DECK.find((candidate) => candidate.id === state.transmission?.cardId);
+  if (!card) return;
+  const beliefs = Object.fromEntries(
+    state.seatOrder.map((id) => [id, oneHot(state.players[id]!.faction)]),
+  );
+  output.push({
+    command: command.type,
+    utility: receiptUtility(card, actorId, projection, beliefs),
+  });
 }
 
 function collectRedirectedReceiptDecision(
@@ -123,17 +171,18 @@ function escapeRegExp(value: string): string {
 }
 
 function collectIntentSample(
-  { command, state }: SelfPlayDecisionObservation,
+  { actorId, command, state }: SelfPlayDecisionObservation,
   output: IntentSample[],
 ): void {
   if (command.type === "PLAY_LOCK") {
     const targetId = state.transmission?.intendedRecipientId;
-    if (targetId) addSample("锁定", targetId, state, output);
+    if (targetId) addSample("锁定", actorId, targetId, state, output);
     return;
   }
   if (command.type === "PLAY_SEPARATION" && state.transmission?.pendingLock) {
     addSample(
       "离间",
+      actorId,
       state.transmission.intendedRecipientId,
       state,
       output,
@@ -143,6 +192,7 @@ function collectIntentSample(
 
 function addSample(
   action: IntentSample["action"],
+  actorId: string,
   targetId: string,
   state: GameState,
   output: IntentSample[],
@@ -156,12 +206,16 @@ function addSample(
   ) return;
   const card = PHYSICAL_DECK.find((candidate) => candidate.id === state.transmission?.cardId);
   const target = state.players[targetId];
-  if (!card || !target) return;
+  const actor = state.players[actorId];
+  if (!card || !target || !actor) return;
   const beliefs = Object.fromEntries(
     state.seatOrder.map((id) => [id, oneHot(state.players[id]!.faction)]),
   );
   output.push({
     action,
+    relationship: actor.faction !== "特工" && actor.faction === target.faction
+      ? "ally"
+      : "opponent",
     targetReceiptUtility: receiptUtility(
       card,
       targetId,

@@ -89,6 +89,10 @@ export interface BotPolicy {
   readonly lethalLockEvidence: number;
   /** Hidden-receipt penalty retained after another player redirects 锁定 with 离间. */
   readonly redirectedLockReceiptPenalty?: number;
+  /** Extra value for countering a hidden 锁定 aimed at this bot. */
+  readonly hiddenSelfLockCounterBonus?: number;
+  /** Minimum visible black intelligence already held before applying that bonus. */
+  readonly hiddenSelfLockCounterMinBlack?: number;
   /** How to score inspected 危险情报 discard choices. */
   readonly dangerousDiscardStrategy: "random" | "color-denial" | "color-then-function" | "expected-denial" | "target-value";
   /** Learn weak faction evidence from completed voluntary actions that help or harm this bot. */
@@ -347,7 +351,13 @@ export const TACTICAL_V25: BotPolicy = {
   id: "tactical-v25",
   redirectedLockReceiptPenalty: 5,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V25;
+export const TACTICAL_V26: BotPolicy = {
+  ...TACTICAL_V25,
+  id: "tactical-v26",
+  hiddenSelfLockCounterBonus: 2,
+  hiddenSelfLockCounterMinBlack: 2,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V26;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -1436,11 +1446,26 @@ function scoreAction(
       const probeCounterCost = isIncomingHiddenProbe
         ? policy.incomingProbeCounterCost ?? 0
         : 0;
+      const pendingFrame = projection.responseStack.at(-1);
+      const ownVisibleBlack = projection.players.find(
+        (player) => player.id === projection.own.id,
+      )?.intelligence.filter((intelligence) => intelligence.color === "黑").length ?? 0;
+      const hiddenSelfLockBonus =
+        pendingFrame?.kind === "card" &&
+        pendingFrame.cardName === "锁定" &&
+        pendingFrame.targetPlayerId === projection.own.id &&
+        projection.transmission?.card === undefined &&
+        ownVisibleBlack >= (policy.hiddenSelfLockCounterMinBlack ?? 0)
+          ? policy.hiddenSelfLockCounterBonus ?? 0
+          : 0;
       return decision(
         command,
-        5 - pendingInteractionUtility(projection, beliefs, policy) - probeCounterCost,
+        5 - pendingInteractionUtility(projection, beliefs, policy) - probeCounterCost +
+          hiddenSelfLockBonus,
         probeCounterCost > 0
           ? `counter only when the hidden probe costs more than preserving 识破 (${probeCounterCost})`
+          : hiddenSelfLockBonus > 0
+          ? "counter a hidden 锁定 aimed at this bot because the forced receipt is usually harmful"
           : "counter only when the pending action is unfavorable",
       );
     }

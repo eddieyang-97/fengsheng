@@ -36,6 +36,7 @@ import {
   TACTICAL_V23,
   TACTICAL_V24,
   TACTICAL_V25,
+  TACTICAL_V26,
 } from "./strategy";
 import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58, CANDIDATE_V59, CANDIDATE_V69, CANDIDATE_V70 } from "../../ai-lab/policies";
 
@@ -98,8 +99,13 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes redirected-lock receipt evidence as tactical-v25", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V25);
+  it("promotes acute hidden-lock countering as tactical-v26", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V26);
+    expect(TACTICAL_V26).toMatchObject({
+      hiddenSelfLockCounterBonus: 2,
+      hiddenSelfLockCounterMinBlack: 2,
+      redirectedLockReceiptPenalty: 5,
+    });
     expect(TACTICAL_V25).toMatchObject({
       redirectedLockReceiptPenalty: 5,
       lureRespectsCommittedRecipient: true,
@@ -4214,6 +4220,96 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(helpful, createBotMemory(helpful))?.type).toBe("PASS_REACTION");
     expect(chooseBotCommand(helpful, createBotMemory(helpful), { policy: BASELINE_V1 })?.type)
       .toBe("PLAY_COUNTER");
+  });
+
+  it("counters a hidden 锁定 at two black intelligence but preserves 识破 below that", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [counterCard] },
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: [blackCard, secondBlackCard] }
+          : player
+      ),
+      transmission: {
+        ...transmission(redDirectCard),
+        card: undefined,
+        faceUp: false,
+        intendedRecipientId: "bot",
+      },
+      responseStack: [{
+        id: "lock",
+        kind: "card",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        cardName: "锁定",
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_COUNTER",
+          cardId: counterCard.id as PhysicalCardId,
+          targetInteractionId: "lock",
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V25),
+      { policy: TACTICAL_V25 },
+    )?.type).toBe("PASS_REACTION");
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V26),
+      { policy: TACTICAL_V26 },
+    )?.type).toBe("PLAY_COUNTER");
+
+    const oneBlack = {
+      ...projection,
+      players: projection.players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: [blackCard] }
+          : player
+      ),
+    };
+    expect(chooseBotCommand(
+      oneBlack,
+      createBotMemory(oneBlack, TACTICAL_V26),
+      { policy: TACTICAL_V26 },
+    )?.type).toBe("PASS_REACTION");
+  });
+
+  it("does not apply hidden-lock counter evidence when the intelligence is known", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [counterCard] },
+      transmission: {
+        ...transmission(blueDirectCard),
+        intendedRecipientId: "bot",
+      },
+      responseStack: [{
+        id: "lock",
+        kind: "card",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        cardName: "锁定",
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" },
+        {
+          type: "PLAY_COUNTER",
+          cardId: counterCard.id as PhysicalCardId,
+          targetInteractionId: "lock",
+        },
+      ],
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V26),
+      { policy: TACTICAL_V26 },
+    )?.type).toBe("PASS_REACTION");
   });
 
   it("uses the prober's inferred faction when deciding whether to counter hidden 试探", () => {
