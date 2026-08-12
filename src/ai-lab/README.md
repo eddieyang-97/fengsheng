@@ -16,7 +16,7 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v26`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v27`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -194,7 +194,7 @@ focal +1.0 percentage point, mixed +1.8, population +0.2, with improved Brier
 calibration. A frozen 200-pair validation (seeds 48001-48200) did not reproduce
 the gameplay gain: focal -0.5, mixed 0.0, population -0.1, all inconclusive.
 The feature therefore remains evaluation-only; the current live policy is
-tactical-v26.
+tactical-v27.
 
 All bot memories now retain privacy-safe opponent-hand knowledge learned from
 秘密下达 and 危险情报 inspections. Exact known cards survive public draws and
@@ -755,3 +755,11 @@ branches, lost one, and tied 12 in development (seeds 34401-34700), then won
 six, lost one, and tied 16 on an independent 400-game block (seeds
 34701-35100). The narrow two-black rule was promoted as tactical-v26: a bot
 spends 识破 on a hidden 锁定 aimed at itself only in acute lethal-risk states.
+
+Post-promotion player-count screening found that the rule's value depends on
+table size. It was positive in 2-player (1 win, 0 losses, 2 ties) and 6-player
+(2 wins, 0 losses, 2 ties) samples. Two independent 7-player blocks each
+produced one loss and no wins, and an 8-player screen likewise produced one
+loss and no wins. Tactical-v27 therefore retains the tactical-v26 rule only
+for tables of at most six players; 7- and 8-player bots preserve 识破. This
+guard is public-state-only and leaves all other tactical-v26 behavior intact.

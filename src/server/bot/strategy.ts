@@ -93,6 +93,8 @@ export interface BotPolicy {
   readonly hiddenSelfLockCounterBonus?: number;
   /** Minimum visible black intelligence already held before applying that bonus. */
   readonly hiddenSelfLockCounterMinBlack?: number;
+  /** Largest table size where the hidden self-lock counter bonus applies. */
+  readonly hiddenSelfLockCounterMaxPlayers?: number;
   /** How to score inspected 危险情报 discard choices. */
   readonly dangerousDiscardStrategy: "random" | "color-denial" | "color-then-function" | "expected-denial" | "target-value";
   /** Learn weak faction evidence from completed voluntary actions that help or harm this bot. */
@@ -357,7 +359,12 @@ export const TACTICAL_V26: BotPolicy = {
   hiddenSelfLockCounterBonus: 2,
   hiddenSelfLockCounterMinBlack: 2,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V26;
+export const TACTICAL_V27: BotPolicy = {
+  ...TACTICAL_V26,
+  id: "tactical-v27",
+  hiddenSelfLockCounterMaxPlayers: 6,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V27;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -1455,7 +1462,9 @@ function scoreAction(
         pendingFrame.cardName === "锁定" &&
         pendingFrame.targetPlayerId === projection.own.id &&
         projection.transmission?.card === undefined &&
-        ownVisibleBlack >= (policy.hiddenSelfLockCounterMinBlack ?? 0)
+        ownVisibleBlack >= (policy.hiddenSelfLockCounterMinBlack ?? 0) &&
+        projection.players.length <=
+          (policy.hiddenSelfLockCounterMaxPlayers ?? Number.POSITIVE_INFINITY)
           ? policy.hiddenSelfLockCounterBonus ?? 0
           : 0;
       return decision(
