@@ -35,8 +35,9 @@ import {
   TACTICAL_V22,
   TACTICAL_V23,
   TACTICAL_V24,
+  TACTICAL_V25,
 } from "./strategy";
-import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58, CANDIDATE_V59, CANDIDATE_V69 } from "../../ai-lab/policies";
+import { CANDIDATE_V14, CANDIDATE_V15, CANDIDATE_V16, CANDIDATE_V17, CANDIDATE_V19, CANDIDATE_V20, CANDIDATE_V23, CANDIDATE_V24, CANDIDATE_V25, CANDIDATE_V26, CANDIDATE_V27, CANDIDATE_V28, CANDIDATE_V29, CANDIDATE_V30, CANDIDATE_V31, CANDIDATE_V32, CANDIDATE_V33, CANDIDATE_V34, CANDIDATE_V35, CANDIDATE_V36, CANDIDATE_V40, CANDIDATE_V43, CANDIDATE_V44, CANDIDATE_V45, CANDIDATE_V46, CANDIDATE_V47, CANDIDATE_V48, CANDIDATE_V49, CANDIDATE_V50, CANDIDATE_V51, CANDIDATE_V53, CANDIDATE_V57, CANDIDATE_V58, CANDIDATE_V59, CANDIDATE_V69, CANDIDATE_V70 } from "../../ai-lab/policies";
 
 const LOW_REACTION_CONSERVATION_POLICY = {
   ...TACTICAL_V3,
@@ -97,8 +98,12 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
-  it("promotes committed-recipient lure handling as tactical-v24", () => {
-    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V24);
+  it("promotes redirected-lock receipt evidence as tactical-v25", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V25);
+    expect(TACTICAL_V25).toMatchObject({
+      redirectedLockReceiptPenalty: 5,
+      lureRespectsCommittedRecipient: true,
+    });
     expect(TACTICAL_V24).toMatchObject({
       lureRespectsCommittedRecipient: true,
       upstreamSecretOrderSupportWeight: 1,
@@ -823,6 +828,47 @@ describe("bot strategy", () => {
       军情: -2.5,
       潜伏: 0.8,
       特工: 0.8,
+    });
+  });
+
+  it("tracks 锁定 evidence independently before 离间 redirects it", () => {
+    const locked = makeProjection({
+      phase: "transmitting",
+      transmission: {
+        ...transmission(redDirectCard),
+        card: undefined,
+        faceUp: false,
+        intendedRecipientId: "bot",
+      },
+      auditLog: [
+        "b开始以直达传递情报，当前接收者：bot",
+        "b对bot使用锁定，等待响应",
+      ],
+    });
+    const memory = createBotMemory(locked, CANDIDATE_V70);
+    expect(memory.transmissionInference?.lock).toEqual({
+      originalTargetId: "bot",
+      redirected: false,
+    });
+
+    const redirected = makeProjection({
+      ...locked,
+      transmission: {
+        ...locked.transmission!,
+        locked: true,
+        lockedRecipientId: "d",
+      },
+      auditLog: [
+        ...locked.auditLog,
+        "c使用离间，声明将锁定目标改为：d",
+        "离间结算：锁定目标改为d",
+        "锁定结算：锁定目标为d",
+      ],
+    });
+    observeBotProjection(memory, redirected, CANDIDATE_V70);
+    expect(memory.transmissionInference?.lock).toEqual({
+      originalTargetId: "bot",
+      redirected: true,
     });
   });
 
@@ -3130,6 +3176,118 @@ describe("bot strategy", () => {
         true,
       ).live?.type,
     ).toBe("PLAY_SWAP");
+  });
+
+  it("does not spend 掉包 to replace visible red 公开文本 with red intelligence", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [redSwapCard] },
+      transmission: {
+        ...transmission(redPublicText),
+        method: "文本",
+        intendedRecipientId: "b",
+        faceUp: true,
+      },
+      legalActions: [
+        { type: "PASS_REACTION" },
+        { type: "PLAY_SWAP", cardId: redSwapCard.id as PhysicalCardId },
+      ],
+    });
+
+    const decision = chooseBotDecision(
+      projection,
+      createBotMemory(projection, TACTICAL_V24),
+      { policy: TACTICAL_V24 },
+    );
+    expect(decision?.command.type).toBe("PASS_REACTION");
+    expect(decision?.score).toBeGreaterThan(4);
+  });
+
+  it("accepts visible red 公开文本 instead of spending 掉包 after 锁定 is moved by 离间", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      own: { id: "bot", faction: "军情", hand: [redSwapCard] },
+      transmission: {
+        ...transmission(redPublicText),
+        method: "文本",
+        intendedRecipientId: "bot",
+        faceUp: true,
+        locked: true,
+        lockedRecipientId: "b",
+        recipientMustAccept: false,
+      },
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "DECLINE_INTELLIGENCE" },
+        { type: "PLAY_SWAP", cardId: redSwapCard.id as PhysicalCardId },
+      ],
+    });
+
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, TACTICAL_V24),
+      { policy: TACTICAL_V24 },
+    )).toEqual({ type: "ACCEPT_INTELLIGENCE" });
+  });
+
+  it("retains the original 锁定 warning after 离间 moves it away", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      transmission: {
+        ...transmission(redDirectCard),
+        card: undefined,
+        faceUp: false,
+        intendedRecipientId: "bot",
+        locked: true,
+        lockedRecipientId: "d",
+        recipientMustAccept: false,
+      },
+      auditLog: [
+        "b开始以直达传递情报，当前接收者：bot",
+        "b对bot使用锁定，等待响应",
+        "c使用离间，声明将锁定目标改为：d",
+        "离间结算：锁定目标改为d",
+      ],
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "DECLINE_INTELLIGENCE" },
+      ],
+    });
+    expect(chooseBotDecision(
+      projection,
+      createBotMemory(projection, CANDIDATE_V70),
+      { policy: CANDIDATE_V70 },
+    )?.command.type)
+      .toBe("DECLINE_INTELLIGENCE");
+  });
+
+  it("does not let redirected 锁定 warning override a known receipt", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      transmission: {
+        ...transmission(blueDirectCard),
+        intendedRecipientId: "bot",
+        locked: true,
+        lockedRecipientId: "d",
+        recipientMustAccept: false,
+      },
+      auditLog: [
+        "b开始以直达传递情报，当前接收者：bot",
+        "b对bot使用锁定，等待响应",
+        "c使用离间，声明将锁定目标改为：d",
+        "离间结算：锁定目标改为d",
+      ],
+      legalActions: [
+        { type: "ACCEPT_INTELLIGENCE" },
+        { type: "DECLINE_INTELLIGENCE" },
+      ],
+    });
+    expect(chooseBotCommand(
+      projection,
+      createBotMemory(projection, CANDIDATE_V70),
+      { policy: CANDIDATE_V70 },
+    ))
+      .toEqual({ type: "ACCEPT_INTELLIGENCE" });
   });
 
   it("still swaps to prevent a committed enemy receipt from winning", () => {

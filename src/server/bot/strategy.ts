@@ -87,6 +87,8 @@ export interface BotPolicy {
   readonly directTransmissionEvidenceStrength: number;
   /** Evidence strength for faction opposition from a knowingly lethal, unredirected lock. */
   readonly lethalLockEvidence: number;
+  /** Hidden-receipt penalty retained after another player redirects 锁定 with 离间. */
+  readonly redirectedLockReceiptPenalty?: number;
   /** How to score inspected 危险情报 discard choices. */
   readonly dangerousDiscardStrategy: "random" | "color-denial" | "color-then-function" | "expected-denial" | "target-value";
   /** Learn weak faction evidence from completed voluntary actions that help or harm this bot. */
@@ -340,7 +342,12 @@ export const TACTICAL_V24: BotPolicy = {
   id: "tactical-v24",
   lureRespectsCommittedRecipient: true,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V24;
+export const TACTICAL_V25: BotPolicy = {
+  ...TACTICAL_V24,
+  id: "tactical-v25",
+  redirectedLockReceiptPenalty: 5,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V25;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;
@@ -429,6 +436,10 @@ export interface BotMemory {
     forcedColor?: SingleColor;
     forcedByPlayerId?: string;
     replaced: boolean;
+    lock?: {
+      originalTargetId: string;
+      redirected: boolean;
+    };
   };
   pendingLockInference?: {
     sourceId: string;
@@ -1295,12 +1306,19 @@ function scoreAction(
           projection.transmission?.card?.color === "黑"
         ? policy.agentKnownBlackReceiptPenalty ?? 0
         : 0;
+      const redirectedLockPenalty = redirectedLockReceiptPenalty(
+        projection,
+        transmissionInference,
+        policy.redirectedLockReceiptPenalty ?? 0,
+      );
       return decision(
         command,
         5 + receiptUtility + safeTruePossessionBonus + agentEndgameBonus -
-          agentKnownBlackPenalty,
+          agentKnownBlackPenalty - redirectedLockPenalty,
         agentEndgameBonus > 0
           ? "prioritize a safe fifth or sixth intelligence after reaching four true intelligence"
+          : redirectedLockPenalty > 0
+          ? "retain the original 锁定 player's hidden-receipt warning after 离间 moves the lock"
           : safeTruePossessionBonus > 0 && receiptUtility === 0
           ? "accept safe true intelligence instead of routing it onward"
           : "evaluate tactical receipt outcome",
@@ -2786,6 +2804,32 @@ function currentRecipientLikelyToAccept(
   ) > 0;
 }
 
+function redirectedLockReceiptPenalty(
+  projection: PlayerProjection,
+  inference: BotMemory["transmissionInference"] | undefined,
+  penalty: number,
+): number {
+  const transmission = projection.transmission;
+  if (
+    penalty <= 0 ||
+    !transmission ||
+    transmission.intendedRecipientId !== projection.own.id ||
+    !transmission.locked ||
+    !transmission.lockedRecipientId ||
+    transmission.lockedRecipientId === projection.own.id ||
+    transmission.card ||
+    inference?.knownCard ||
+    inference?.forcedColor
+  ) {
+    return 0;
+  }
+
+  return inference?.lock?.originalTargetId === projection.own.id &&
+      inference.lock.redirected
+    ? penalty
+    : 0;
+}
+
 function expectedCurrentReceiptUtilityOnPass(
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
@@ -3601,6 +3645,18 @@ function observeTransmissionInference(
     ? current.startAuditIndex
     : memory.previous?.auditLength ?? projection.auditLog.length;
   for (const entry of projection.auditLog.slice(scanFrom)) {
+    const lock = /^(.+)对(.+)使用锁定，等待响应$/.exec(entry);
+    if (lock?.[2]) {
+      inference.lock = {
+        originalTargetId: lock[2],
+        redirected: false,
+      };
+      continue;
+    }
+    if (/^离间结算：锁定目标改为.+$/.test(entry) && inference.lock) {
+      inference.lock.redirected = true;
+      continue;
+    }
     if (entry.startsWith("掉包结算：")) {
       inference.knownCard = undefined;
       inference.forcedColor = undefined;

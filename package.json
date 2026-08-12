@@ -6,6 +6,7 @@
     "ai:benchmark": "tsx src/ai-lab/benchmark-cli.ts",
     "ai:decrypt-sweep": "tsx src/ai-lab/decrypt-rejection-sweep-cli.ts",
     "ai:agent-black-sweep": "tsx src/ai-lab/agent-black-receipt-sweep-cli.ts",
+    "ai:lock-intent": "tsx src/ai-lab/lock-intent-cli.ts",
     "ai:campaign": "tsx src/ai-lab/campaign-cli.ts",
     "dev": "vite",
     "dev:client": "vite",

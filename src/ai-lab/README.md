@@ -8,13 +8,15 @@ the production server runtime.
 - `benchmark-cli.ts`: command-line entry point used by `npm run ai:benchmark`
 - `decrypt-rejection-sweep-cli.ts`: empirical calibration and policy sweep for
   the 破译→拒绝 假情报 posterior
+- `lock-intent-cli.ts`: hidden-card calibration and post-离间 receipt analysis
+  for 锁定
 - `campaign.ts` / `campaign-cli.ts`: chunked, resumable A/B campaigns with
   faction, seat, and belief-calibration breakdowns
 - `benchmark.test.ts`: determinism, pairing, and non-interference checks
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v24`. Its `tactical-v5` base contains acceptance-aware
+production to `tactical-v25`. Its `tactical-v5` base contains acceptance-aware
 调虎离山 and 锁定 scoring: if the current outcome will happen voluntarily, the
 bot preserves the function card. V6 adds scoring for 危险情报 transmission
 visibility and concrete follow-up plans, and preserves 掉包 when another
@@ -185,7 +187,7 @@ focal +1.0 percentage point, mixed +1.8, population +0.2, with improved Brier
 calibration. A frozen 200-pair validation (seeds 48001-48200) did not reproduce
 the gameplay gain: focal -0.5, mixed 0.0, population -0.1, all inconclusive.
 The feature therefore remains evaluation-only; the current live policy is
-tactical-v24.
+tactical-v25.
 
 All bot memories now retain privacy-safe opponent-hand knowledge learned from
 秘密下达 and 危险情报 inspections. Exact known cards survive public draws and
@@ -603,6 +605,20 @@ claim. The new full-game lure evaluator was separately validated on tactical-v3
 versus tactical-v4: across 50 games it resolved 653 disagreements, favoring v4
 79 branches to 63 with 511 ties and positive mean gain.
 
+A one-point extra 调虎离山 opportunity cost was tested as candidate-v71 on the
+live v24 trajectory. It changed only two decisions in 200 games (seeds
+72301-72500), and both full-game branches tied. The candidate and its policy
+knob were removed rather than retained.
+
+Candidate-v72 rebased candidate-v31's 公开文本 exchange model onto tactical-v24
+and added full-game 离间 branch evaluation for both function-card and
+post-转移 redirection. In 300 games (seeds 72501-72800), it changed 14 decisions:
+v24 won two full-game branches, v72 won none, and 12 tied. Candidate mean gain
+was -2857.143 because both decisive changes were terminal losses. V72 was
+removed; exact self-exchange valuation should not be retried without modeling
+the downstream forced exchange more accurately. The generic separation branch
+evaluator remains available for narrower hypotheses.
+
 For the 锁定 change, a 100-pair isolated comparison of candidate-v10 against
 candidate-v9 completed all 200 games without stalls or rejected commands:
 38.4% versus 35.0%, paired difference +3.4 percentage points with a 95%
@@ -686,3 +702,38 @@ then compares the resulting positions with the actual hidden factions. This is
 still a shallow branch rather than a full-game rollout, so it is a diagnostic
 rather than a promotion gate. Counterfactual summaries include win counts,
 mean, median, and range because terminal utility values can dominate the mean.
+
+Candidate-v70 retains a small hidden-receipt warning after 锁定 is moved away
+from its original recipient by 离间; known cards and known forced colors ignore
+the signal. Offline calibration records the real hidden card without exposing
+it to bots. Across 300 five-player games (seeds 30901-31200), 92.7% of hidden
+cards selected for 锁定 were harmful to their target, and the hidden subset in
+which a bot played 离间 was harmful in 94.1% of cases. This supports treating
+the original 锁定 as negative evidence regardless of inferred faction: bots
+can misidentify allies, while the tactical policy plays 锁定 specifically when
+it expects the recipient to decline.
+
+Penalties 2, 5, and 8 were screened on the same 200 games (seeds 31201-31400).
+All produced zero decision disagreements against tactical-v24, so normal
+self-play could not distinguish their outcomes. Candidate-v70 keeps the
+smallest value that clears the targeted routing scenario, 5, and remains experimental
+rather than live pending an observed decision sample.
+
+A subsequent targeted run of 600 five-player games (seeds 31401-32000) found
+1,624 hidden 锁定 actions, of which 92.1% carried intelligence harmful to the
+target. It found 34 hidden lock-directed 离间 actions (94.1% harmful) and 29
+eventual accept/decline decisions by the original recipient. Tactical-v24
+matched the recipient's full-information card preference in 28/29 cases;
+candidate-v70 matched 29/29. Their sole disagreement was a hidden black card
+with receipt utility -15: v24 accepted and v70 declined. This is encouraging
+but still requires downstream receipt-branch validation before promotion. A
+full receipt-branch comparison on the same 600 games found five policy
+disagreements: candidate-v70 won two, tactical-v24 won one, and two tied. Mean
+candidate gain was +2.8, median 0, with range [-43, +43]. The warning is useful
+but not dominant because declining can route the card to a strategically worse
+recipient. An independent 600-game block (seeds 32001-32600) found three more
+disagreements: candidate-v70 won two and tied one, with mean gain +40, median
++30, and range [0, +90]. Both decisive improvements rejected hidden black
+intelligence. Across both blocks the candidate won four full receipt branches,
+tactical-v24 won one, and three tied, so the penalty was promoted unchanged as
+tactical-v25.
