@@ -4,7 +4,7 @@ export const GAME_SHORTCUT_BINDINGS = {
   nextCard: "ArrowRight",
   confirm: "Enter",
   acceptIntelligence: "a",
-  declineIntelligence: "s",
+  declineIntelligence: "d",
   passWindow: "s",
   playLock: "l",
   playSwap: "r",
