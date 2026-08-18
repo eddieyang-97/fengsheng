@@ -16,8 +16,8 @@ describe("game keyboard shortcuts", () => {
     expect(gameShortcutIntent("Enter")).toEqual({ type: "confirm" });
     expect(gameShortcutIntent("a")).toEqual({ type: "acceptIntelligence" });
     expect(gameShortcutIntent("A")).toEqual({ type: "acceptIntelligence" });
-    expect(gameShortcutIntent("s")).toEqual({ type: "declineIntelligence" });
-    expect(gameShortcutIntent("S")).toEqual({ type: "declineIntelligence" });
+    expect(gameShortcutIntent("d")).toEqual({ type: "declineIntelligence" });
+    expect(gameShortcutIntent("D")).toEqual({ type: "declineIntelligence" });
     expect(gameShortcutIntent("s")).toEqual({ type: "passWindow" });
     expect(gameShortcutIntent("S")).toEqual({ type: "passWindow" });
     expect(gameShortcutIntent("l")).toEqual({ type: "playLock" });
